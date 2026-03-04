@@ -20,10 +20,26 @@ async function main() {
     const bot = new Telegraf(telegramTok);
     setBotInstance(bot);
 
+    // ERROR HANDLER — empêche le bot de crash sur une erreur
+    bot.catch((err, ctx) => {
+        console.error(`❌ Erreur bot [${ctx.updateType}]:`, err.message);
+        try {
+            ctx.reply('⚠️ Une erreur est survenue, réessayez.').catch(() => { });
+        } catch (e) { }
+    });
+
     // 2. Liaison des Handlers
     setupStartHandler(bot);
     setupAdminHandlers(bot);
     setupOrderSystem(bot);
+
+    // Process-level error handlers
+    process.on('unhandledRejection', (err) => {
+        console.error('⚠️ Unhandled Rejection:', err.message || err);
+    });
+    process.on('uncaughtException', (err) => {
+        console.error('⚠️ Uncaught Exception:', err.message || err);
+    });
 
     // 3. Démarrage du Serveur Web (Dashboard Admin)
     const serverStarted = new Promise((resolve) => {

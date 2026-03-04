@@ -58,14 +58,23 @@ function createServer() {
     // ========== API Routes ==========
 
     app.post('/api/login', async (req, res) => {
-        const { password } = req.body;
-        const settings = await getAppSettings();
+        try {
+            const { password } = req.body;
+            let settings = {};
+            try {
+                settings = await getAppSettings();
+            } catch (e) {
+                console.error('⚠️ getAppSettings() a échoué, fallback sur ADMIN_PASSWORD:', e.message);
+            }
 
-        if (password === settings.admin_password || password === ADMIN_PASSWORD) {
-            // On renvoie le mot de passe qui pourra servir de token
-            res.json({ success: true, token: password });
-        } else {
-            res.status(401).json({ error: 'Mot de passe incorrect' });
+            if (password === settings.admin_password || password === ADMIN_PASSWORD) {
+                res.json({ success: true, token: password });
+            } else {
+                res.status(401).json({ error: 'Mot de passe incorrect' });
+            }
+        } catch (e) {
+            console.error('❌ Erreur login:', e.message);
+            res.status(500).json({ error: 'Erreur serveur' });
         }
     });
 

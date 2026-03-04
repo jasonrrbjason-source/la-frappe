@@ -11,8 +11,12 @@ const {
     deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
-const { registry } = require('./channels/ChannelRegistry');
 require('dotenv').config();
+
+// Référence partagée au bot Telegram (définie par index.js)
+let _bot = null;
+function setBotInstance(bot) { _bot = bot; }
+function getBotInstance() { return _bot; }
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
@@ -50,30 +54,6 @@ function createServer() {
     app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'dashboard.html')));
     app.get('/address-picker', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'address_picker.html')));
 
-    // ========== Webhooks ==========
-
-    /**
-     * Webhook WhatsApp (Meta API)
-     */
-    app.get('/webhook/whatsapp', (req, res) => {
-        const channel = registry.query('whatsapp');
-        if (!channel) return res.send('WhatsApp channel not found');
-
-        const result = channel.verifyWebhook(
-            req.query['hub.mode'],
-            req.query['hub.verify_token'],
-            req.query['hub.challenge']
-        );
-
-        if (result) return res.send(result);
-        res.status(403).send('Forbidden');
-    });
-
-    app.post('/webhook/whatsapp', async (req, res) => {
-        const channel = registry.query('whatsapp');
-        if (channel) await channel.handleWebhook(req.body);
-        res.sendStatus(200);
-    });
 
     // ========== API Routes ==========
 
@@ -231,8 +211,8 @@ function createServer() {
             // Notification Client Automatisée
             if (order.user_id && order.user_id.startsWith('telegram_')) {
                 const tgId = order.user_id.replace('telegram_', '');
-                const tgChannel = registry.query('telegram');
-                if (tgChannel) {
+                const bot = getBotInstance();
+                if (bot) {
                     const settings = await getAppSettings();
                     let text = '';
                     const shortId = orderId.substring(0, 5);
@@ -259,7 +239,7 @@ function createServer() {
                             text = `${settings.ui_icon_pending} <b>Mise à jour de commande</b>\n\nVotre commande #${shortId} est de nouveau ${statusLabel}.`;
                             break;
                     }
-                    if (text) tgChannel.sendMessage(tgId, text, { parse_mode: 'HTML' }).catch(() => { });
+                    if (text) bot.telegram.sendMessage(tgId, text, { parse_mode: 'HTML' }).catch(() => { });
                 }
             }
 
@@ -290,4 +270,4 @@ function createServer() {
     return app;
 }
 
-module.exports = { createServer };
+module.exports = { createServer, setBotInstance };

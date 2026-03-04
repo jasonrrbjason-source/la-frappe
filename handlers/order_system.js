@@ -32,7 +32,7 @@ function setupOrderSystem(bot) {
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
 
         const settings = await getAppSettings();
-        await safeEdit(ctx, 
+        await safeEdit(ctx,
             `${settings.ui_icon_catalog} <b>${settings.label_catalog}</b>\n\nChoisissez un produit pour commander :`,
             {
                 parse_mode: 'HTML',
@@ -191,7 +191,7 @@ function setupOrderSystem(bot) {
         const isAvailable = ctx.match[1] === 'true';
         await setLivreurAvailability(`telegram_${ctx.from.id}`, isAvailable);
         const settings = await getAppSettings();
-        await safeEdit(ctx, 
+        await safeEdit(ctx,
             `${settings.ui_icon_notification} <b>Statut mis à jour :</b> ${isAvailable ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}`,
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]]) }
         );
@@ -242,7 +242,7 @@ function setupOrderSystem(bot) {
         const min = 15 + Math.floor(Math.random() * 30);
 
         const settings = await getAppSettings();
-        await safeEdit(ctx, 
+        await safeEdit(ctx,
             `${settings.ui_icon_success} <b>Commande #${orderId.substring(0, 5)} acceptée !</b>\n\n` +
             `📍 Ville : ${order.city}\n` +
             `👤 Client : ${order.first_name} (@${order.username})\n\n` +
@@ -329,7 +329,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
-        await safeEdit(ctx, 
+        await safeEdit(ctx,
             `🛒 <b>Mode Client</b>\n\nVous pouvez commander comme un client normal :`,
             {
                 parse_mode: 'HTML',
@@ -370,7 +370,7 @@ function setupOrderSystem(bot) {
 
         const buttons = orders.map(o => [
             Markup.button.callback(
-                `📍 #${o.id.substring(0, 5)} | ${o.product_name} x${o.quantity} | ${o.total_price}€`,
+                `📍 ${o.first_name || 'Client'} | ${(o.city || 'N/A').substring(0, 25)} | ${o.total_price}€`,
                 `take_${o.id}`
             )
         ]);
@@ -566,10 +566,10 @@ function setupOrderSystem(bot) {
                 );
 
                 const notificationText = `🔔 <b>Nouvelle Commande !</b>\n\n` +
-                    `📦 <b>${product.name} x${qty}</b>\n` +
-                    `📍 Secteur : <b>${address.toUpperCase()}</b>\n` +
-                    `💰 Total : <b>${totalPrice.toFixed(2)}€</b>\n\n` +
-                    `ID: <code>${orderId.substring(0, 8)}...</code>`;
+                    `👤 Client : <b>${ctx.from.first_name || 'Client'}</b>\n` +
+                    `📦 ${product.name} x${qty}\n` +
+                    `📍 <b>${address.toUpperCase()}</b>\n` +
+                    `💰 Total : <b>${totalPrice.toFixed(2)}€</b>`;
 
                 const notificationKeyboard = Markup.inlineKeyboard([
                     [Markup.button.callback('🚴 Prendre la commande', `take_${orderId}`)]

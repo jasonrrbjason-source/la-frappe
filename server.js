@@ -48,6 +48,7 @@ function createServer() {
 
     app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'login.html')));
     app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'dashboard.html')));
+    app.get('/address-picker', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'address_picker.html')));
 
     // ========== Webhooks ==========
 

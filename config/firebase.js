@@ -5,7 +5,15 @@ require('dotenv').config();
 
 let serviceAccount;
 
-if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
+if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        console.log(`✅ Initialisation via FIREBASE_SERVICE_ACCOUNT_JSON (Projet: ${serviceAccount.project_id})`);
+    } catch (e) {
+        console.error('❌ Erreur lors du parsing de FIREBASE_SERVICE_ACCOUNT_JSON. Vérifiez le format JSON.');
+        process.exit(1);
+    }
+} else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
     const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
     const fullPath = saPath.startsWith('.')
         ? path.resolve(process.cwd(), saPath)
@@ -26,7 +34,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
     };
     console.log(`✅ Initialisation via variables d'env (Project: ${serviceAccount.projectId})`);
 } else {
-    console.error('❌ Firebase credentials manquantes. Configurez FIREBASE_SERVICE_ACCOUNT_PATH ou FIREBASE_PROJECT_ID.');
+    console.error('❌ Firebase credentials manquantes. Configurez FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_SERVICE_ACCOUNT_PATH ou FIREBASE_PROJECT_ID.');
     process.exit(1);
 }
 

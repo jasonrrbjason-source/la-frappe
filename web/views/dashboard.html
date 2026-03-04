@@ -786,6 +786,15 @@
                     <input id="prod_name" placeholder="ex: Jordan 4 Midnight Navy">
                     <label>Prix (€)</label>
                     <input type="number" id="prod_price" placeholder="199">
+                    <label>Unité de vente</label>
+                    <select id="prod_unit" style="margin-bottom:20px">
+                        <option value="">Pièce (par défaut)</option>
+                        <option value="g">Grammes (g)</option>
+                        <option value="kg">Kilogrammes (kg)</option>
+                        <option value="L">Litres (L)</option>
+                        <option value="cL">Centilitres (cL)</option>
+                        <option value="lot">Lot</option>
+                    </select>
                     <label>Promo (Optionnel)</label>
                     <input type="text" id="prod_promo" placeholder="ex: 10% ou 15€">
 
@@ -1170,14 +1179,15 @@
                             mediaHtml = `<img src="https://via.placeholder.com/45" style="width:45px;height:45px;border-radius:6px;object-fit:cover;">`;
                         }
 
+                        const unitLabel = p.unit ? `/${p.unit}` : '';
                         return `
-                        <tr onclick="editProd('${p.doc_id}', '${p.name.replace(/'/g, "\\'")}', ${p.price}, '${(p.image_url || '').replace(/'/g, "\\'")}', '${(p.promo || '').replace(/'/g, "\\'")}')" style="cursor:pointer">
+                        <tr onclick="editProd('${p.doc_id}', '${p.name.replace(/'/g, "\\'")}', ${p.price}, '${(p.image_url || '').replace(/'/g, "\\'")}', '${(p.promo || '').replace(/'/g, "\\'")}', '${p.unit || ''}')" style="cursor:pointer">
                             <td>${mediaHtml}</td>
                             <td><b>${p.name}</b></td>
-                            <td>${p.price}€</td>
+                            <td>${p.price}€${unitLabel}</td>
                             <td>${p.promo || '-'}</td>
                             <td class="action-btns">
-                                <button class="btn btn-outline" onclick="editProd('${p.id}', '${p.name.replace(/'/g, "\\'")}', ${p.price}, '${p.image_url || ''}', '${p.promo || ''}')">Edit</button>
+                                <button class="btn btn-outline" onclick="editProd('${p.id}', '${p.name.replace(/'/g, "\\'")}', ${p.price}, '${p.image_url || ''}', '${p.promo || ''}', '${p.unit || ''}')">Edit</button>
                                 <button class="btn btn-danger" onclick="delProd('${p.id}')">Delete</button>
                             </td>
                         </tr>
@@ -1504,19 +1514,21 @@
             const id = document.getElementById('prod_id').value;
             const name = document.getElementById('prod_name').value;
             const price = parseFloat(document.getElementById('prod_price').value);
+            const unit = document.getElementById('prod_unit').value;
             const promo = document.getElementById('prod_promo').value;
             const image_url = document.getElementById('prod_image_url').value;
             if (!name || isNaN(price)) return showToast('Veuillez remplir le nom et le prix', 'error');
 
-            await api('/products', 'POST', { id, name, price, promo, image_url });
+            await api('/products', 'POST', { id, name, price, unit, promo, image_url });
             clearProdForm();
             loadData('products');
         }
 
-        function editProd(id, name, price, image_url, promo) {
+        function editProd(id, name, price, image_url, promo, unit) {
             document.getElementById('prod_id').value = id;
             document.getElementById('prod_name').value = name;
             document.getElementById('prod_price').value = price;
+            document.getElementById('prod_unit').value = unit || '';
             document.getElementById('prod_promo').value = promo || '';
             document.getElementById('prod_image_url').value = image_url;
 
@@ -1549,6 +1561,7 @@
             document.getElementById('prod_id').value = '';
             document.getElementById('prod_name').value = '';
             document.getElementById('prod_price').value = '';
+            document.getElementById('prod_unit').value = '';
             document.getElementById('prod_promo').value = '';
             document.getElementById('prod_image_url').value = '';
             document.getElementById('prod_preview').innerHTML = '';

@@ -26,9 +26,11 @@ function setupOrderSystem(bot) {
             return ctx.reply('📭 Le catalogue est actuellement vide.');
         }
 
-        const buttons = products.map(p => [
-            Markup.button.callback(`${p.name} - ${p.price}€`, `buy_${p.id}`)
-        ]);
+        const buttons = products.map(p => {
+            const unitLabel = p.unit ? `/${p.unit}` : '';
+            const promoLabel = p.promo ? ` 🔥${p.promo}` : '';
+            return [Markup.button.callback(`${p.name} - ${p.price}€${unitLabel}${promoLabel}`, `buy_${p.id}`)];
+        });
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
 
         const settings = await getAppSettings();
@@ -433,6 +435,7 @@ function setupOrderSystem(bot) {
 
     bot.action('my_orders', async (ctx) => {
         await ctx.answerCbQuery();
+        const settings = await getAppSettings();
         const orders = await getAllOrders(10);
         const myOrders = orders.filter(o => o.user_id === `telegram_${ctx.from.id}`);
 
@@ -440,14 +443,14 @@ function setupOrderSystem(bot) {
             return ctx.reply('📭 Vous n\'avez pas encore passé de commande.');
         }
 
-        let text = `${settings.ui_icon_orders} <b>Mes dernières commandes :</b>\n\n`;
+        let text = `${settings.ui_icon_orders || '📦'} <b>Mes dernières commandes :</b>\n\n`;
         myOrders.forEach(o => {
-            const statusIcon = o.status === 'delivered' ? settings.ui_icon_success : (o.status === 'pending' ? settings.ui_icon_pending : settings.ui_icon_error);
-            const statusLabel = o.status === 'delivered' ? settings.status_delivered_label : (o.status === 'pending' ? settings.status_pending_label : (o.status === 'taken' ? settings.status_taken_label : settings.status_cancelled_label));
+            const statusIcon = o.status === 'delivered' ? (settings.ui_icon_success || '✅') : (o.status === 'pending' ? (settings.ui_icon_pending || '⏳') : (settings.ui_icon_error || '❌'));
+            const statusLabel = o.status === 'delivered' ? (settings.status_delivered_label || 'LIVRÉE') : (o.status === 'pending' ? (settings.status_pending_label || 'EN ATTENTE') : (o.status === 'taken' ? (settings.status_taken_label || 'EN COURS') : (settings.status_cancelled_label || 'ANNULÉE')));
 
-            text += `🔹 #${o.id.substring(0, 5)} - ${o.product_name} (${o.total_price}€)\n`;
+            text += `🔹 ${o.product_name} x${o.quantity} — ${o.total_price}€\n`;
             text += `├ Statut : ${statusIcon} <b>${statusLabel}</b>\n`;
-            text += `└ Date : ${o.created_at ? new Date(o.created_at._seconds * 1000).toLocaleDateString() : '-'}\n\n`;
+            text += `└ ${o.city || 'Adresse non définie'}\n\n`;
         });
 
         await safeEdit(ctx, text, {
@@ -512,8 +515,21 @@ function setupOrderSystem(bot) {
             const { productId, qty } = pendingCityInput.get(userId);
             const address = inputText.replace(/<[^>]*>/g, '').trim();
 
-            if (address.length < 5) {
-                return ctx.reply('❌ Adresse trop courte. Veuillez entrer votre adresse complète (ex: 11 rue de la Paix, 75001 Paris) :');
+            // Validation d'adresse : minimum numéro + rue + ville
+            const hasNumber = /\d/.test(address);
+            const hasLetters = /[a-zA-ZÀ-ÿ]{3,}/.test(address);
+            const hasCommaOrSpace = address.includes(',') || address.split(/\s+/).length >= 3;
+            const isLongEnough = address.length >= 10;
+
+            if (!isLongEnough || !hasNumber || !hasLetters || !hasCommaOrSpace) {
+                return ctx.replyWithHTML(
+                    `❌ <b>Adresse invalide.</b>\n\n` +
+                    `Votre adresse doit contenir :\n` +
+                    `${hasNumber ? '✅' : '❌'} Un numéro de rue\n` +
+                    `${hasLetters ? '✅' : '❌'} Un nom de rue\n` +
+                    `${hasCommaOrSpace ? '✅' : '❌'} Une ville ou code postal\n\n` +
+                    `📝 <i>Exemple : 15 rue de la Paix, 75001 Paris</i>`
+                );
             }
 
             try {

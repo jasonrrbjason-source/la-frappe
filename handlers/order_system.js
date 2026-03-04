@@ -296,6 +296,7 @@ function setupOrderSystem(bot) {
 
     bot.action('livreur_menu', async (ctx) => {
         await ctx.answerCbQuery();
+        const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
         if (!user || !user.is_livreur) return ctx.reply('❌ Accès refusé.');
 

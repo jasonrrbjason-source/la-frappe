@@ -548,11 +548,121 @@
                 padding: 65px 12px 20px;
             }
         }
+
+        /* ========== CUSTOM MODAL ========== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-box {
+            background: #111;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            max-width: 380px;
+            width: 90%;
+            text-align: center;
+            animation: fadeIn 0.2s;
+        }
+
+        .modal-box h3 {
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .modal-box p {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .modal-actions .btn {
+            flex: 1;
+            max-width: 150px;
+        }
+
+        /* ========== TOAST ========== */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: #1a1a1a;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 20px;
+            font-size: 14px;
+            color: var(--text-main);
+            animation: slideIn 0.3s ease;
+            max-width: 320px;
+        }
+
+        .toast.success {
+            border-left: 3px solid #30d158;
+        }
+
+        .toast.error {
+            border-left: 3px solid #ff453a;
+        }
+
+        .toast.info {
+            border-left: 3px solid #00f0ff;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(40px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
     </style>
 </head>
 
 <body>
 
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Custom Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-box">
+            <h3 id="modalTitle">Confirmation</h3>
+            <p id="modalMessage">Êtes-vous sûr ?</p>
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="closeModal(false)">Annuler</button>
+                <button class="btn btn-accent" onclick="closeModal(true)">Confirmer</button>
+            </div>
+        </div>
+    </div>
     <!-- Mobile Hamburger -->
     <button class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()">☰</button>
     <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
@@ -949,6 +1059,28 @@
             }
         }
 
+        // ========== TOAST & MODAL ==========
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + type;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        let _modalResolve = null;
+        function showModal(title, message) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalMessage').textContent = message;
+            document.getElementById('modalOverlay').classList.add('active');
+            return new Promise(resolve => { _modalResolve = resolve; });
+        }
+        function closeModal(result) {
+            document.getElementById('modalOverlay').classList.remove('active');
+            if (_modalResolve) { _modalResolve(result); _modalResolve = null; }
+        }
+
         // ========== MOBILE SIDEBAR ==========
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -1175,7 +1307,7 @@
                     document.getElementById('set_ui_icon_error').value = s.ui_icon_error || '❌';
                     document.getElementById('set_status_cancelled_label').value = s.status_cancelled_label || 'ANNULÉE';
                 }
-            } catch (err) { alert(err.message); }
+            } catch (err) { showToast(err.message, 'error'); }
         }
 
         /* FILE UPLOAD & DRAG & DROP */
@@ -1247,7 +1379,7 @@
                 document.getElementById(previewId).parentElement.classList.add('has-file');
 
             } catch (err) {
-                alert('Erreur upload: ' + err.message);
+                showToast('Erreur upload: ' + err.message, 'error');
                 document.getElementById(previewId).innerHTML = '❌ Erreur';
             }
         }
@@ -1347,7 +1479,7 @@
 
         function exportAnalyticsCSV() {
             const data = window.currentAnalyticsRaw;
-            if (!data || data.length === 0) return alert("Aucune donnée à exporter.");
+            if (!data || data.length === 0) return showToast('Aucune donnée à exporter.', 'info');
 
             const headers = ["ID", "Date", "Client", "Produit", "Quantité", "Prix total (€)", "Ville", "Livreur"];
             const rows = data.map(o => [
@@ -1374,7 +1506,7 @@
             const price = parseFloat(document.getElementById('prod_price').value);
             const promo = document.getElementById('prod_promo').value;
             const image_url = document.getElementById('prod_image_url').value;
-            if (!name || isNaN(price)) return alert('Veuillez remplir le nom et le prix');
+            if (!name || isNaN(price)) return showToast('Veuillez remplir le nom et le prix', 'error');
 
             await api('/products', 'POST', { id, name, price, promo, image_url });
             clearProdForm();
@@ -1424,9 +1556,11 @@
         }
 
         async function delProd(id) {
-            if (!confirm('Supprimer ce produit ?')) return;
+            const ok = await showModal('Supprimer', 'Supprimer ce produit ?');
+            if (!ok) return;
             await api('/products/' + id, 'DELETE');
             loadData('products');
+            showToast('Produit supprimé', 'success');
         }
 
         async function sendBC() {
@@ -1435,11 +1569,12 @@
             const media_url = document.getElementById('bc_media_url').value;
             const media_type = document.getElementById('bc_media_type').value;
 
-            if (!message && !media_url) return alert('Ecrivez un message ou ajoutez un média.');
-            if (!confirm('Lancer la diffusion à tous les membres ?')) return;
+            if (!message && !media_url) return showToast('Ecrivez un message ou ajoutez un média.', 'error');
+            const ok = await showModal('Diffusion', 'Lancer la diffusion à tous les membres ?');
+            if (!ok) return;
 
             await api('/broadcast', 'POST', { message, platform, media_url, media_type });
-            alert('🚀 Diffusion lancée !');
+            showToast('🚀 Diffusion lancée !', 'success');
             document.getElementById('bcMsg').value = '';
             document.getElementById('bc_media_url').value = '';
             document.getElementById('bc_preview').innerHTML = '';
@@ -1477,7 +1612,7 @@
                 ui_icon_error: document.getElementById('set_ui_icon_error').value,
                 status_cancelled_label: document.getElementById('set_status_cancelled_label').value
             });
-            alert('✅ Paramètres sauvegardés !');
+            showToast('✅ Paramètres sauvegardés !', 'success');
             location.reload();
         }
 
@@ -1502,9 +1637,11 @@
         }
 
         async function delUser(id) {
-            if (!confirm('Supprimer cet utilisateur ?')) return;
+            const ok = await showModal('Supprimer', 'Supprimer cet utilisateur ?');
+            if (!ok) return;
             await api('/users/delete', 'POST', { id });
             loadData('users');
+            showToast('Utilisateur supprimé', 'success');
         }
 
         function logout() { localStorage.removeItem('admin_token'); window.location.href = '/'; }

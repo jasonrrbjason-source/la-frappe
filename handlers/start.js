@@ -1,6 +1,15 @@
 const { Markup } = require('telegraf');
 const { registerUser, getUser, incrementDailyStat, getAppSettings } = require('../services/database');
 
+// Helper: essaye d'éditer le message, sinon envoie un nouveau
+async function safeEdit(ctx, text, opts) {
+    try {
+        await safeEdit(ctx, text, opts);
+    } catch (e) {
+        await ctx.replyWithHTML(text, opts.reply_markup ? { reply_markup: opts.reply_markup } : undefined);
+    }
+}
+
 /**
  * Enregistre les handlers pour la commande /start
  */
@@ -89,7 +98,7 @@ function setupStartHandler(bot) {
             buttons.push([Markup.button.callback('⚠️ Lien non configuré', 'main_menu')]);
         }
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
-        await ctx.editMessageText(`${settings.ui_icon_contact} <b>${settings.label_contact}</b>`, {
+        await safeEdit(ctx, `${settings.ui_icon_contact} <b>${settings.label_contact}</b>`, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });
@@ -105,7 +114,7 @@ function setupStartHandler(bot) {
             buttons.push([Markup.button.callback('⚠️ Lien non configuré', 'main_menu')]);
         }
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
-        await ctx.editMessageText(`${settings.ui_icon_channel} <b>${settings.label_channel}</b>`, {
+        await safeEdit(ctx, `${settings.ui_icon_channel} <b>${settings.label_channel}</b>`, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });
@@ -114,7 +123,7 @@ function setupStartHandler(bot) {
     bot.action('welcome_message', async (ctx) => {
         await ctx.answerCbQuery();
         const settings = await getAppSettings();
-        await ctx.editMessageText(
+        await safeEdit(ctx, 
             `${settings.ui_icon_welcome} <b>${settings.label_welcome}</b>\n\n${settings.welcome_message}`,
             {
                 parse_mode: 'HTML',
@@ -138,7 +147,7 @@ function setupStartHandler(bot) {
         const chunkCredit = 10;
         const chunkPts = ptsExchange * chunkCredit;
 
-        await ctx.editMessageText(
+        await safeEdit(ctx, 
             `${settings.ui_icon_profile} <b>${settings.label_profile}</b>\n\n` +
             `${settings.ui_icon_wallet} Solde Portefeuille : <b>${(user.wallet_balance || 0).toFixed(2)}€</b>\n` +
             `${settings.ui_icon_points} Points Fidélité : <b>${user.points || 0} pts</b>\n\n` +
@@ -197,10 +206,14 @@ function setupStartHandler(bot) {
             );
         }
 
-        await ctx.editMessageText(`📋 <b>Menu principal</b>`, {
-            parse_mode: 'HTML',
-            ...getMainMenuKeyboard(settings, user)
-        });
+        try {
+            await safeEdit(ctx, `📋 <b>Menu principal</b>`, {
+                parse_mode: 'HTML',
+                ...getMainMenuKeyboard(settings, user)
+            });
+        } catch (e) {
+            await ctx.replyWithHTML(`📋 <b>Menu principal</b>`, getMainMenuKeyboard(settings, user));
+        }
     });
 
     // ========== GESTION CODE PARRAIN MANUEL ==========

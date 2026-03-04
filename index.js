@@ -4,6 +4,7 @@ const { Telegraf } = require('telegraf');
 const { setupStartHandler } = require('./handlers/start');
 const { setupAdminHandlers } = require('./handlers/admin');
 const { setupOrderSystem } = require('./handlers/order_system');
+const { setBroadcastBot } = require('./services/broadcast');
 
 const PORT = process.env.PORT || 3000;
 
@@ -19,6 +20,7 @@ async function main() {
 
     const bot = new Telegraf(telegramTok);
     setBotInstance(bot);
+    setBroadcastBot(bot);
 
     // ERROR HANDLER — empêche le bot de crash sur une erreur
     bot.catch((err, ctx) => {

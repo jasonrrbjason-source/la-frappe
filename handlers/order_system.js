@@ -6,6 +6,15 @@ const {
     incrementOrderCount, getAvailableLivreurs
 } = require('../services/database');
 
+// Helper: essaye d'éditer le message, sinon envoie un nouveau
+async function safeEdit(ctx, text, opts) {
+    try {
+        await safeEdit(ctx, text, opts);
+    } catch (e) {
+        await ctx.replyWithHTML(text, opts.reply_markup ? { reply_markup: opts.reply_markup } : undefined);
+    }
+}
+
 function setupOrderSystem(bot) {
     // ========== CATALOGUE & COMMANDE ==========
 
@@ -23,7 +32,7 @@ function setupOrderSystem(bot) {
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
 
         const settings = await getAppSettings();
-        await ctx.editMessageText(
+        await safeEdit(ctx, 
             `${settings.ui_icon_catalog} <b>${settings.label_catalog}</b>\n\nChoisissez un produit pour commander :`,
             {
                 parse_mode: 'HTML',
@@ -182,7 +191,7 @@ function setupOrderSystem(bot) {
         const isAvailable = ctx.match[1] === 'true';
         await setLivreurAvailability(`telegram_${ctx.from.id}`, isAvailable);
         const settings = await getAppSettings();
-        await ctx.editMessageText(
+        await safeEdit(ctx, 
             `${settings.ui_icon_notification} <b>Statut mis à jour :</b> ${isAvailable ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}`,
             { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]]) }
         );
@@ -218,7 +227,7 @@ function setupOrderSystem(bot) {
         const order = await getOrder(orderId);
 
         if (!order || order.status !== 'pending') {
-            return ctx.editMessageText('❌ Commande déjà prise ou inexistante.', {
+            return safeEdit(ctx, '❌ Commande déjà prise ou inexistante.', {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]])
             }).catch(() => ctx.reply('❌ Commande déjà prise ou inexistante.'));
@@ -233,7 +242,7 @@ function setupOrderSystem(bot) {
         const min = 15 + Math.floor(Math.random() * 30);
 
         const settings = await getAppSettings();
-        await ctx.editMessageText(
+        await safeEdit(ctx, 
             `${settings.ui_icon_success} <b>Commande #${orderId.substring(0, 5)} acceptée !</b>\n\n` +
             `📍 Ville : ${order.city}\n` +
             `👤 Client : ${order.first_name} (@${order.username})\n\n` +
@@ -261,7 +270,7 @@ function setupOrderSystem(bot) {
         const settings = await getAppSettings();
 
         await updateOrderStatus(orderId, 'delivered');
-        await ctx.editMessageText(`${settings.ui_icon_success || '✅'} <b>Commande #${orderId.substring(0, 5)} terminée !</b>`, {
+        await safeEdit(ctx, `${settings.ui_icon_success || '✅'} <b>Commande #${orderId.substring(0, 5)} terminée !</b>`, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Espace Livreur', 'livreur_menu')]])
         }).catch(() => { });
@@ -301,17 +310,18 @@ function setupOrderSystem(bot) {
         if (!user || !user.is_livreur) return ctx.reply('❌ Accès refusé.');
 
         const { getLivreurMenuKeyboard } = require('./start');
-        await ctx.editMessageText(
-            `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
+        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
             `👤 ${user.first_name}\n` +
             `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
             `🔘 Statut : <b>${user.is_available ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
-            `Que voulez-vous faire ?`,
-            {
-                parse_mode: 'HTML',
-                ...getLivreurMenuKeyboard(settings, user)
-            }
-        );
+            `Que voulez-vous faire ?`;
+        const opts = { parse_mode: 'HTML', ...getLivreurMenuKeyboard(settings, user) };
+
+        try {
+            await safeEdit(ctx, text, opts);
+        } catch (e) {
+            await ctx.replyWithHTML(text, getLivreurMenuKeyboard(settings, user));
+        }
     });
 
     // Mode client pour les livreurs
@@ -319,7 +329,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
-        await ctx.editMessageText(
+        await safeEdit(ctx, 
             `🛒 <b>Mode Client</b>\n\nVous pouvez commander comme un client normal :`,
             {
                 parse_mode: 'HTML',
@@ -367,7 +377,7 @@ function setupOrderSystem(bot) {
         buttons.push([Markup.button.callback('🔄 Rafraîchir', 'show_city_orders')]);
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
 
-        await ctx.editMessageText(title, {
+        await safeEdit(ctx, title, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });
@@ -415,7 +425,7 @@ function setupOrderSystem(bot) {
         const takenCount = myDeliveries.filter(o => o.status === 'taken').length;
         if (takenCount > 0) text += `⏳ <i>Livraison(s) en cours : ${takenCount}</i>\n`;
 
-        await ctx.editMessageText(text, {
+        await safeEdit(ctx, text, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]])
         });
@@ -440,7 +450,7 @@ function setupOrderSystem(bot) {
             text += `└ Date : ${o.created_at ? new Date(o.created_at._seconds * 1000).toLocaleDateString() : '-'}\n\n`;
         });
 
-        await ctx.editMessageText(text, {
+        await safeEdit(ctx, text, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]])
         });

@@ -1,28 +1,21 @@
 const { getAllActiveUsers, saveBroadcast, updateBroadcast, markUserBlocked } = require('./database');
-const { registry } = require('../channels/ChannelRegistry');
 
-// Rate limits: Batching global pour eviter de saturer les serveurs.
-// Telegram: ~30 msg/sec, Meta WhatsApp: Varie selon le tier de numero.
 const BATCH_SIZE = 25;
-const DELAY_BETWEEN_BATCHES_MS = 1100; // ~1.1 sec entre les lots
+const DELAY_BETWEEN_BATCHES_MS = 1100;
 
-/**
- * Envoie un message broadcast à une plateforme spécifique ou à tous.
- * @param {string|'all'} platform - 'telegram', 'whatsapp' ou 'all'
- * @param {string} message - Le message à envoyer
- * @param {object} options - Options supplémentaires (template, etc.)
- */
+// Référence au bot Telegram (sera définie par server.js)
+let _bot = null;
+function setBroadcastBot(bot) { _bot = bot; }
+
 async function broadcastMessage(platform, message, options = {}) {
     const { media_url, media_type } = options;
-    // 1. Recupere les utilisateurs actifs
-    const users = await getAllActiveUsers(platform === 'all' ? null : platform);
+    const users = await getAllActiveUsers(platform === 'all' ? null : 'telegram');
     const totalUsers = users.length;
 
     if (totalUsers === 0) {
         return { success: 0, failed: 0, blocked: 0, total: 0 };
     }
 
-    // 2. Initialise le log broadcast en DB
     const broadcastId = await saveBroadcast({
         message: message ? message.substring(0, 500) : `[Media: ${media_type || 'photo'}]`,
         total_target: totalUsers,
@@ -30,31 +23,25 @@ async function broadcastMessage(platform, message, options = {}) {
         media_url: media_url || null,
         media_type: media_type || null,
         status: 'in_progress',
-        success: 0,
-        failed: 0,
-        blocked: 0,
+        success: 0, failed: 0, blocked: 0,
     });
 
     let successCount = 0;
     let failedCount = 0;
     let blockedCount = 0;
 
-    console.log(`🚀 Starting broadcast to ${totalUsers} users on platform: ${platform}`);
+    console.log(`🚀 Diffusion à ${totalUsers} utilisateurs...`);
 
-    // 3. Boucle par lots
     for (let i = 0; i < users.length; i += BATCH_SIZE) {
         const batch = users.slice(i, i + BATCH_SIZE);
 
         const results = await Promise.allSettled(
-            batch.map((user) => {
-                console.log(`  - Sending to ${user.platform}:${user.platform_id} (${user.doc_id})`);
-                return sendToUser(user, message, options);
-            })
+            batch.map((user) => sendToUser(user, message, options))
         );
 
         for (const result of results) {
             if (result.status === 'fulfilled') {
-                const { success, blocked, error } = result.value;
+                const { success, blocked } = result.value;
                 if (success) successCount++;
                 else if (blocked) blockedCount++;
                 else failedCount++;
@@ -68,7 +55,6 @@ async function broadcastMessage(platform, message, options = {}) {
         }
     }
 
-    // 4. Finalise le log en DB
     await updateBroadcast(broadcastId, {
         status: 'completed',
         success: successCount,
@@ -77,51 +63,38 @@ async function broadcastMessage(platform, message, options = {}) {
         completed_at: new Date().toISOString(),
     });
 
+    console.log(`✅ Diffusion terminée: ${successCount} OK, ${failedCount} échoués, ${blockedCount} bloqués`);
     return { success: successCount, failed: failedCount, blocked: blockedCount, total: totalUsers, broadcastId };
 }
 
-/**
- * Delegue l'envoi au canal correspondant au type d'utilisateur.
- */
 async function sendToUser(user, message, options = {}) {
-    const channel = registry.query(user.platform);
-
-    if (!channel || !channel.isActive) {
-        const reason = !channel ? 'Canal inexistant' : 'Canal non actif';
-        console.warn(`⚠️ Impossible d'envoyer à ${user.platform_id}: ${reason}`);
-        return { success: false, error: reason };
+    if (!_bot) {
+        return { success: false, error: 'Bot non initialisé' };
     }
 
-    try {
-        let result;
+    const chatId = user.platform_id;
+    const { media_url, media_type } = options;
 
-        // WhatsApp specific: Si en dehors de la fenetre de session (24h), on doit utiliser un template.
-        if (user.platform === 'whatsapp' && !channel.isInSessionWindow(user.platform_id)) {
-            if (options.template) {
-                // Utilise le template de broadcast fourni dans options
-                result = await channel.sendTemplate(user.platform_id, options.template, user.language_code || 'fr', options.components);
+    try {
+        if (media_url) {
+            if (media_type === 'video') {
+                await _bot.telegram.sendVideo(chatId, media_url, { caption: message, parse_mode: 'HTML' });
             } else {
-                // Si pas de template fourni et pas en session -> Echec probable sur WhatsApp API
-                // On tente quand meme de l'envoyer comme texte, l'API renverra un code 131047
-                result = await channel.sendMessage(user.platform_id, message, options);
+                await _bot.telegram.sendPhoto(chatId, media_url, { caption: message, parse_mode: 'HTML' });
             }
         } else {
-            // Telegram ou WhatsApp en session
-            result = await channel.sendMessage(user.platform_id, message, options);
+            await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
         }
-
-        if (!result.success && result.blocked) {
-            await markUserBlocked(user.doc_id);
-            return { success: false, blocked: true, error: result.error };
-        }
-
-        return result; // contains { success: boolean, error: string? }
+        return { success: true };
     } catch (error) {
-        console.error(`❌ Unexpected error sending to ${user.platform_id}:`, error);
+        if (error.code === 403 || error.description?.includes('blocked')) {
+            await markUserBlocked(user.doc_id);
+            return { success: false, blocked: true, error: error.message };
+        }
         return { success: false, error: error.message };
     }
 }
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-module.exports = { broadcastMessage };
+module.exports = { broadcastMessage, setBroadcastBot };

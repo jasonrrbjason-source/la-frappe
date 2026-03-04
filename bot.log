@@ -1,0 +1,81 @@
+✅ Chef de projet identifié : la-frappe-cbc6f
+📡 Instance Firestore connectée à la base "default"
+🚀 Démarrage de l'environnement Multi-Plateforme (Telegram + WhatsApp)...
+
+  Registered channel: Telegram (telegram)
+  WhatsApp credentials manquantes, canal desactive
+  Registered channel: WhatsApp (whatsapp)
+🤖 Démarrage des canaux de communication...
+[TG] Lancement du bot (8589100810...)...
+  Telegram channel initialized and marked active
+✅ Bots opérationnels !
+🌐 Dashboard Admin : http://localhost:3000/dashboard
+🔗 Webhook WhatsApp : http(s)://votre-domaine/webhook/whatsapp
+
+🚀 Environnement prêt !
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[TG] @6971274567 — message (659ms)
+[TG] @6971274567 — callback_query (330ms)
+[TG] Erreur Global: 400: Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message
+[TG] @6971274567 — callback_query (266ms)
+[TG] @6971274567 — callback_query (234ms)
+[TG] @6971274567 — callback_query (259ms)
+[TG] @6971274567 — callback_query (211ms)
+[TG] @6971274567 — callback_query (147ms)
+[TG] @6971274567 — callback_query (322ms)
+[TG] @6971274567 — callback_query (320ms)
+[TG] @6971274567 — callback_query (212ms)
+[TG] @Gazolina94 — callback_query (239ms)
+[TG] @Gazolina94 — callback_query (224ms)
+[TG] @Gazolina94 — callback_query (270ms)
+[TG] @Gazolina94 — callback_query (101ms)
+[ORDER] Products loaded: 2 | Looking for: ABO9KUSKWAt31WD1ZFBf
+[ORDER] ✅ Order created: jKQH0c4Z78rvJc1Ce5em
+[TG] @Gazolina94 — message (502ms)
+Admin notify error: 400: Bad Request: chat not found
+[TG] @Yoo_dazz — message (602ms)
+[TG] @cppr9 — message (590ms)
+[TG] @cppr9 — callback_query (131ms)
+[TG] @cppr9 — callback_query (156ms)
+[TG] @cppr9 — callback_query (138ms)
+[TG] @cppr9 — callback_query (94ms)
+[TG] @cppr9 — callback_query (377ms)
+[TG] @6971274567 — callback_query (158ms)
+[TG] @6971274567 — callback_query (182ms)
+[TG] @6971274567 — callback_query (175ms)
+[ORDER] Products loaded: 2 | Looking for: PzhvM3FuZUzCVSXJTI9S
+[ORDER] ❌ Error creating order: Error: Value for argument "data" is not a valid Firestore document. Cannot use "undefined" as a Firestore value (found in field "username"). If you want to ignore undefined values, enable `ignoreUndefinedProperties`.
+    at validateUserInput (/Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/serializer.js:383:19)
+    at validateUserInput (/Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/serializer.js:375:13)
+    at validateDocumentData (/Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/write-batch.js:609:40)
+    at /Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/reference/collection-reference.js:214:52
+    at /Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/telemetry/enabled-trace-util.js:110:30
+    at NoopContextManager.with (/Users/dikenson/Desktop/La frappe IDF/node_modules/@opentelemetry/api/build/src/context/NoopContextManager.js:25:19)
+    at ContextAPI.with (/Users/dikenson/Desktop/La frappe IDF/node_modules/@opentelemetry/api/build/src/api/context.js:60:46)
+    at NoopTracer.startActiveSpan (/Users/dikenson/Desktop/La frappe IDF/node_modules/@opentelemetry/api/build/src/trace/NoopTracer.js:65:31)
+    at ProxyTracer.startActiveSpan (/Users/dikenson/Desktop/La frappe IDF/node_modules/@opentelemetry/api/build/src/trace/ProxyTracer.js:36:24)
+    at EnabledTraceUtil.startActiveSpan (/Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/telemetry/enabled-trace-util.js:102:28)
+[TG] @6971274567 — message (250ms)
+[TG] @6971274567 — message (0ms)
+[TG] @6971274567 — callback_query (145ms)
+[TG] @6971274567 — callback_query (123ms)
+[TG] @6971274567 — callback_query (173ms)
+[TG] @6971274567 — callback_query (142ms)
+[TG] @6971274567 — callback_query (81ms)
+[ORDER] Products loaded: 2 | Looking for: ABO9KUSKWAt31WD1ZFBf
+[ORDER] ❌ Error creating order: Error: Value for argument "data" is not a valid Firestore document. Cannot use "undefined" as a Firestore value (found in field "username"). If you want to ignore undefined values, enable `ignoreUndefinedProperties`.
+    at validateUserInput (/Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/serializer.js:383:19)
+    at validateUserInput (/Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/serializer.js:375:13)
+    at validateDocumentData (/Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/write-batch.js:609:40)
+    at /Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/reference/collection-reference.js:214:52
+    at /Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/telemetry/enabled-trace-util.js:110:30
+    at NoopContextManager.with (/Users/dikenson/Desktop/La frappe IDF/node_modules/@opentelemetry/api/build/src/context/NoopContextManager.js:25:19)
+    at ContextAPI.with (/Users/dikenson/Desktop/La frappe IDF/node_modules/@opentelemetry/api/build/src/api/context.js:60:46)
+    at NoopTracer.startActiveSpan (/Users/dikenson/Desktop/La frappe IDF/node_modules/@opentelemetry/api/build/src/trace/NoopTracer.js:65:31)
+    at ProxyTracer.startActiveSpan (/Users/dikenson/Desktop/La frappe IDF/node_modules/@opentelemetry/api/build/src/trace/ProxyTracer.js:36:24)
+    at EnabledTraceUtil.startActiveSpan (/Users/dikenson/Desktop/La frappe IDF/node_modules/@google-cloud/firestore/build/src/telemetry/enabled-trace-util.js:102:28)
+[TG] @6971274567 — message (206ms)
+[TG] @6971274567 — callback_query (208ms)
+[TG] @6971274567 — callback_query (149ms)
+[TG] @6971274567 — callback_query (93ms)

@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - La Frappe IDF</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg: #000000;
+            --sidebar-bg: #000000;
+            --sidebar-border: #262626;
+            --card-bg: #000000;
+            --text-main: #ffffff;
+            --text-muted: #a8a8a8;
+            --accent: #ff0050;
+            /* Instagram like pink/red */
+            --accent-gradient: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+            --border: #262626;
+            --hover: #1a1a1a;
+            --success: #00f0ff;
+            --danger: #ff3b30;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* SIDEBAR */
+        .sidebar {
+            width: 245px;
+            height: 100%;
+            border-right: 1px solid var(--sidebar-border);
+            display: flex;
+            flex-direction: column;
+            padding: 20px 12px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-brand {
+            padding: 20px 12px 40px;
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            background: var(--accent-gradient);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-radius: 8px;
+            color: var(--text-main);
+            text-decoration: none;
+            margin-bottom: 4px;
+            transition: 0.2s;
+            font-weight: 400;
+            cursor: pointer;
+        }
+
+        .nav-item:hover {
+            background-color: var(--hover);
+        }
+
+        .nav-item.active {
+            font-weight: 700;
+        }
+
+        .nav-item i {
+            margin-right: 16px;
+            font-size: 20px;
+            width: 24px;
+            text-align: center;
+        }
+
+        .logout-btn {
+            margin-top: auto;
+            color: var(--danger);
+        }
+
+        /* MAIN CONTENT */
+        .main {
+            flex-grow: 1;
+            padding: 40px;
+            overflow-y: auto;
+            background-color: var(--bg);
+        }
+
+        .section {
+            display: none;
+            max-width: 1000px;
+            margin: 0 auto;
+            animation: fadeIn 0.3s;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 24px;
+        }
+
+        /* CARDS & STATS */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 8px 0;
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* TABLES */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        td {
+            padding: 16px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            vertical-align: middle;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--accent-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-pending {
+            background: rgba(255, 159, 10, 0.1);
+            color: #ff9f0a;
+        }
+
+        .badge-delivered {
+            background: rgba(48, 209, 88, 0.1);
+            color: #30d158;
+        }
+
+        .badge-cancelled {
+            background: rgba(255, 69, 58, 0.1);
+            color: #ff453a;
+        }
+
+        /* FORMS */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            background: #1a1a1a;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            color: #fff;
+            margin-bottom: 20px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: var(--text-muted);
+        }
+
+        .btn {
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+            display: inline-block;
+            text-decoration: none;
+            text-align: center;
+        }
+
+        .btn:hover {
+            opacity: 0.8;
+        }
+
+        .btn-accent {
+            background: var(--accent-gradient);
+            color: #fff;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        .btn-outline:hover,
+        .btn-outline.active {
+            background: var(--border);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .btn-danger {
+            color: var(--danger);
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 11px;
+        }
+
+        /* DRAG & DROP */
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: 0.2s;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .drop-zone:hover,
+        .drop-zone.dragover {
+            border-color: var(--text-main);
+            background: var(--hover);
+        }
+
+        .drop-zone img,
+        .drop-zone video {
+            max-width: 100%;
+            max-height: 200px;
+            margin-top: 10px;
+            border-radius: 8px;
+        }
+
+        .drop-zone.has-file .drop-text {
+            display: none;
+        }
+
+        /* UTILS */
+        .flex {
+            display: flex;
+            gap: 20px;
+        }
+
+        .col {
+            flex: 1;
+        }
+
+        .action-btns {
+            display: flex;
+            gap: 8px;
+        }
+
+        .loading {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        /* SCROLLBAR */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <aside class="sidebar">
+        <div class="sidebar-brand" id="brand_name">La Frappe</div>
+        <a class="nav-item active" onclick="switchSection('overview')"><i id="nav_icon_overview">🏠</i> Accueil</a>
+        <a class="nav-item" onclick="switchSection('users')"><i id="nav_icon_users">👥</i> Utilisateurs</a>
+        <a class="nav-item" onclick="switchSection('products')"><i id="nav_icon_products">👟</i> Produits</a>
+        <a class="nav-item" onclick="switchSection('orders')"><i id="nav_icon_orders">📦</i> Commandes</a>
+        <a class="nav-item" onclick="switchSection('insights')"><i id="nav_icon_insights">📊</i> Insights</a>
+        <a class="nav-item" onclick="switchSection('broadcast')"><i id="nav_icon_broadcast">📣</i> Diffusion</a>
+        <a class="nav-item" onclick="switchSection('livreurs')"><i id="nav_icon_livreurs">🚴</i> Livreurs</a>
+        <a class="nav-item" onclick="switchSection('settings')"><i id="nav_icon_settings">⚙️</i> Paramètres</a>
+        <a class="nav-item logout-btn" onclick="logout()"><i>🚪</i> Déconnexion</a>
+    </aside>
+
+    <main class="main">
+        <!-- OVERVIEW -->
+        <section class="section active" id="section-overview">
+            <h1>Statistiques</h1>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Utilisateurs</div>
+                    <div class="stat-value" id="statUsers">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Actifs (24h)</div>
+                    <div class="stat-value" id="statActive">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Commandes</div>
+                    <div class="stat-value" id="statOrders">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Chiffre d'Affaires</div>
+                    <div class="stat-value" id="statCA">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Livreurs Actifs</div>
+                    <div class="stat-value" id="statLivreurs">-</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- INSIGHTS -->
+        <section class="section" id="section-insights">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:20px;">
+                <h1 style="margin:0;">Rapport de Caisse</h1>
+                <div
+                    style="display:flex; gap:10px; background:var(--sidebar-bg); padding:5px; border-radius:10px; border:1px solid var(--border);">
+                    <button class="btn btn-sm btn-outline active" onclick="setTimeframe('hour', this)">Heure</button>
+                    <button class="btn btn-sm btn-outline" onclick="setTimeframe('day', this)">Jour</button>
+                    <button class="btn btn-sm btn-outline" onclick="setTimeframe('week', this)">Semaine</button>
+                    <button class="btn btn-sm btn-outline" onclick="setTimeframe('month', this)">Mois</button>
+                    <button class="btn btn-sm btn-outline" onclick="setTimeframe('year', this)">Année</button>
+                </div>
+                <button class="btn btn-accent" onclick="exportAnalyticsCSV()">📥 Exporter CSV</button>
+            </div>
+
+            <div style="margin-bottom:25px;">
+                <input type="text" id="insight-search"
+                    placeholder="Filtrer un client, une ville ou un livreur dans les classements..."
+                    style="width:100%; padding:14px 20px; background:var(--sidebar-bg); border:1px solid var(--border); border-radius:12px; color:white; font-size:15px;"
+                    onkeyup="filterInsights()">
+            </div>
+
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));">
+                <div class="card" style="grid-column: span 2;">
+                    <h3 id="chart-title">📈 Évolution des Revenus (Macro)</h3>
+                    <div style="height:350px; margin-top:20px;">
+                        <canvas id="canvas-main-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>📍 CA par Secteur</h3>
+                    <div style="height:280px; margin-top:20px;">
+                        <canvas id="canvas-cities"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>💎 Top Clients (Leaderboard)</h3>
+                    <div id="list-clients" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
+                </div>
+
+                <div class="card">
+                    <h3>🚴 Performance Livreurs</h3>
+                    <div id="list-livreurs" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- USERS -->
+        <section class="section" id="section-users">
+            <h1>Utilisateurs</h1>
+            <div class="card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Membre</th>
+                            <th>Parrainages</th>
+                            <th>Commandes</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userTable"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- PRODUCTS -->
+        <section class="section" id="section-products">
+            <h1>Produits</h1>
+            <div class="flex">
+                <div class="col card">
+                    <h3>Ajouter un produit</h3>
+                    <input type="hidden" id="prod_id">
+                    <label>Nom du produit</label>
+                    <input id="prod_name" placeholder="ex: Jordan 4 Midnight Navy">
+                    <label>Prix (€)</label>
+                    <input type="number" id="prod_price" placeholder="199">
+                    <label>Promo (Optionnel)</label>
+                    <input type="text" id="prod_promo" placeholder="ex: 10% ou 15€">
+
+                    <label>Média du produit (Photos ou Vidéos - Glisser-déposer)</label>
+                    <div class="drop-zone" id="prod_drop_zone" onclick="document.getElementById('file_prod').click()">
+                        <span class="drop-text">Glissez vos médias ici ou cliquez pour choisir</span>
+                        <input type="file" id="file_prod" hidden accept="image/*,video/*" multiple
+                            onchange="handleFileUpload(this, 'prod')">
+                        <div id="prod_preview" style="display:flex; flex-wrap:wrap; justify-content:center;"></div>
+                    </div>
+                    <input type="hidden" id="prod_image_url">
+
+                    <button class="btn btn-accent" onclick="saveProduct()">Sauvegarder</button>
+                    <button class="btn btn-outline" onclick="clearProdForm()">Annuler</button>
+                </div>
+                <div class="col">
+                    <div class="card">
+                        <h3>Inventaire</h3>
+                        <table id="productTable">
+                            <thead>
+                                <tr>
+                                    <th>Aperçus</th>
+                                    <th>Nom</th>
+                                    <th>Prix</th>
+                                    <th>Promo</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ORDERS -->
+        <section class="section" id="section-orders">
+            <h1>Commandes</h1>
+            <div class="card">
+                <table id="orderTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Client</th>
+                            <th>Produit</th>
+                            <th>Total</th>
+                            <th>Ville</th>
+                            <th>Statut</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- BROADCAST -->
+        <section class="section" id="section-broadcast">
+            <h1>Diffusion (Broadcast)</h1>
+            <div class="card">
+                <input type="hidden" id="bcPlatform" value="telegram">
+
+                <label>Message (Texte / HTML)</label>
+                <textarea id="bcMsg" rows="6" placeholder="Ecrivez votre message ici..."></textarea>
+
+                <label>Médias (Photos ou Vidéos - Glisser-déposer)</label>
+                <div class="drop-zone" id="bc_drop_zone" onclick="document.getElementById('file_bc').click()">
+                    <span class="drop-text">Ajouter des photos ou vidéos pour le broadcast</span>
+                    <input type="file" id="file_bc" hidden accept="image/*,video/*" multiple
+                        onchange="handleFileUpload(this, 'bc')">
+                    <div id="bc_preview" style="display:flex; flex-wrap:wrap; justify-content:center;"></div>
+                </div>
+                <input type="hidden" id="bc_media_url">
+                <input type="hidden" id="bc_media_type">
+
+                <div
+                    style="background:rgba(255,150,0,0.1); padding:15px; border-radius:8px; margin-bottom:20px; font-size:13px; color:#ffa500;">
+                    💡 <b>Tip:</b> Les messages Telegram supportent le formatage HTML. Glissez vos médias dans la zone
+                    ci-dessus pour les inclure.
+                </div>
+
+                <button class="btn btn-accent" onclick="sendBC()" style="width:100%">🚀 Lancer la diffusion</button>
+            </div>
+        </section>
+
+        <!-- LIVREURS -->
+        <section class="section" id="section-livreurs">
+            <h1>🚴 Gestion des Livreurs</h1>
+            <div class="card" style="margin-bottom:20px">
+                <p style="color:var(--text-muted);margin-bottom:16px">Liste de tous les utilisateurs ayant le statut
+                    livreur. Pour promouvoir un utilisateur en livreur, allez dans la section <b>Utilisateurs</b>.</p>
+                <table style="width:100%;border-collapse:collapse">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border)">
+                            <th style="padding:10px;text-align:left">Livreur</th>
+                            <th style="padding:10px;text-align:left">Statut</th>
+                            <th style="padding:10px;text-align:left">Ville</th>
+                            <th style="padding:10px;text-align:left">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="livreursTable">
+                        <tr>
+                            <td colspan="5" style="padding:20px;text-align:center;color:var(--text-muted)">Chargement...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="section" id="section-settings">
+            <h1>Paramètres</h1>
+            <div class="flex">
+                <div class="col card">
+                    <h3>Général</h3>
+                    <label>Nom du Bot</label>
+                    <input id="set_bot_name">
+                    <label>Titre Dashboard</label>
+                    <input id="set_title">
+                    <label>Couleur Accent (Hex)</label>
+                    <input type="color" id="set_color" style="height:45px; padding:5px;">
+                    <button class="btn btn-accent" onclick="saveSettings()">Mettre à jour</button>
+                </div>
+                <div class="col card">
+                    <h3>Sécurité & Contact</h3>
+                    <label>ID(s) Telegram Administrateur(s)</label>
+                    <input id="set_admin_tg_id" placeholder="ID1, ID2, ID3">
+                    <small style="color:var(--text-muted); display:block; margin-bottom:10px;">Séparez les IDs par une
+                        virgule pour plusieurs admins.</small>
+
+                    <label>Mot de passe actuel</label>
+                    <input id="set_current_password" readonly
+                        style="background:rgba(255,255,255,0.05); color:var(--accent);">
+
+                    <label>Modifier le mot de passe</label>
+                    <input type="password" id="set_admin_password" placeholder="Nouveau mot de passe">
+
+                    <label>URL du Dashboard (pour le bot)</label>
+                    <input id="set_dashboard_url" placeholder="https://votre-domaine.com/dashboard">
+
+                    <h3 style="margin-top:20px;">Fidélité & Parrainage</h3>
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;">
+                            <label>Points par € (/commande)</label>
+                            <input type="number" id="set_pts_ratio" placeholder="ex: 1">
+                        </div>
+                        <div style="flex:1;">
+                            <label>Ratio échange (Pts -> 1€)</label>
+                            <input type="number" id="set_pts_exchange" placeholder="ex: 10">
+                        </div>
+                        <div style="flex:1;">
+                            <label>Bonus Parrainage (€)</label>
+                            <input type="number" id="set_ref_bonus" placeholder="ex: 5">
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top:20px;">Langues</h3>
+                    <label>Langues du bot (séparées par des virgules)</label>
+                    <input id="set_lang" placeholder="ex: fr, en, es">
+
+                    <h3 style="margin-top:20px;">🎨 Composants UI (Interface du Bot)</h3>
+                    <div
+                        style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                        <div>
+                            <label>Icône Catalogue</label>
+                            <input id="set_ui_icon_catalog" placeholder="🍔">
+                        </div>
+                        <div>
+                            <label>Libellé Catalogue</label>
+                            <input id="set_label_catalog" placeholder="Catalogue Produits">
+                        </div>
+                        <div>
+                            <label>Icône Commandes</label>
+                            <input id="set_ui_icon_orders" placeholder="📦">
+                        </div>
+                        <div>
+                            <label>Libellé Commandes</label>
+                            <input id="set_label_my_orders" placeholder="Mes Commandes">
+                        </div>
+                        <div>
+                            <label>Icône Contact</label>
+                            <input id="set_ui_icon_contact" placeholder="📱">
+                        </div>
+                        <div>
+                            <label>Libellé Contact</label>
+                            <input id="set_label_contact" placeholder="Mon contact privé">
+                        </div>
+                        <div>
+                            <label>Icône Profil</label>
+                            <input id="set_ui_icon_profile" placeholder="🎁">
+                        </div>
+                        <div>
+                            <label>Libellé Profil</label>
+                            <input id="set_label_profile" placeholder="Mon Profil & Parrainage">
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top:20px;">🏷️ Statuts des Commandes</h3>
+                    <div
+                        style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                        <div>
+                            <label>Libellé 'En Attente'</label>
+                            <input id="set_status_pending_label" placeholder="EN ATTENTE">
+                        </div>
+                        <div>
+                            <label>Icône 'En Attente'</label>
+                            <input id="set_ui_icon_pending" placeholder="⏳">
+                        </div>
+                        <div>
+                            <label>Libellé 'Pris en Charge'</label>
+                            <input id="set_status_taken_label" placeholder="PRIS EN CHARGE">
+                        </div>
+                        <div>
+                            <label>Icône 'Succès / Livré'</label>
+                            <input id="set_ui_icon_success" placeholder="✅">
+                        </div>
+                        <div>
+                            <label>Libellé 'Livrée'</label>
+                            <input id="set_status_delivered_label" placeholder="LIVRÉE">
+                        </div>
+                        <div>
+                            <label>Icône 'Erreur / Annulée'</label>
+                            <input id="set_ui_icon_error" placeholder="❌">
+                        </div>
+                        <div>
+                            <label>Libellé 'Annulée'</label>
+                            <input id="set_status_cancelled_label" placeholder="ANNULÉE">
+                        </div>
+                    </div>
+
+                    <button class="btn btn-accent" style="margin-top:15px;"
+                        onclick="saveSettings()">Sauvegarder</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const TOKEN = localStorage.getItem('admin_token');
+        let chartInstances = {};
+        window.lastAnalytics = null;
+        window.currentTimeframe = 'hour';
+        if (!TOKEN) window.location.href = '/';
+
+        async function api(path, method = 'GET', body = null) {
+            document.body.classList.add('loading');
+            try {
+                const opt = {
+                    method,
+                    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }
+                };
+                if (body) opt.body = JSON.stringify(body);
+                const r = await fetch('/api' + path, opt);
+
+                if (r.status === 401) {
+                    logout();
+                    return;
+                }
+
+                if (!r.ok) {
+                    const err = await r.json();
+                    throw new Error(err.error || 'Erreur API');
+                }
+                return await r.json();
+            } catch (e) {
+                console.error(e);
+                throw e;
+            } finally {
+                document.body.classList.remove('loading');
+            }
+        }
+
+        function switchSection(id) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('section-' + id).classList.add('active');
+            event.currentTarget.classList.add('active');
+            loadData(id);
+        }
+
+        async function loadData(id) {
+            if (!window.appSettings) {
+                window.appSettings = await api('/settings');
+                updateNavbarIcons();
+            }
+            try {
+                if (id === 'overview') {
+                    const s = await api('/stats');
+                    document.getElementById('statUsers').innerText = s.totalUsers;
+                    document.getElementById('statActive').innerText = s.activeUsers;
+                    document.getElementById('statOrders').innerText = s.totalOrders || 0;
+                    document.getElementById('statCA').innerText = (s.totalCA || 0) + ' €';
+                    document.getElementById('statLivreurs').innerText = s.activeLivreurs || 0;
+                }
+                if (id === 'users') {
+                    const users = await api('/users');
+                    document.getElementById('userTable').innerHTML = users.map(u => `
+                        <tr>
+                            <td>
+                                <div class="user-info">
+                                    <div class="avatar">${u.first_name ? u.first_name[0] : '?'}</div>
+                                    <div>
+                                        <b>${u.first_name || 'Inconnu'}</b><br>
+                                        <small style="color:var(--text-muted)">@${u.username || u.platform_id}</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td><span class="badge" style="background:var(--hover)">${u.referral_count || 0}</span></td>
+                            <td><span class="badge" style="border:1px solid var(--border)">${u.order_count || 0}</span></td>
+                            <td class="action-btns">
+                                <button class="btn btn-outline btn-sm" onclick="delUser('${u.doc_id}')">Supprimer</button>
+                                ${u.is_livreur ?
+                            `<button class="btn btn-outline btn-sm" onclick="toggleLivreur('${u.platform_id}', '${u.platform}', false)">Retirer Livreur</button>` :
+                            `<button class="btn btn-accent btn-sm" onclick="toggleLivreur('${u.platform_id}', '${u.platform}', true)">Promouvoir</button>`
+                        }
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+                if (id === 'products') {
+                    const products = await api('/products');
+                    document.querySelector('#productTable tbody').innerHTML = products.map(p => {
+                        let mediaHtml = '';
+                        if (p.image_url) {
+                            let firstUrl = p.image_url;
+                            let count = 1;
+                            try {
+                                const arr = JSON.parse(p.image_url);
+                                firstUrl = arr[0].url;
+                                count = arr.length;
+                            } catch (e) { }
+
+                            const isVideo = firstUrl.match(/\.(mp4|webm|mov)(\?.*)?$/i);
+                            mediaHtml = `
+                                <div style="position:relative; width:45px; height:45px;">
+                                    ${isVideo ?
+                                    `<video src="${firstUrl}" style="width:100%;height:100%;border-radius:6px;object-fit:cover;" muted></video>` :
+                                    `<img src="${firstUrl}" style="width:100%;height:100%;border-radius:6px;object-fit:cover;">`
+                                }
+                                    ${count > 1 ? `<span style="position:absolute; bottom:-5px; right:-5px; background:var(--accent); color:white; font-size:10px; padding:2px 5px; border-radius:10px; border:2px solid var(--card-bg)">+${count - 1}</span>` : ''}
+                                </div>
+                            `;
+                        } else {
+                            mediaHtml = `<img src="https://via.placeholder.com/45" style="width:45px;height:45px;border-radius:6px;object-fit:cover;">`;
+                        }
+
+                        return `
+                        <tr onclick="editProd('${p.doc_id}', '${p.name.replace(/'/g, "\\'")}', ${p.price}, '${(p.image_url || '').replace(/'/g, "\\'")}', '${(p.promo || '').replace(/'/g, "\\'")}')" style="cursor:pointer">
+                            <td>${mediaHtml}</td>
+                            <td><b>${p.name}</b></td>
+                            <td>${p.price}€</td>
+                            <td>${p.promo || '-'}</td>
+                            <td class="action-btns">
+                                <button class="btn btn-outline" onclick="editProd('${p.id}', '${p.name.replace(/'/g, "\\'")}', ${p.price}, '${p.image_url || ''}', '${p.promo || ''}')">Edit</button>
+                                <button class="btn btn-danger" onclick="delProd('${p.id}')">Delete</button>
+                            </td>
+                        </tr>
+                    `;
+                    }).join('');
+                }
+                if (id === 'orders') {
+                    const orders = await api('/orders');
+                    document.querySelector('#orderTable tbody').innerHTML = orders.map(o => {
+                        let label = o.status.toUpperCase();
+                        const s = window.appSettings || {};
+                        if (o.status === 'pending') label = s.status_pending_label || 'EN ATTENTE';
+                        if (o.status === 'taken') label = s.status_taken_label || 'PRIS EN CHARGE';
+                        if (o.status === 'delivered') label = s.status_delivered_label || 'LIVRÉE';
+                        if (o.status === 'cancelled') label = s.status_cancelled_label || 'ANNULÉE';
+
+                        return `
+                        <tr>
+                            <td><small>#${o.id.substring(0, 6)}</small></td>
+                            <td><b>${o.first_name}</b></td>
+                            <td>${o.product_name} (x${o.quantity})</td>
+                            <td>${o.total_price}€</td>
+                            <td>${o.city}</td>
+                            <td><span class="badge badge-${o.status}">${label}</span></td>
+                            <td>
+                                <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
+                                    <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>${s.status_pending_label || 'EN ATTENTE'}</option>
+                                    <option value="taken" ${o.status === 'taken' ? 'selected' : ''}>${s.status_taken_label || 'PRIS EN CHARGE'}</option>
+                                    <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>${s.status_delivered_label || 'LIVRÉE'}</option>
+                                    <option value="cancelled" ${o.status === 'cancelled' ? 'selected' : ''}>${s.status_cancelled_label || 'ANNULÉE'}</option>
+                                </select>
+                            </td>
+                        </tr>
+                    `}).join('');
+                }
+                if (id === 'livreurs') {
+                    try {
+                        const livreurs = await api('/livreurs');
+                        const tbody = document.getElementById('livreursTable');
+                        if (!livreurs || livreurs.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-muted)">Aucun livreur enregistré. Promouvez un utilisateur depuis la section Utilisateurs.</td></tr>';
+                        } else {
+                            tbody.innerHTML = livreurs.map(l => `
+                                <tr style="border-bottom:1px solid var(--border)">
+                                    <td style="padding:12px">
+                                        <div style="display:flex;align-items:center;gap:10px">
+                                            <div class="avatar">${l.first_name ? l.first_name[0].toUpperCase() : '?'}</div>
+                                            <div>
+                                                <b>${l.first_name || 'Inconnu'}</b><br>
+                                                <small style="color:var(--text-muted)">@${l.username || l.platform_id}</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style="padding:12px">
+                                        <span class="badge" style="background:${l.is_available ? '#1a3a1a' : '#3a1a1a'};color:${l.is_available ? '#4caf50' : '#f44336'}">
+                                            ${l.is_available ? '✅ Disponible' : '⛔ Indisponible'}
+                                        </span>
+                                    </td>
+                                    <td style="padding:12px">${l.current_city ? l.current_city.toUpperCase() : '—'}</td>
+                                    <td style="padding:12px" class="action-btns">
+                                        <button class="btn btn-danger btn-sm" onclick="toggleLivreur('${l.platform_id}', '${l.platform}', false);loadData('livreurs')">Retirer</button>
+                                    </td>
+                                </tr>
+                            `).join('');
+                        }
+                    } catch (e) {
+                        document.getElementById('livreursTable').innerHTML = '<tr><td colspan="4" style="color:var(--danger);padding:20px">Erreur de chargement.</td></tr>';
+                    }
+                }
+                if (id === 'insights') {
+                    const data = await api('/analytics');
+                    window.lastAnalytics = data;
+                    window.currentAnalyticsRaw = data.rawDelivered;
+
+                    // 1. Chart CA par Ville
+                    if (chartInstances.cities) chartInstances.cities.destroy();
+                    const cityEntries = Object.entries(data.byCity).sort((a, b) => b[1] - a[1]).slice(0, 8);
+                    chartInstances.cities = new Chart(document.getElementById('canvas-cities'), {
+                        type: 'doughnut',
+                        data: {
+                            labels: cityEntries.map(e => e[0]),
+                            datasets: [{
+                                data: cityEntries.map(e => e[1]),
+                                backgroundColor: ['#ff0050', '#0095f6', '#f09433', '#cc2366', '#00f0ff', '#ffffff', '#262626'],
+                                borderWidth: 0
+                            }]
+                        },
+                        options: {
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { position: 'right', labels: { color: '#fff', usePointStyle: true, font: { size: 10 } } }
+                            }
+                        }
+                    });
+
+                    renderMainChart(window.currentTimeframe || 'hour');
+                    renderFilteredInsights(data);
+                }
+                if (id === 'settings') {
+                    const s = await api('/settings');
+                    document.getElementById('set_bot_name').value = s.bot_name;
+                    document.getElementById('set_title').value = s.dashboard_title || 'Admin Panel';
+                    document.getElementById('set_color').value = s.accent_color || '#ff0050';
+                    document.getElementById('set_admin_tg_id').value = s.admin_telegram_id || '';
+                    document.getElementById('set_current_password').value = s.admin_password || '';
+                    document.getElementById('set_dashboard_url').value = s.dashboard_url || '';
+                    document.getElementById('set_pts_ratio').value = s.points_ratio || 1;
+                    document.getElementById('set_pts_exchange').value = s.points_exchange || 10;
+                    document.getElementById('set_ref_bonus').value = s.ref_bonus || 5;
+                    document.getElementById('set_lang').value = s.languages || 'fr';
+
+                    // Composants UI
+                    document.getElementById('set_ui_icon_catalog').value = s.ui_icon_catalog || '🍔';
+                    document.getElementById('set_label_catalog').value = s.label_catalog || 'Catalogue Produits';
+                    document.getElementById('set_ui_icon_orders').value = s.ui_icon_orders || '📦';
+                    document.getElementById('set_label_my_orders').value = s.label_my_orders || 'Mes Commandes';
+                    document.getElementById('set_ui_icon_contact').value = s.ui_icon_contact || '📱';
+                    document.getElementById('set_label_contact').value = s.label_contact || 'Mon contact privé';
+                    document.getElementById('set_ui_icon_profile').value = s.ui_icon_profile || '🎁';
+                    document.getElementById('set_label_profile').value = s.label_profile || 'Mon Profil & Parrainage';
+
+                    document.getElementById('set_status_pending_label').value = s.status_pending_label || 'EN ATTENTE';
+                    document.getElementById('set_ui_icon_pending').value = s.ui_icon_pending || '⏳';
+                    document.getElementById('set_status_taken_label').value = s.status_taken_label || 'PRIS EN CHARGE';
+                    document.getElementById('set_ui_icon_success').value = s.ui_icon_success || '✅';
+                    document.getElementById('set_status_delivered_label').value = s.status_delivered_label || 'LIVRÉE';
+                    document.getElementById('set_ui_icon_error').value = s.ui_icon_error || '❌';
+                    document.getElementById('set_status_cancelled_label').value = s.status_cancelled_label || 'ANNULÉE';
+                }
+            } catch (err) { alert(err.message); }
+        }
+
+        /* FILE UPLOAD & DRAG & DROP */
+        function initDragAndDrop(zoneId, previewId, urlInputId, typeInputId = null, type) {
+            const zone = document.getElementById(zoneId);
+            zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+            zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                const files = Array.from(e.dataTransfer.files);
+                if (files.length > 0) uploadMultipleFiles(files, type);
+            });
+        }
+
+        initDragAndDrop('prod_drop_zone', 'prod_preview', 'prod_image_url', null, 'prod');
+        initDragAndDrop('bc_drop_zone', 'bc_preview', 'bc_media_url', 'bc_media_type', 'bc');
+
+        function handleFileUpload(input, type) {
+            const files = Array.from(input.files);
+            if (files.length > 0) uploadMultipleFiles(files, type);
+        }
+
+        async function uploadMultipleFiles(files, type) {
+            const previewId = type + '_preview';
+            const urlInputId = type === 'bc' ? 'bc_media_url' : type + '_image_url';
+            const typeInputId = type === 'bc' ? 'bc_media_type' : null;
+
+            document.getElementById(previewId).innerHTML = '⌛ Téléchargement...';
+
+            try {
+                let uploadedUrls = [];
+                let uploadedTypes = [];
+                let htmlOut = '';
+
+                for (let file of files) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    const r = await fetch('/api/upload', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${TOKEN}` },
+                        body: formData
+                    });
+                    const res = await r.json();
+                    if (!res.success) throw new Error(res.error);
+
+                    const fileType = file.type.startsWith('video') ? 'video' : 'photo';
+                    uploadedUrls.push(res.url);
+                    uploadedTypes.push(fileType);
+
+                    if (fileType === 'photo') {
+                        htmlOut += `<img src="${res.url}" style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)">`;
+                    } else {
+                        htmlOut += `<video src="${res.url}" controls muted style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)"></video>`;
+                    }
+                }
+
+                // Unified storage logic
+                const mediaArray = uploadedUrls.map((url, i) => ({ url, type: uploadedTypes[i] }));
+                const mediaValue = mediaArray.length === 1 ? uploadedUrls[0] : JSON.stringify(mediaArray);
+
+                document.getElementById(urlInputId).value = mediaValue;
+
+                if (type === 'bc' && typeInputId) {
+                    document.getElementById(typeInputId).value = mediaArray.length === 1 ? uploadedTypes[0] : 'multiple';
+                }
+
+                document.getElementById(previewId).innerHTML = htmlOut;
+                document.getElementById(previewId).parentElement.classList.add('has-file');
+
+            } catch (err) {
+                alert('Erreur upload: ' + err.message);
+                document.getElementById(previewId).innerHTML = '❌ Erreur';
+            }
+        }
+
+        /* EXPORT & UTILS */
+        async function filterInsights() {
+            const query = document.getElementById('insight-search').value.toLowerCase();
+            if (!window.lastAnalytics) return;
+            renderFilteredInsights(window.lastAnalytics, query);
+        }
+
+        /* ANALYTICS LOGIC */
+        function setTimeframe(tf, btn) {
+            window.currentTimeframe = tf;
+            document.querySelectorAll('#section-insights .btn-sm').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderMainChart(tf);
+        }
+
+        function renderMainChart(tf) {
+            const data = window.lastAnalytics;
+            if (!data) return;
+
+            const chartId = 'canvas-main-chart';
+            if (chartInstances.main) chartInstances.main.destroy();
+
+            let label = "";
+            let sourceData = {};
+
+            switch (tf) {
+                case 'hour': label = "CA par Heure"; sourceData = data.byHour; break;
+                case 'day': label = "CA par Jour"; sourceData = data.byDay; break;
+                case 'week': label = "CA par Semaine"; sourceData = data.byWeek; break;
+                case 'month': label = "CA par Mois"; sourceData = data.byMonth; break;
+                case 'year': label = "CA par Année"; sourceData = data.byYear; break;
+            }
+
+            const entries = Object.entries(sourceData).sort((a, b) => a[0].localeCompare(b[0]));
+
+            chartInstances.main = new Chart(document.getElementById(chartId), {
+                type: 'line',
+                data: {
+                    labels: entries.map(e => e[0]),
+                    datasets: [{
+                        label: 'CA (€)',
+                        data: entries.map(e => e[1]),
+                        borderColor: '#ff0050',
+                        backgroundColor: 'rgba(255, 0, 80, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointBackgroundColor: '#ff0050'
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#262626' }, ticks: { color: '#a8a8a8' } },
+                        x: { grid: { display: false }, ticks: { color: '#a8a8a8' } }
+                    }
+                }
+            });
+            document.getElementById('chart-title').innerText = `📈 ${label}`;
+        }
+
+        function filterInsights() {
+            const query = document.getElementById('insight-search').value.toLowerCase();
+            if (!window.lastAnalytics) return;
+            renderFilteredInsights(window.lastAnalytics, query);
+        }
+
+        function renderFilteredInsights(data, query = "") {
+            // Filter and Render Livreurs
+            const livreursHtml = Object.entries(data.byLivreur)
+                .filter(([name]) => name.toLowerCase().includes(query))
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, val]) => `
+                    <div style="display:flex; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--border)">
+                        <span>🚴 <b>${name}</b></span>
+                        <b style="color:var(--success)">${val.toFixed(2)}€</b>
+                    </div>
+                `).join('');
+            document.getElementById('list-livreurs').innerHTML = livreursHtml || '<div style="padding:20px; color:var(--text-muted)">Aucun livreur trouvé.</div>';
+
+            // Filter and Render Clients
+            const clientsHtml = Object.entries(data.byClient)
+                .filter(([id, stats]) => stats.name.toLowerCase().includes(query))
+                .sort((a, b) => b[1].ca - a[1].ca)
+                .slice(0, 15)
+                .map(([id, stats]) => `
+                    <div style="display:flex; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--border)">
+                        <span>💎 <b>${stats.name}</b> (${stats.orders} cmds)</span>
+                        <b style="color:var(--accent)">${stats.ca.toFixed(2)}€</b>
+                    </div>
+                `).join('');
+            document.getElementById('list-clients').innerHTML = clientsHtml || '<div style="padding:20px; color:var(--text-muted)">Aucun client trouvé.</div>';
+        }
+
+        function exportAnalyticsCSV() {
+            const data = window.currentAnalyticsRaw;
+            if (!data || data.length === 0) return alert("Aucune donnée à exporter.");
+
+            const headers = ["ID", "Date", "Client", "Produit", "Quantité", "Prix total (€)", "Ville", "Livreur"];
+            const rows = data.map(o => [
+                o.id, o.date, o.client, o.product, o.qty, o.price, o.city, o.livreur
+            ]);
+
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFF" // Added BOM for Excel UTF-8
+                + headers.join(",") + "\n"
+                + rows.map(r => r.map(v => typeof v === 'string' ? `"${v.replace(/"/g, '""')}"` : v).join(",")).join("\n");
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `analytics_la_frappe_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        /* LOGIC FUNCTIONS */
+        async function saveProduct() {
+            const id = document.getElementById('prod_id').value;
+            const name = document.getElementById('prod_name').value;
+            const price = parseFloat(document.getElementById('prod_price').value);
+            const promo = document.getElementById('prod_promo').value;
+            const image_url = document.getElementById('prod_image_url').value;
+            if (!name || isNaN(price)) return alert('Veuillez remplir le nom et le prix');
+
+            await api('/products', 'POST', { id, name, price, promo, image_url });
+            clearProdForm();
+            loadData('products');
+        }
+
+        function editProd(id, name, price, image_url, promo) {
+            document.getElementById('prod_id').value = id;
+            document.getElementById('prod_name').value = name;
+            document.getElementById('prod_price').value = price;
+            document.getElementById('prod_promo').value = promo || '';
+            document.getElementById('prod_image_url').value = image_url;
+
+            const preview = document.getElementById('prod_preview');
+            preview.innerHTML = '';
+
+            if (image_url) {
+                let mediaList = [];
+                try {
+                    mediaList = JSON.parse(image_url);
+                } catch (e) {
+                    const type = image_url.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
+                    mediaList = [{ url: image_url, type }];
+                }
+
+                mediaList.forEach(m => {
+                    if (m.type === 'video') {
+                        preview.innerHTML += `<video src="${m.url}" controls muted style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)"></video>`;
+                    } else {
+                        preview.innerHTML += `<img src="${m.url}" style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)">`;
+                    }
+                });
+                preview.parentElement.classList.add('has-file');
+            } else {
+                preview.parentElement.classList.remove('has-file');
+            }
+        }
+
+        function clearProdForm() {
+            document.getElementById('prod_id').value = '';
+            document.getElementById('prod_name').value = '';
+            document.getElementById('prod_price').value = '';
+            document.getElementById('prod_promo').value = '';
+            document.getElementById('prod_image_url').value = '';
+            document.getElementById('prod_preview').innerHTML = '';
+            document.getElementById('prod_preview').parentElement.classList.remove('has-file');
+        }
+
+        async function delProd(id) {
+            if (!confirm('Supprimer ce produit ?')) return;
+            await api('/products/' + id, 'DELETE');
+            loadData('products');
+        }
+
+        async function sendBC() {
+            const message = document.getElementById('bcMsg').value;
+            const platform = document.getElementById('bcPlatform').value;
+            const media_url = document.getElementById('bc_media_url').value;
+            const media_type = document.getElementById('bc_media_type').value;
+
+            if (!message && !media_url) return alert('Ecrivez un message ou ajoutez un média.');
+            if (!confirm('Lancer la diffusion à tous les membres ?')) return;
+
+            await api('/broadcast', 'POST', { message, platform, media_url, media_type });
+            alert('🚀 Diffusion lancée !');
+            document.getElementById('bcMsg').value = '';
+            document.getElementById('bc_media_url').value = '';
+            document.getElementById('bc_preview').innerHTML = '';
+            document.getElementById('bc_preview').parentElement.classList.remove('has-file');
+        }
+
+        async function saveSettings() {
+            await api('/settings', 'POST', {
+                bot_name: document.getElementById('set_bot_name').value,
+                dashboard_title: document.getElementById('set_title').value,
+                accent_color: document.getElementById('set_color').value,
+                admin_telegram_id: document.getElementById('set_admin_tg_id').value,
+                dashboard_url: document.getElementById('set_dashboard_url').value,
+                admin_password: document.getElementById('set_current_password').value,
+                points_ratio: parseFloat(document.getElementById('set_pts_ratio').value) || 1,
+                points_exchange: parseFloat(document.getElementById('set_pts_exchange').value) || 10,
+                ref_bonus: parseFloat(document.getElementById('set_ref_bonus').value) || 5,
+                languages: document.getElementById('set_lang').value || 'fr',
+
+                // UI
+                ui_icon_catalog: document.getElementById('set_ui_icon_catalog').value,
+                label_catalog: document.getElementById('set_label_catalog').value,
+                ui_icon_orders: document.getElementById('set_ui_icon_orders').value,
+                label_my_orders: document.getElementById('set_label_my_orders').value,
+                ui_icon_contact: document.getElementById('set_ui_icon_contact').value,
+                label_contact: document.getElementById('set_label_contact').value,
+                ui_icon_profile: document.getElementById('set_ui_icon_profile').value,
+                label_profile: document.getElementById('set_label_profile').value,
+
+                status_pending_label: document.getElementById('set_status_pending_label').value,
+                ui_icon_pending: document.getElementById('set_ui_icon_pending').value,
+                status_taken_label: document.getElementById('set_status_taken_label').value,
+                ui_icon_success: document.getElementById('set_ui_icon_success').value,
+                status_delivered_label: document.getElementById('set_status_delivered_label').value,
+                ui_icon_error: document.getElementById('set_ui_icon_error').value,
+                status_cancelled_label: document.getElementById('set_status_cancelled_label').value
+            });
+            alert('✅ Paramètres sauvegardés !');
+            location.reload();
+        }
+
+        function updateNavbarIcons() {
+            if (!window.appSettings) return;
+            const s = window.appSettings;
+            if (s.ui_icon_catalog) document.getElementById('nav_icon_products').innerText = s.ui_icon_catalog;
+            if (s.ui_icon_orders) document.getElementById('nav_icon_orders').innerText = s.ui_icon_orders;
+            if (s.ui_icon_pending) document.getElementById('nav_icon_livreurs').innerText = s.ui_icon_pending;
+            if (s.ui_icon_welcome) document.getElementById('nav_icon_overview').innerText = s.ui_icon_welcome;
+            if (s.bot_name) document.getElementById('brand_name').innerText = s.bot_name;
+        }
+
+        async function updateOrderStatus(orderId, status) {
+            await api('/orders/status', 'POST', { orderId, status });
+            loadData('orders');
+        }
+
+        async function toggleLivreur(userId, platform, isLivreur) {
+            await api('/livreurs/status', 'POST', { userId, platform, isLivreur });
+            loadData('users');
+        }
+
+        async function delUser(id) {
+            if (!confirm('Supprimer cet utilisateur ?')) return;
+            await api('/users/delete', 'POST', { id });
+            loadData('users');
+        }
+
+        function logout() { localStorage.removeItem('admin_token'); window.location.href = '/'; }
+
+        // Init
+        loadData('overview');
+    </script>
+</body>
+
+</html>

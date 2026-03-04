@@ -1,0 +1,292 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const fileUpload = require('express-fileupload');
+const {
+    getUserCount, getActiveUserCount, getRecentUsers, searchUsers,
+    getReferralLeaderboard, getStatsOverview, getDailyStats,
+    getProducts, saveProduct, deleteProduct,
+    getAllOrders, updateOrderStatus, setLivreurStatus, getOrder,
+    setLivreurAvailability, getAppSettings, updateAppSettings,
+    deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics
+} = require('./services/database');
+const { broadcastMessage } = require('./services/broadcast');
+const { registry } = require('./channels/ChannelRegistry');
+require('dotenv').config();
+
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+
+function createServer() {
+    const app = express();
+
+    app.use(cors());
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
+    app.use(fileUpload({
+        limits: { fileSize: 50 * 1024 * 1024 },
+        useTempFiles: true,
+        tempFileDir: '/tmp/'
+    }));
+    app.use('/public', express.static(path.join(__dirname, 'web', 'public')));
+
+    // ========== Authentication ==========
+
+    async function authMiddleware(req, res, next) {
+        const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+        if (!token) return res.status(401).json({ error: 'Token manquant' });
+
+        const settings = await getAppSettings();
+        if (token === settings.admin_password) {
+            return next();
+        }
+
+        console.warn(`[AUTH] Tentative d'accès non autorisée avec le token: ${token.substring(0, 3)}...`);
+        res.status(401).json({ error: 'Non autorisé' });
+    }
+
+    // ========== Static Pages ==========
+
+    app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'login.html')));
+    app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'dashboard.html')));
+
+    // ========== Webhooks ==========
+
+    /**
+     * Webhook WhatsApp (Meta API)
+     */
+    app.get('/webhook/whatsapp', (req, res) => {
+        const channel = registry.query('whatsapp');
+        if (!channel) return res.send('WhatsApp channel not found');
+
+        const result = channel.verifyWebhook(
+            req.query['hub.mode'],
+            req.query['hub.verify_token'],
+            req.query['hub.challenge']
+        );
+
+        if (result) return res.send(result);
+        res.status(403).send('Forbidden');
+    });
+
+    app.post('/webhook/whatsapp', async (req, res) => {
+        const channel = registry.query('whatsapp');
+        if (channel) await channel.handleWebhook(req.body);
+        res.sendStatus(200);
+    });
+
+    // ========== API Routes ==========
+
+    app.post('/api/login', async (req, res) => {
+        const { password } = req.body;
+        const settings = await getAppSettings();
+
+        if (password === settings.admin_password || password === ADMIN_PASSWORD) {
+            // On renvoie le mot de passe qui pourra servir de token
+            res.json({ success: true, token: password });
+        } else {
+            res.status(401).json({ error: 'Mot de passe incorrect' });
+        }
+    });
+
+    app.get('/api/stats', authMiddleware, async (req, res) => {
+        try { res.json(await getStatsOverview()); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.get('/api/stats/daily', authMiddleware, async (req, res) => {
+        try { res.json(await getDailyStats(parseInt(req.query.days) || 30)); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.get('/api/users', authMiddleware, async (req, res) => {
+        try { res.json(await getRecentUsers(parseInt(req.query.limit) || 50)); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.get('/api/users/search', authMiddleware, async (req, res) => {
+        try { res.json(await searchUsers(req.query.q)); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/users/delete', authMiddleware, async (req, res) => {
+        try {
+            await deleteUser(req.body.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/users/order', authMiddleware, async (req, res) => {
+        try {
+            await incrementOrderCount(req.body.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    // ========== Product Routes ==========
+
+    app.get('/api/products', authMiddleware, async (req, res) => {
+        try { res.json(await getProducts()); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/products', authMiddleware, async (req, res) => {
+        try {
+            const id = await saveProduct(req.body);
+            res.json({ success: true, id });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.delete('/api/products/:id', authMiddleware, async (req, res) => {
+        try {
+            await deleteProduct(req.params.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    // ========== Order Routes ==========
+
+    app.get('/api/orders', authMiddleware, async (req, res) => {
+        try { res.json(await getAllOrders(parseInt(req.query.limit) || 100)); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.get('/api/analytics', authMiddleware, async (req, res) => {
+        try { res.json(await getOrderAnalytics()); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    // ========== Upload Routes ==========
+    app.post('/api/upload', authMiddleware, async (req, res) => {
+        try {
+            if (!req.files || Object.keys(req.files).length === 0) {
+                return res.status(400).json({ error: 'Aucun fichier téléchargé' });
+            }
+
+            const file = req.files.file;
+            const ext = path.extname(file.name);
+            const fileName = Date.now() + '-' + Math.round(Math.random() * 1E9) + ext;
+            const uploadPath = path.join(__dirname, 'web', 'public', 'uploads', fileName);
+
+            file.mv(uploadPath, (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ success: true, url: `/public/uploads/${fileName}` });
+            });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.post('/api/livreurs/status', authMiddleware, async (req, res) => {
+        const { userId, platform, isLivreur } = req.body;
+        try {
+            await setLivreurStatus(userId, platform, isLivreur);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/livreurs/availability', authMiddleware, async (req, res) => {
+        const { userId, platform, isAvailable } = req.body;
+        try {
+            await setLivreurAvailability(makeDocId(platform, userId), isAvailable);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.get('/api/livreurs', authMiddleware, async (req, res) => {
+        try {
+            const dbModule = require('./services/database');
+            const snap = await dbModule.db.collection('bot_users').where('is_livreur', '==', true).get();
+            const livreurs = snap.docs.map(d => {
+                const data = d.data();
+                try { return dbModule.decryptUser({ ...data, doc_id: d.id }); }
+                catch { return { ...data, doc_id: d.id }; }
+            });
+            res.json(livreurs);
+        } catch (e) { console.error('Livreurs API error:', e); res.status(500).json({ error: e.message }); }
+    });
+
+    app.get('/api/settings', authMiddleware, async (req, res) => {
+        try { res.json(await getAppSettings()); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/settings', authMiddleware, async (req, res) => {
+        try {
+            const updates = { ...req.body };
+            if (!updates.admin_password || updates.admin_password.trim() === '') {
+                delete updates.admin_password;
+            }
+            await updateAppSettings(updates);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/orders/status', authMiddleware, async (req, res) => {
+        try {
+            const { orderId, status } = req.body;
+            const order = await getOrder(orderId);
+            if (!order) return res.status(404).json({ error: 'Commande non trouvée' });
+
+            await updateOrderStatus(orderId, status);
+
+            // Notification Client Automatisée
+            if (order.user_id && order.user_id.startsWith('telegram_')) {
+                const tgId = order.user_id.replace('telegram_', '');
+                const tgChannel = registry.query('telegram');
+                if (tgChannel) {
+                    const settings = await getAppSettings();
+                    let text = '';
+                    const shortId = orderId.substring(0, 5);
+
+                    const statusLabel = (status === 'delivered' ? settings.status_delivered_label :
+                        (status === 'pending' ? settings.status_pending_label :
+                            (status === 'taken' ? settings.status_taken_label : settings.status_cancelled_label))) || status.toUpperCase();
+
+                    const statusIcon = (status === 'delivered' ? settings.ui_icon_success :
+                        (status === 'pending' ? settings.ui_icon_pending :
+                            (status === 'taken' ? (settings.ui_icon_taken || '🚚') : settings.ui_icon_error))) || '🔔';
+
+                    switch (status) {
+                        case 'delivered':
+                            text = `${statusIcon} <b>Commande #${shortId} ${statusLabel} !</b>\n\nCelle-ci vient d'être marquée comme livrée. Merci de votre confiance et à bientôt ! 🚀`;
+                            break;
+                        case 'taken':
+                            text = `${statusIcon} <b>Commande #${shortId} ${statusLabel} !</b>\n\nUn livreur a pris en charge votre commande et arrive vers vous. 💨`;
+                            break;
+                        case 'cancelled':
+                            text = `${settings.ui_icon_error} <b>${statusLabel} de commande</b>\n\nVotre commande #${shortId} a été annulée par l'administration.`;
+                            break;
+                        case 'pending':
+                            text = `${settings.ui_icon_pending} <b>Mise à jour de commande</b>\n\nVotre commande #${shortId} est de nouveau ${statusLabel}.`;
+                            break;
+                    }
+                    if (text) tgChannel.sendMessage(tgId, text, { parse_mode: 'HTML' }).catch(() => { });
+                }
+            }
+
+            res.json({ success: true });
+        } catch (e) { console.error('Order Status API error:', e); res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    /**
+     * Broadcast multi-plateforme
+     */
+    app.post('/api/broadcast', authMiddleware, async (req, res) => {
+        try {
+            const { message, platform = 'all', template, components, media_url, media_type } = req.body;
+            if (!message && !template && !media_url) return res.status(400).json({ error: 'Message ou média requis' });
+
+            res.json({ status: 'started' });
+            broadcastMessage(platform, message, { template, components, media_url, media_type }).catch(console.error);
+        } catch (e) {
+            console.error('API Broadcast error:', e);
+            res.status(500).json({ error: 'Erreur broadcast' });
+        }
+    });
+
+    app.use('/api/*', (req, res) => {
+        res.status(404).json({ error: 'Route API non trouvée' });
+    });
+
+    return app;
+}
+
+module.exports = { createServer };

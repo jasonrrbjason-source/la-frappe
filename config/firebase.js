@@ -5,14 +5,16 @@ require('dotenv').config();
 
 let serviceAccount;
 
-if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    try {
-        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-        console.log(`✅ Initialisation via FIREBASE_SERVICE_ACCOUNT_JSON (Projet: ${serviceAccount.project_id})`);
-    } catch (e) {
-        console.error('❌ Erreur lors du parsing de FIREBASE_SERVICE_ACCOUNT_JSON. Vérifiez le format JSON.');
-        process.exit(1);
-    }
+// ===== METHODE 1 : Variables individuelles (Railway / Render / Heroku) =====
+if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    serviceAccount = {
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    };
+    console.log(`✅ Firebase connecté via variables d'env (Projet: ${serviceAccount.projectId})`);
+
+    // ===== METHODE 2 : Fichier JSON local (développement local) =====
 } else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
     const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
     const fullPath = saPath.startsWith('.')
@@ -26,15 +28,18 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
         console.error(`❌ Impossible de charger le fichier Firebase à : ${fullPath}`);
         process.exit(1);
     }
-} else if (process.env.FIREBASE_PROJECT_ID) {
-    serviceAccount = {
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    };
-    console.log(`✅ Initialisation via variables d'env (Project: ${serviceAccount.projectId})`);
+
+    // ===== METHODE 3 : JSON complet en variable (fallback) =====
+} else if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        console.log(`✅ Initialisation via FIREBASE_SERVICE_ACCOUNT_JSON (Projet: ${serviceAccount.project_id})`);
+    } catch (e) {
+        console.error('❌ Erreur lors du parsing de FIREBASE_SERVICE_ACCOUNT_JSON.');
+        process.exit(1);
+    }
 } else {
-    console.error('❌ Firebase credentials manquantes. Configurez FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_SERVICE_ACCOUNT_PATH ou FIREBASE_PROJECT_ID.');
+    console.error('❌ Firebase credentials manquantes. Configurez FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY.');
     process.exit(1);
 }
 
@@ -44,7 +49,6 @@ const app = admin.initializeApp({
 });
 
 // CRITIQUE : Votre base de données s'appelle "default" (sans parenthèses)
-// On doit l'appeler explicitement car admin.firestore() cherche "(default)" par défaut.
 const db = getFirestore(app, 'default');
 
 console.log('📡 Instance Firestore connectée à la base "default"');

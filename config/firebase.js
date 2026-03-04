@@ -39,8 +39,15 @@ if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && proc
         process.exit(1);
     }
 } else {
-    console.error('❌ Firebase credentials manquantes. Configurez FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY.');
-    process.exit(1);
+    // METHODE 4 : Fallback automatique - chercher le fichier à la racine
+    const fallbackPath = path.resolve(process.cwd(), 'serviceAccountKey.json');
+    try {
+        serviceAccount = require(fallbackPath);
+        console.log(`✅ Firebase chargé depuis le fichier local (Projet: ${serviceAccount.project_id})`);
+    } catch (e) {
+        console.error('❌ Firebase credentials manquantes. Aucune méthode de connexion trouvée.');
+        process.exit(1);
+    }
 }
 
 // Initialisation de l'App

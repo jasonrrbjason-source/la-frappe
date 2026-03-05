@@ -25,10 +25,12 @@ function decryptUser(userData) {
         last_name: encryption.decrypt(userData.last_name),
     };
 
-    // Proxy vital fields from JSONB data to root for easy JS access
+    // Proxy vital fields from JSONB data to root for easy JS access (Backward compatibility)
     if (userData.data) {
-        if (userData.data.current_city) decrypted.current_city = userData.data.current_city;
-        if (userData.data.is_available !== undefined) decrypted.is_available = userData.data.is_available;
+        if (!decrypted.current_city && userData.data.current_city) decrypted.current_city = userData.data.current_city;
+        if (decrypted.is_available === undefined && userData.data.is_available !== undefined) {
+            decrypted.is_available = userData.data.is_available;
+        }
     }
 
     return decrypted;
@@ -104,6 +106,9 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         order_count: 0,
         points: 0,
         wallet_balance: 0,
+        is_available: false,
+        current_city: null,
+        data: {},
         referral_code: generateReferralCode(platform, platformUser.id),
     };
     await supabase.from(COL_USERS).insert([newUser]);
@@ -197,44 +202,38 @@ async function setLivreurStatus(userId, platform, isLivreur) {
 }
 async function setLivreurAvailability(docId, isAvailable) {
     const user = await getUser(docId);
-    let extra = user ? (user.data || {}) : {};
-    extra.is_available = isAvailable;
+    let meta = user ? (user.data || {}) : {};
+    meta.is_available = isAvailable;
 
-    // Tentative d'update sur la colonne ET le JSONB (fallback)
-    try {
-        await supabase.from(COL_USERS).update({
-            is_available: isAvailable,
-            data: extra,
-            updated_at: ts()
-        }).eq('id', docId);
-    } catch (e) {
-        // Si la colonne n'existe pas encore, update seulement le JSONB
-        await supabase.from(COL_USERS).update({
-            data: extra,
-            updated_at: ts()
-        }).eq('id', docId);
-    }
+    // Mise à jour ATOMIQUE : On met à jour la colonne racine ET le JSONB meta
+    await supabase.from(COL_USERS).update({
+        is_available: isAvailable,
+        data: meta,
+        updated_at: ts()
+    }).eq('id', docId);
+
     _userCache.delete(docId);
 }
 
 async function updateLivreurPosition(docId, input) {
     const user = await getUser(docId);
     if (!user) return;
-    const sectors = input.split(',').map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
-    // On met tout dans data
-    let tracked = user.data || {};
-    tracked.sectors = sectors;
-    tracked.current_city = input.toLowerCase();
-    tracked.last_position_update = ts();
+    const city = input.toLowerCase();
+    const sectors = city.split(',').map(s => s.trim()).filter(s => s.length > 0);
 
-    // Sync root is_available to data if missing
-    if (user.is_available !== undefined) tracked.is_available = user.is_available;
+    let meta = user.data || {};
+    meta.sectors = sectors;
+    meta.current_city = city;
+    meta.last_position_update = ts();
+    if (user.is_available !== undefined) meta.is_available = user.is_available;
 
+    // Mise à jour de la colonne racine current_city ET de l'objet data
     await supabase.from(COL_USERS).update({
-        data: tracked,
-        is_available: tracked.is_available || false,
+        current_city: city,
+        data: meta,
         updated_at: ts()
     }).eq('id', docId);
+
     _userCache.delete(docId);
 }
 
@@ -601,16 +600,16 @@ async function getOrderAnalytics() {
 }
 
 async function getAvailableLivreurs(city = null) {
-    let q = supabase.from(COL_USERS).select('*').eq('is_livreur', true);
-    /* Note from translation : on firebase it queried a dynamic JSON object. We adapt if it uses 'data' structure or root.
-       I mapped 'current_city' on data field, but the query requires JSONB search.
-       Let's query all first then filter, or adjust if schema keeps it tracked_messages. */
-    const { data } = await q;
-    let list = data || [];
+    let q = supabase.from(COL_USERS).select('*')
+        .eq('is_livreur', true)
+        .eq('is_available', true);
+
     if (city) {
-        list = list.filter(d => d.data && d.data.current_city === city.toLowerCase());
+        q = q.eq('current_city', city.toLowerCase());
     }
-    return list;
+
+    const { data } = await q;
+    return (data || []).map(d => decryptUser(d));
 }
 
 // --- Settings ---

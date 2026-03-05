@@ -29,7 +29,9 @@ CREATE TABLE IF NOT EXISTS bot_users (
   date_inscription TIMESTAMPTZ DEFAULT NOW(),
   last_active TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
-  blocked_at TIMESTAMPTZ
+  blocked_at TIMESTAMPTZ,
+  current_city TEXT,
+  data JSONB DEFAULT '{}'::jsonb
 );
 
 -- 2. Table Produits (bot_products)

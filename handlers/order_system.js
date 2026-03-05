@@ -266,29 +266,39 @@ function setupOrderSystem(bot) {
 
     bot.action(/^set_dispo_(true|false)$/, async (ctx) => {
         const isAvailable = ctx.match[1] === 'true';
+        const docId = `telegram_${ctx.from.id}`;
+
+        // 1. Toast immédiat
         await ctx.answerCbQuery(`Statut : ${isAvailable ? 'DISPONIBLE ✅' : 'INDISPONIBLE 😴'}`);
 
-        const docId = `telegram_${ctx.from.id}`;
+        // 2. Update DB
         await setLivreurAvailability(docId, isAvailable);
 
-        // IMPORTANT : Forcer la récupération de données fraîches en ignorant le cache de 5min
+        // 3. Invalidation Cache
         if (_userCache) _userCache.delete(docId);
 
+        // 4. Force l'affichage local (Sans attendre la DB / Cache)
         const settings = await getAppSettings();
-        const user = await getUser(docId);
-        const { getLivreurMenuKeyboard } = require('./start');
+        let user = await getUser(docId);
 
-        const isAvail = user.is_available || (user.data && user.data.is_available);
+        // On écrase manuellement les valeurs locales pour l'interface
+        if (user) {
+            user.is_available = isAvailable;
+            if (!user.data) user.data = {};
+            user.data.is_available = isAvailable;
+        }
+
+        const { getLivreurMenuKeyboard } = require('./start');
         const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
-            `👤 ${user.first_name}\n` +
-            `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
-            `🔘 Statut : <b>${isAvail ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
+            `👤 ${user ? user.first_name : ctx.from.first_name}\n` +
+            `📍 Secteur : <b>${user?.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
+            `🔘 Statut : <b>${isAvailable ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
             `Que voulez-vous faire ?`;
 
         const opts = { parse_mode: 'HTML', ...getLivreurMenuKeyboard(settings, user) };
         await safeEdit(ctx, text, opts);
 
-        // Forcer la mise à jour du bouton de menu Telegram pour enlever le gros "Démarrer"
+        // 5. Cleanup bouton "Démarrer"
         ctx.telegram.setChatMenuButton(ctx.chat.id, { type: 'commands' }).catch(() => { });
     });
 

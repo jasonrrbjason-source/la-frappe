@@ -861,8 +861,12 @@
                     💡 Le formatage HTML est supporté. Les médias seront envoyés avec le message.
                 </div>
 
-                <button class="btn btn-accent" onclick="sendBC()" style="width:100%; font-size:15px; padding:14px;">🚀
-                    Lancer la diffusion</button>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn btn-accent" id="btn_send_bc" onclick="sendBC()" style="flex:2">🚀 Lancer la
+                        diffusion</button>
+                    <button class="btn btn-outline" onclick="viewDiagnosticLogs()" style="flex:1; font-size:11px;">📋
+                        Logs Diagnostic</button>
+                </div>
             </div>
         </section>
 
@@ -1485,6 +1489,10 @@
             } catch (e) {
                 showToast('Erreur: ' + e.message, 'error');
             }
+        }
+
+        async function viewDiagnosticLogs() {
+            window.open(`/api/debug/logs?token=${TOKEN}`, '_blank');
         }
 
         function initDragAndDrop(zoneId, previewId, urlInputId, typeInputId = null, type) {

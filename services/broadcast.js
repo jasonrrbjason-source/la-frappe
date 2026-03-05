@@ -131,11 +131,12 @@ async function sendToUser(user, message, { mediaFiles = [] }) {
         }
         return { success: true };
     } catch (error) {
-        const desc = error.description || error.message;
-        debugLog(`[BC-ERROR] Cible ${chatId}: ${desc}`);
+        const desc = error.description || error.message || "Erreur inconnue";
+        const errorName = error.name || "Error";
+        debugLog(`[BC-ERROR] Cible ${chatId}: [${errorName}] ${desc}`);
 
         if (error.code === 403 || desc.includes('blocked') || desc.includes('chat not found') || desc.includes('kicked')) {
-            await markUserBlocked(user.doc_id).catch(() => { });
+            if (user.doc_id) await markUserBlocked(user.doc_id).catch(() => { });
             return { success: false, blocked: true, error: desc };
         }
         return { success: false, error: desc };

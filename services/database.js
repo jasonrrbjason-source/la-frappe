@@ -75,7 +75,7 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
     return { isNew: true, user: decryptUser(newUser) };
 }
 
-async function getAllActiveUsers(platform = null, type = 'user') {
+async function getAllActiveUsers(platform = null, type = null) {
     const snapshot = await activeUsersQuery(platform, type).get();
     const list = snapshot.docs.map((d) => decryptUser(d.data()));
     console.log(`[DB] getAllActiveUsers(platform=${platform}, type=${type}) -> ${list.length} trouvés`);

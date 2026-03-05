@@ -1625,7 +1625,20 @@
                 if (id === 'broadcast') {
                     try {
                         const history = await api('/broadcasts');
+                        history.forEach(h => {
+                            h.media_urls = [];
+                            if (h.message && h.message.includes("|||MEDIA_URLS|||")) {
+                                const parts = h.message.split("|||MEDIA_URLS|||");
+                                h.message = parts[0];
+                                try {
+                                    const parsed = JSON.parse(parts[1]);
+                                    // Compatibility: transform strings to objects if needed, though they are stored as strings for streaming
+                                    h.media_urls = Array.isArray(parsed) ? parsed.map(url => ({ url, type: url.match(/\.(mp4|mov|webm)$/i) ? 'video' : 'photo' })) : [];
+                                } catch (e) { }
+                            }
+                        });
                         window._lastBroadcasts = history;
+
                         const historyTbody = document.querySelector('#bcHistoryTable tbody');
                         if (historyTbody) {
                             historyTbody.innerHTML = history.map(h => {
@@ -1825,9 +1838,13 @@
 
         async function deleteBC(id) {
             if (!await showModal('Suppression', 'Supprimer ce log de diffusion ?')) return;
-            await api('/broadcasts/' + id, { method: 'DELETE' });
-            showToast('Log supprimé', 'success');
-            loadData('broadcast');
+            try {
+                await api('/broadcasts/' + id, { method: 'DELETE' });
+                showToast('Log supprimé', 'success');
+                loadData('broadcast');
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
         }
 
         async function sendBC() {
@@ -2188,9 +2205,13 @@
         async function delProd(id) {
             const ok = await showModal('Supprimer', 'Supprimer ce produit ?');
             if (!ok) return;
-            await api('/products/' + id, 'DELETE');
-            loadData('products');
-            showToast('Produit supprimé', 'success');
+            try {
+                await api('/products/' + id, 'DELETE');
+                loadData('products');
+                showToast('Produit supprimé', 'success');
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
         }
 
 
@@ -2460,9 +2481,13 @@
         async function delUser(id) {
             const ok = await showModal('Supprimer', 'Supprimer cet utilisateur ?');
             if (!ok) return;
-            await api('/users/delete', 'POST', { id });
-            loadData('users');
-            showToast('Utilisateur supprimé', 'success');
+            try {
+                await api('/users/delete', 'POST', { id });
+                loadData('users');
+                showToast('Utilisateur supprimé', 'success');
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
         }
 
         function logout() { localStorage.removeItem('admin_token'); window.location.href = '/'; }

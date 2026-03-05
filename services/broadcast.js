@@ -56,9 +56,13 @@ async function broadcastMessage(platform, message, options = {}) {
     }
 
     // 2. Init log en DB
+    const mediaUrlsJson = JSON.stringify(unifiedMediaList.filter(m => m.url).map(m => m.url));
+    const finalMessageStr = message ? message : `[Médias: ${unifiedMediaList.length}]`;
+    const payloadMessage = `${finalMessageStr}|||MEDIA_URLS|||${mediaUrlsJson}`;
+
     const broadcastId = await saveBroadcast({
-        message: message ? message : `[Médias: ${unifiedMediaList.length}]`,
-        media_urls: unifiedMediaList.filter(m => m.url), // Only store URLs in DB
+        message: payloadMessage,
+        media_count: unifiedMediaList.length,
         total_target: totalTargets,
         target_platform: platform,
         status: 'in_progress',

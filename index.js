@@ -167,10 +167,11 @@ function startAutomatedTimer(bot) {
                     ).catch(() => { });
 
                     // Reset dans la DB
-                    await db.collection('bot_users').doc(user.doc_id).update({
+                    const { supabase } = require('./config/supabase');
+                    await supabase.from('bot_users').update({
                         tracked_messages: [],
-                        last_session_reset: new Date()
-                    });
+                        last_session_reset: new Date().toISOString()
+                    }).eq('id', user.doc_id);
                 }
             }
 

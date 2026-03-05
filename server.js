@@ -205,6 +205,15 @@ function createServer() {
         }
     });
 
+    app.get('/api/debug/dir', authMiddleware, async (req, res) => {
+        try {
+            const dir = path.resolve(__dirname, 'web', 'public', 'uploads');
+            if (!fs.existsSync(dir)) return res.send('Répertoire inexistant.');
+            const files = fs.readdirSync(dir);
+            res.json({ dir, files });
+        } catch (e) { res.status(500).send(e.message); }
+    });
+
     app.get('/api/debug/logs', authMiddleware, async (req, res) => {
         try {
             const logPath = path.join(process.cwd(), 'debug_la_frappe.log');

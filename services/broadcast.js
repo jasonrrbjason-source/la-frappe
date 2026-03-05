@@ -72,7 +72,7 @@ async function broadcastMessage(platform, message, options = {}) {
         debugLog(`[BC-BATCH] Lot ${Math.floor(i / currentBatchSize) + 1} (${batch.length} cibles)`);
 
         const results = await Promise.allSettled(
-            batch.map((user) => sendToUser(user, message, { mediaFiles, mediaUrls: uploadedMedia }))
+            batch.map((user) => sendToUser(user, message, { mediaFiles, mediaUrls: existingUrls }))
         );
 
         for (const [idx, result] of results.entries()) {

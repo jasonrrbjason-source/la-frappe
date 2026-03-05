@@ -263,9 +263,14 @@ async function createOrder(orderData) {
         status: 'pending',
         created_at: ts()
     }]).select();
-    if (error) console.error("Error createOrder", error);
+
+    if (error) {
+        console.error("Error createOrder", error);
+        return { order: null, error };
+    }
+
     await incrementStat('total_orders');
-    return id;
+    return { order: data[0], error: null };
 }
 
 async function updateOrderStatus(orderId, status, extraData = {}) {

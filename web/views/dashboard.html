@@ -994,13 +994,14 @@
                         €</span>
                     <div style="background:rgba(255,255,255,0.05); padding:5px; border-radius:10px; display:flex; gap:5px;"
                         id="orderFilterContainer">
-                        <button class="btn btn-sm btn-outline active"
+                        <button class="btn btn-sm btn-outline"
                             onclick="filterData('orders', 'today', this)">Aujourd'hui</button>
                         <button class="btn btn-sm btn-outline"
                             onclick="filterData('orders', 'week', this)">Semaine</button>
                         <button class="btn btn-sm btn-outline"
                             onclick="filterData('orders', 'month', this)">Mois</button>
-                        <button class="btn btn-sm btn-outline" onclick="filterData('orders', 'all', this)">Tout</button>
+                        <button class="btn btn-sm btn-outline active"
+                            onclick="filterData('orders', 'all', this)">Tout</button>
                     </div>
                 </div>
             </div>
@@ -1442,12 +1443,16 @@
                 let createdTime = '—';
                 if (o.created_at) {
                     const d = o.created_at._seconds ? new Date(o.created_at._seconds * 1000) : new Date(o.created_at);
-                    createdTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    if (!isNaN(d.getTime())) {
+                        createdTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    }
                 }
                 let deliveredTime = '—';
                 if (o.delivered_at) {
                     const d = o.delivered_at._seconds ? new Date(o.delivered_at._seconds * 1000) : new Date(o.delivered_at);
-                    deliveredTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    if (!isNaN(d.getTime())) {
+                        deliveredTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    }
                 }
 
                 return `
@@ -1504,7 +1509,14 @@
                 if (period !== 'all') {
                     filtered = filtered.filter(o => {
                         if (!o.created_at) return false;
-                        const d = o.created_at._seconds ? new Date(o.created_at._seconds * 1000) : new Date(o.created_at);
+
+                        // Robust date parsing for Supabase / Firebase
+                        let d;
+                        if (o.created_at._seconds) d = new Date(o.created_at._seconds * 1000);
+                        else d = new Date(o.created_at);
+
+                        if (isNaN(d.getTime())) return false; // Invalid Date
+
                         if (period === 'today') {
                             return d.toDateString() === now.toDateString();
                         } else if (period === 'week') {
@@ -1619,9 +1631,14 @@
                     }).join('');
                 }
                 if (id === 'orders') {
-                    window._cachedOrders = await api('/orders');
-                    window._cachedLivreurs = await api('/livreurs');
-                    filterData('orders', 'today'); // Default to today
+                    try {
+                        window._cachedOrders = await api('/orders');
+                        window._cachedLivreurs = await api('/livreurs');
+                        filterData('orders', 'all'); // Default to all
+                    } catch (e) {
+                        console.error("Orders load failed", e);
+                        document.querySelector('#orderTable tbody').innerHTML = '<tr><td colspan="8" style="padding:20px; color:var(--danger)">Erreur de chargement des commandes.</td></tr>';
+                    }
                 }
                 if (id === 'livreurs') {
                     try {

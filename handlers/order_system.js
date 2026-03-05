@@ -189,7 +189,7 @@ function setupOrderSystem(bot) {
             first_name: ctx.from.first_name || 'Inconnu',
             product_id: product.id,
             product_name: product.name,
-            qty: pending.qty,
+            quantity: pending.qty,
             total_price: finalPrice,
             address: pending.address,
             status: 'pending',
@@ -312,13 +312,13 @@ function setupOrderSystem(bot) {
 
     bot.action('change_city', async (ctx) => {
         await ctx.answerCbQuery();
-        const settings = ctx.state.settings;
         const sectors = [
-            ['📍 Paris', 'sector_paris'],
-            ['🌍 Paris + IDF', 'sector_paris_idf'],
-            ['📍 Marseille', 'sector_marseille'],
-            ['🌍 Marseille + Banlieue', 'sector_marseille_banlieue'],
-            ['📍 Lyon', 'sector_lyon'],
+            ['📍 Paris / IDF', 'sector_paris_idf'],
+            ['📍 Marseille / PACA', 'sector_marseille_paca'],
+            ['📍 Lyon / Rhône-Alpes', 'sector_lyon_ra'],
+            ['📍 Lille / HDF', 'sector_lille_hdf'],
+            ['📍 Bordeaux / Aquitaine', 'sector_bordeaux_na'],
+            ['📍 Toulouse / Occitanie', 'sector_toulouse_occ'],
             ['⌨️ Autre (Saisie libre)', 'sector_manual']
         ];
 
@@ -326,7 +326,7 @@ function setupOrderSystem(bot) {
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
 
         await safeEdit(ctx,
-            `📍 <b>SÉLECTION DU SECTEUR</b>\n\nChoisissez votre zone de livraison actuelle :`,
+            `📍 <b>SÉLECTION DU SECTEUR</b>\n\nChoisissez votre zone de livraison principale :`,
             Markup.inlineKeyboard(buttons)
         );
     });
@@ -344,11 +344,12 @@ function setupOrderSystem(bot) {
         }
 
         const sectorMap = {
-            'paris': 'Paris',
             'paris_idf': 'Paris + IDF',
-            'marseille': 'Marseille',
-            'marseille_banlieue': 'Marseille + Banlieue',
-            'lyon': 'Lyon'
+            'marseille_paca': 'Marseille + PACA',
+            'lyon_ra': 'Lyon + Rhône-Alpes',
+            'lille_hdf': 'Lille + Hauts-de-France',
+            'bordeaux_na': 'Bordeaux + Aquitaine',
+            'toulouse_occ': 'Toulouse + Occitanie'
         };
 
         const cityName = sectorMap[choice] || choice;

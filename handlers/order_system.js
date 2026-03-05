@@ -237,9 +237,6 @@ function setupOrderSystem(bot) {
             livreur_name: ctx.from.first_name
         });
 
-        // Calcul temps estimé (algo simple)
-        const min = 15 + Math.floor(Math.random() * 30);
-
         const settings = await getAppSettings();
         await safeEdit(ctx,
             `${settings.ui_icon_success} <b>Commande #${orderId.substring(0, 5)} acceptée !</b>\n\n` +
@@ -262,8 +259,8 @@ function setupOrderSystem(bot) {
         // Notifier le client
         bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
             `🚚 <b>Bonne nouvelle !</b>\n\n` +
-            `Votre commande #${orderId.substring(0, 5)} est prise en charge par <b>${ctx.from.first_name}</b>.\n` +
-            `⏳ Arrivée estimée : <b>${min} minutes</b>.\n\n` +
+            `Votre commande #${orderId.substring(0, 5)} est prise en charge par <b>La Frappe</b>.\n` +
+            `⏳ Une estimation du temps d'arrivé vous sera donnée dans quelques minutes.\n\n` +
             `<i>Préparez l'appoint pour le paiement en liquide.</i>`,
             { parse_mode: 'HTML' }
         ).catch(() => { });

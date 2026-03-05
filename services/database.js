@@ -17,13 +17,20 @@ const incr = (n = 1) => n;
 
 function decryptUser(userData) {
     if (!userData) return null;
-    return {
+    const decrypted = {
         ...userData,
         doc_id: userData.id,
         username: encryption.decrypt(userData.username),
         first_name: encryption.decrypt(userData.first_name),
         last_name: encryption.decrypt(userData.last_name),
     };
+
+    // Proxy vital fields from JSONB data to root for easy JS access
+    if (userData.data) {
+        if (userData.data.current_city) decrypted.current_city = userData.data.current_city;
+    }
+
+    return decrypted;
 }
 function makeDocId(platform, platformId) { return `${platform}_${platformId}`; }
 

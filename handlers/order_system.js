@@ -377,7 +377,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const user = await getUser(`telegram_${ctx.from.id}`);
         if (!user || !user.current_city) {
-            return safeEdit(ctx, '❌ Vous n\'avez pas défini de secteur. Utilisez "Changer de secteur".');
+            return safeEdit(ctx, '❌ Vous n\'avez pas défini de secteur. Utilisez "Changer de secteur".', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
         }
 
         const orders = await getAvailableOrdersByCity(user.current_city);

@@ -249,6 +249,7 @@ async function showAdminMenu(ctx) {
         [Markup.button.callback(`${settings.ui_icon_livreur} Gestion Livreurs`, 'admin_livreurs')],
         [Markup.button.callback(`${settings.ui_icon_broadcast} Lancer un Broadcast`, 'admin_broadcast_start')],
         [Markup.button.callback(`⚙️ Paramètres du Bot`, 'admin_settings')],
+        [Markup.button.callback('◀️ Retour au menu principal', 'main_menu')],
         [Markup.button.callback(`${settings.ui_icon_logout} Se déconnecter`, 'admin_logout')]
     ]);
 

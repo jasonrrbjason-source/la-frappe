@@ -314,6 +314,7 @@ function getLivreurMenuKeyboard(settings, user) {
         [Markup.button.callback('📡 Tracking Live (Aide)', 'tracking_info')],
         [Markup.button.callback(`${settings.ui_icon_stats} Mon historique livraisons`, 'my_deliveries')],
         [Markup.button.callback('🛒 Mode Client (commander)', 'client_menu')],
+        [Markup.button.callback('◀️ Retour au menu principal', 'main_menu')],
     ];
 
     // Bouton Admin si le livreur est aussi admin

@@ -46,7 +46,7 @@ function setupOrderSystem(bot) {
 
         await safeEdit(ctx, text, {
             ...Markup.inlineKeyboard([buttons, [Markup.button.callback('◀️ Retour', 'view_catalog')]]),
-            media: product.image_url ? { type: 'photo', media: product.image_url } : null
+            photo: product.image_url || null
         });
     });
 
@@ -70,11 +70,14 @@ function setupOrderSystem(bot) {
             `✅ <b>${qty}x ${product.name}</b> ajouté au panier.\n` +
             `💰 Total : <b>${totalPrice}€</b>\n\n` +
             `📍 Veuillez nous envoyer votre <b>adresse de livraison</b> précise (ou utilisez l'autocomplétion) :`,
-            Markup.inlineKeyboard([
-                ...(settings.dashboard_url ? [[Markup.button.webApp("📍 Choisir sur la carte", `${settings.dashboard_url.replace('/dashboard', '/address_picker')}`)]] : []),
-                [Markup.button.callback('◀️ Changer quantité', `product_${productId}`)],
-                [Markup.button.callback('❌ Annuler', 'view_catalog')]
-            ])
+            {
+                ...Markup.inlineKeyboard([
+                    ...(settings.dashboard_url ? [[Markup.button.webApp("📍 Choisir sur la carte", `${settings.dashboard_url.replace('/dashboard', '/address_picker')}`)]] : []),
+                    [Markup.button.callback('◀️ Changer quantité', `product_${productId}`)],
+                    [Markup.button.callback('❌ Annuler', 'view_catalog')]
+                ]),
+                photo: product.image_url || null
+            }
         );
     });
 
@@ -115,11 +118,14 @@ function setupOrderSystem(bot) {
                     `Votre solde actuel : <b>${(user.wallet_balance).toFixed(2)}€</b>\n` +
                     `Règle de fidélité : Vous pouvez utiliser jusqu'à <b>${maxPct}%</b> du panier (soit <b>${possibleDiscount.toFixed(2)}€</b>).\n\n` +
                     `Voulez-vous appliquer cette réduction ?`,
-                    Markup.inlineKeyboard([
-                        [Markup.button.callback(`✅ Oui, déduire ${possibleDiscount.toFixed(2)}€`, 'confirm_order_use_credit_yes')],
-                        [Markup.button.callback('❌ Non, payer plein tarif', 'confirm_order_use_credit_no')],
-                        [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
-                    ])
+                    {
+                        ...Markup.inlineKeyboard([
+                            [Markup.button.callback(`✅ Oui, déduire ${possibleDiscount.toFixed(2)}€`, 'confirm_order_use_credit_yes')],
+                            [Markup.button.callback('❌ Non, payer plein tarif', 'confirm_order_use_credit_no')],
+                            [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
+                        ]),
+                        photo: product.image_url || null
+                    }
                 );
             }
         }
@@ -164,10 +170,13 @@ function setupOrderSystem(bot) {
             `💵 <b>TOTAL À RÉGLER : ${finalPrice.toFixed(2)}€</b>\n\n` +
             `Confirmez-vous la commande ?`;
 
-        await safeEdit(ctx, text, Markup.inlineKeyboard([
-            [Markup.button.callback('✅ CONFIRMER LA COMMANDE', `create_order_${discount > 0 ? 'discount' : 'normal'}`)],
-            [Markup.button.callback('❌ Annuler', 'view_catalog')]
-        ]));
+        await safeEdit(ctx, text, {
+            ...Markup.inlineKeyboard([
+                [Markup.button.callback('✅ CONFIRMER LA COMMANDE', `create_order_${discount > 0 ? 'discount' : 'normal'}`)],
+                [Markup.button.callback('❌ Annuler', 'view_catalog')]
+            ]),
+            photo: product.image_url || null
+        });
     }
 
     bot.action(/^create_order_(.+)$/, async (ctx) => {

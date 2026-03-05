@@ -186,14 +186,28 @@ function setupOrderSystem(bot) {
     });
 
     bot.action(/^set_dispo_(true|false)$/, async (ctx) => {
-        await ctx.answerCbQuery();
         const isAvailable = ctx.match[1] === 'true';
+        await ctx.answerCbQuery(`Statut : ${isAvailable ? 'DISPONIBLE ✅' : 'INDISPONIBLE 😴'}`);
+
         await setLivreurAvailability(`telegram_${ctx.from.id}`, isAvailable);
+
+        // Rafraîchir le menu livreur immédiatement (Dynamique)
         const settings = await getAppSettings();
-        await safeEdit(ctx,
-            `${settings.ui_icon_notification} <b>Statut mis à jour :</b> ${isAvailable ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}`,
-            { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]]) }
-        );
+        const user = await getUser(`telegram_${ctx.from.id}`);
+        const { getLivreurMenuKeyboard } = require('./start');
+
+        const isAvail = user.is_available || (user.data && user.data.is_available);
+        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
+            `👤 ${user.first_name}\n` +
+            `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
+            `🔘 Statut : <b>${isAvail ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
+            `Que voulez-vous faire ?`;
+
+        const opts = { parse_mode: 'HTML', ...getLivreurMenuKeyboard(settings, user) };
+        await safeEdit(ctx, text, opts);
+
+        // Forcer la mise à jour du bouton de menu Telegram pour enlever le gros "Démarrer"
+        ctx.telegram.setChatMenuButton(ctx.chat.id, { type: 'commands' }).catch(() => { });
     });
 
     bot.command('ma_position', async (ctx) => {

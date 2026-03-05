@@ -48,6 +48,9 @@ function setupStartHandler(bot) {
             const keyboard = registeredUser.is_livreur ? getLivreurMenuKeyboard(settings, registeredUser) : getMainMenuKeyboard(settings, registeredUser);
             await safeEdit(ctx, welcomeText, keyboard);
 
+            // Forcer le bouton "Menu" au lieu de "Démarrer"
+            ctx.telegram.setChatMenuButton(ctx.chat.id, { type: 'commands' }).catch(() => { });
+
         } catch (error) {
             console.error('❌ Erreur /start:', error);
         }

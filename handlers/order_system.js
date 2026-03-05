@@ -3,7 +3,7 @@ const {
     getProducts, createOrder, getUser, setLivreurStatus,
     updateLivreurPosition, getAvailableOrdersByCity, updateOrderStatus,
     getOrder, getAppSettings, getAllOrders, setLivreurAvailability,
-    incrementOrderCount, getAvailableLivreurs, getLastMenuId
+    incrementOrderCount, getAvailableLivreurs, getLastMenuId, _userCache
 } = require('../services/database');
 const { safeEdit, debugLog } = require('../services/utils');
 
@@ -19,144 +19,223 @@ function setupOrderSystem(bot) {
             return safeEdit(ctx, '📭 Le catalogue est actuellement vide.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
         }
 
-        const buttons = products.map(p => {
-            const uv = p.unit_value ? p.unit_value : '';
-            const unitLabel = p.unit ? `/${uv}${p.unit}` : '';
-            const promoLabel = p.promo ? ` 🔥${p.promo}` : '';
-            return [Markup.button.callback(`${p.name} - ${p.price}€${unitLabel}${promoLabel}`, `buy_${p.id}`)];
-        });
-        buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
-
-        await safeEdit(ctx,
-            `${settings.ui_icon_catalog} <b>${settings.label_catalog}</b>\n\nChoisissez un produit pour commander :`,
-            Markup.inlineKeyboard(buttons)
-        );
-    });
-
-    // Sélection produit
-    bot.action(/^buy_(.+)$/, async (ctx) => {
-        try {
-            await ctx.answerCbQuery();
-            const productId = ctx.match[1];
-            const products = await getProducts();
-            const product = products.find(p => p.id === productId);
-
-            if (!product) {
-                debugLog(`[PRODUCT-ERR] ID ${productId} non trouvé.`);
-                return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
-            }
-
-            debugLog(`[PRODUCT-VIEW] ${product.name} par ${ctx.from.id}`);
-
-            const uv = product.unit_value ? product.unit_value : '';
-            const unitLabel = product.unit ? `/${uv}${product.unit}` : '';
-            const promoText = product.promo ? `🎁 Promo : <b>${product.promo}</b>\n` : '';
-            const settings = ctx.state.settings;
-            let caption = `🛒 <b>${product.name}</b>\n` +
-                `💰 Prix unité : <b>${product.price}€${unitLabel}</b>\n` +
-                promoText + `\n` +
-                `<b>${settings.msg_choose_qty}</b>`;
-
-            // Telegram limit 1024
-            if (caption.length > 1020) caption = caption.substring(0, 1017) + '...';
-
-            const keyboard = Markup.inlineKeyboard([
-                [1, 2, 3].map(q => Markup.button.callback(String(q), `qty_${productId}_${q}`)),
-                [4, 5, 10].map(q => Markup.button.callback(String(q), `qty_${productId}_${q}`)),
-                [Markup.button.callback('❌ Annuler', 'view_catalog')]
-            ]);
-
-            // Préparation des médias
-            let productMedia = null;
-            let productMediaGroup = null;
-            const hasImage = product.image_url && typeof product.image_url === 'string' && product.image_url.length > 5;
-
-            if (hasImage) {
-                let mediaList = [];
-                try {
-                    if (product.image_url.startsWith('[') && product.image_url.endsWith(']')) {
-                        mediaList = JSON.parse(product.image_url);
-                    } else {
-                        const isVideo = product.image_url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
-                        mediaList = [{ url: product.image_url, type: isVideo ? 'video' : 'photo' }];
-                    }
-                } catch (e) {
-                    const isVideo = product.image_url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
-                    mediaList = [{ url: product.image_url, type: isVideo ? 'video' : 'photo' }];
-                }
-
-                mediaList = mediaList.filter(m => m.url && m.url.length > 5);
-
-                if (mediaList.length > 1) {
-                    productMediaGroup = mediaList.map(m => {
-                        const url = typeof m === 'string' ? m : m.url;
-                        const type = typeof m === 'object' ? m.type : null;
-                        const isVideo = type === 'video' || url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
-                        return {
-                            type: isVideo ? 'video' : 'photo',
-                            media: url
-                        };
-                    });
-                    keyboard.mediaGroup = productMediaGroup;
-                } else if (mediaList.length === 1) {
-                    const m = mediaList[0];
-                    const url = typeof m === 'string' ? m : m.url;
-                    const type = typeof m === 'object' ? m.type : null;
-                    const isVideo = type === 'video' || url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
-                    const productMedia = url;
-
-                    if (isVideo) {
-                        keyboard.video = productMedia;
-                    } else {
-                        keyboard.photo = productMedia;
-                    }
-                    debugLog(`[PRODUCT-MEDIA] Envoi ${isVideo ? 'video' : 'photo'} pour ${product.name}`);
-                }
-            }
-
-            await safeEdit(ctx, caption, keyboard);
-        } catch (e) {
-            debugLog(`[PRODUCT-FATAL] ${e.message}`);
-            console.error('Error buy_', e);
-        }
-    });
-
-    // Map temporaire pour stocker les infos en attente de saisie
-    const pendingCityInput = new Map();
-    const pendingOrderConfirmation = new Map();
-
-    // Sélection Quantité -> demande d'adresse
-    bot.action(/^qty_(.+)_(.+)$/, async (ctx) => {
-        await ctx.answerCbQuery();
-        const productId = ctx.match[1];
-        const qty = parseInt(ctx.match[2]);
-        const userId = `telegram_${ctx.from.id}`;
-
-        const products = await getProducts();
-        const product = products.find(p => p.id === productId);
-        if (!product) return ctx.reply('❌ Produit non trouvé.');
-
-        pendingCityInput.set(userId, { productId, qty, price: product.price, name: product.name });
-
-        const settings = await getAppSettings();
-        const text = `🛒 <b>${product.name}</b> (x${qty})\n` +
-            `💰 Total : <b>${(product.price * qty).toFixed(2)}€</b>\n\n` +
-            `🏠 <b>Veuillez maintenant envoyer votre adresse de livraison complète par message texte.</b>\n` +
-            `<i>Ex: 12 rue de la Paix, 75000 Paris</i>`;
-
-        let pickerUrl = '';
-        if (settings.dashboard_url && settings.dashboard_url.includes('http')) {
-            pickerUrl = settings.dashboard_url.replace(/\/dashboard\/?$/, '') + '/address-picker';
-        }
-
-        const buttons = [[Markup.button.callback('❌ Annuler', 'view_catalog')]];
-        if (pickerUrl) {
-            buttons.unshift([Markup.button.webApp("📍 Utiliser l'autocomplétion", pickerUrl)]);
-        }
+        let text = `${settings.ui_icon_catalog} <b>Catalogue ${settings.bot_name}</b>\n\nChoisissez un produit :`;
+        const buttons = products.map(p => [Markup.button.callback(`${p.name} - ${p.price}€`, `product_${p.id}`)]);
+        buttons.push([Markup.button.callback('◀️ Retour', 'main_menu')]);
 
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     });
 
+    bot.action(/^product_(.+)$/, async (ctx) => {
+        await ctx.answerCbQuery();
+        const productId = ctx.match[1];
+        const products = await getProducts();
+        const product = products.find(p => p.id === productId);
+        const settings = ctx.state.settings;
+
+        if (!product) return ctx.reply('❌ Produit non trouvé.');
+
+        let text = `📦 <b>${product.name}</b>\n\n` +
+            `💰 Prix : <b>${product.price}€</b>\n` +
+            `📝 Description : ${product.description || 'Aucune'}\n\n` +
+            `Combien en voulez-vous ?`;
+
+        const buttons = [1, 2, 3, 4, 5].map(qty =>
+            Markup.button.callback(`${qty}`, `qty_${productId}_${qty}`)
+        );
+
+        await safeEdit(ctx, text, {
+            ...Markup.inlineKeyboard([buttons, [Markup.button.callback('◀️ Retour', 'view_catalog')]]),
+            media: product.image_url ? { type: 'photo', media: product.image_url } : null
+        });
+    });
+
+    // Stockage temporaire des commandes en cours (in-memory simple)
+    const pendingOrders = new Map();
+
+    bot.action(/^qty_(.+)_(.+)$/, async (ctx) => {
+        await ctx.answerCbQuery();
+        const productId = ctx.match[1];
+        const qty = parseInt(ctx.match[2]);
+        const products = await getProducts();
+        const product = products.find(p => p.id === productId);
+        const settings = ctx.state.settings;
+
+        if (!product) return ctx.reply('❌ Produit non trouvé.');
+
+        const totalPrice = (product.price * qty).toFixed(2);
+        pendingOrders.set(ctx.from.id, { productId, qty, totalPrice });
+
+        await safeEdit(ctx,
+            `✅ <b>${qty}x ${product.name}</b> ajouté au panier.\n` +
+            `💰 Total : <b>${totalPrice}€</b>\n\n` +
+            `📍 Veuillez nous envoyer votre <b>adresse de livraison</b> précise (ou utilisez l'autocomplétion) :`,
+            Markup.inlineKeyboard([
+                ...(settings.dashboard_url ? [[Markup.button.webApp("📍 Choisir sur la carte", `${settings.dashboard_url.replace('/dashboard', '/address_picker')}`)]] : []),
+                [Markup.button.callback('◀️ Changer quantité', `product_${productId}`)],
+                [Markup.button.callback('❌ Annuler', 'view_catalog')]
+            ])
+        );
+    });
+
+    // Capture de l'adresse (message texte)
+    bot.on('message', async (ctx, next) => {
+        if (!ctx.message.text || ctx.message.text.startsWith('/')) return next();
+
+        const userId = ctx.from.id;
+        const pending = pendingOrders.get(userId);
+        if (!pending) return next();
+
+        const address = ctx.message.text;
+        pending.address = address;
+
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+        const settings = ctx.state.settings;
+        const user = await getUser(`telegram_${userId}`);
+
+        // Calcul du prix final et de la règle de fidélité
+        const totalPriceRaw = parseFloat(pending.totalPrice);
+
+        // Supprimer le message d'adresse utilisateur pour flux propre
+        await ctx.deleteMessage().catch(() => { });
+
+        // SI CRÉDIT DISPONIBLE → ON DEMANDE (En respectant la règle de fidélité)
+        if (user && user.wallet_balance > 0) {
+            const maxPct = settings.fidelity_wallet_max_pct || 50;
+            const minSpend = settings.fidelity_min_spend || 0;
+
+            const maxAllowedCredit = (totalPriceRaw * maxPct) / 100;
+            const possibleDiscount = Math.min(maxAllowedCredit, user.wallet_balance);
+
+            if (totalPriceRaw >= minSpend && possibleDiscount > 0) {
+                pendingOrderConfirmation.set(userId, { ...pending, possibleDiscount });
+                return safeEdit(ctx,
+                    `💰 <b>Utiliser votre solde ?</b>\n\n` +
+                    `Votre solde actuel : <b>${(user.wallet_balance).toFixed(2)}€</b>\n` +
+                    `Règle de fidélité : Vous pouvez utiliser jusqu'à <b>${maxPct}%</b> du panier (soit <b>${possibleDiscount.toFixed(2)}€</b>).\n\n` +
+                    `Voulez-vous appliquer cette réduction ?`,
+                    Markup.inlineKeyboard([
+                        [Markup.button.callback(`✅ Oui, déduire ${possibleDiscount.toFixed(2)}€`, 'confirm_order_use_credit_yes')],
+                        [Markup.button.callback('❌ Non, payer plein tarif', 'confirm_order_use_credit_no')],
+                        [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
+                    ])
+                );
+            }
+        }
+
+        // Sinon paiement normal cash
+        await showOrderSummary(ctx, product, pending.qty, address, totalPriceRaw, 0);
+    });
+
+    const pendingOrderConfirmation = new Map();
+
+    bot.action('confirm_order_use_credit_yes', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const pending = pendingOrderConfirmation.get(userId);
+        if (!pending) return safeEdit(ctx, "Sesssion expirée ❌", Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+        const finalPrice = parseFloat(pending.totalPrice) - pending.possibleDiscount;
+
+        await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, pending.possibleDiscount);
+    });
+
+    bot.action('confirm_order_use_credit_no', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const pending = pendingOrderConfirmation.get(userId);
+        if (!pending) return safeEdit(ctx, "Sesssion expirée ❌", Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+
+        await showOrderSummary(ctx, product, pending.qty, pending.address, parseFloat(pending.totalPrice), 0);
+    });
+
+    async function showOrderSummary(ctx, product, qty, address, finalPrice, discount) {
+        const text = `🛒 <b>Récapitulatif de Commande</b>\n\n` +
+            `📦 Produit : ${product.name} (x${qty})\n` +
+            `📍 Adresse : ${address}\n` +
+            `💰 Prix : ${qty * product.price}€\n` +
+            (discount > 0 ? `🎁 Réduction solde : -${discount.toFixed(2)}€\n` : '') +
+            `💵 <b>TOTAL À RÉGLER : ${finalPrice.toFixed(2)}€</b>\n\n` +
+            `Confirmez-vous la commande ?`;
+
+        await safeEdit(ctx, text, Markup.inlineKeyboard([
+            [Markup.button.callback('✅ CONFIRMER LA COMMANDE', `create_order_${discount > 0 ? 'discount' : 'normal'}`)],
+            [Markup.button.callback('❌ Annuler', 'view_catalog')]
+        ]));
+    }
+
+    bot.action(/^create_order_(.+)$/, async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const useDiscount = ctx.match[1] === 'discount';
+        const pending = useDiscount ? pendingOrderConfirmation.get(userId) : pendingOrders.get(userId);
+
+        if (!pending) return ctx.reply('❌ Session expirée.');
+
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+        const discount = useDiscount ? pending.possibleDiscount : 0;
+        const finalPrice = parseFloat(pending.totalPrice) - discount;
+
+        const orderData = {
+            user_id: `telegram_${userId}`,
+            username: ctx.from.username || 'Inconnu',
+            first_name: ctx.from.first_name || 'Inconnu',
+            product_id: product.id,
+            product_name: product.name,
+            qty: pending.qty,
+            total_price: finalPrice,
+            address: pending.address,
+            status: 'pending',
+            discount_applied: discount
+        };
+
+        const { order, error } = await createOrder(orderData);
+        if (error) return ctx.reply('❌ Erreur lors de la création de la commande.');
+
+        // Si crédit utilisé -> Déduire du wallet
+        if (discount > 0) {
+            const user = await getUser(`telegram_${userId}`);
+            const { updateUserWallet } = require('../services/database');
+            await updateUserWallet(`telegram_${userId}`, user.wallet_balance - discount);
+        }
+
+        pendingOrders.delete(userId);
+        pendingOrderConfirmation.delete(userId);
+
+        const settings = ctx.state.settings;
+        await safeEdit(ctx,
+            `✅ <b>Commande enregistrée !</b>\n\n` +
+            `📦 Produit : ${product.name} (x${pending.qty})\n` +
+            `📍 Adresse : ${pending.address}\n` +
+            `💰 Total : <b>${finalPrice.toFixed(2)}€</b>\n\n` +
+            `⏳ Recherche d'un livreur en cours...`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]])
+        );
+
+        // Alerte aux admins
+        if (settings.admin_telegram_id) {
+            const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
+            for (const adminId of adminIds) {
+                bot.telegram.sendMessage(adminId,
+                    `🚨 <b>NOUVELLE COMMANDE !</b>\n\n` +
+                    `👤 Client : ${ctx.from.first_name} (@${ctx.from.username})\n` +
+                    `📦 Produit : ${product.name} (x${pending.qty})\n` +
+                    `📍 Adresse : ${pending.address}\n` +
+                    `💰 Total : ${finalPrice.toFixed(2)}€\n` +
+                    `🔑 ID : <code>${order.id}</code>\n\n` +
+                    `Utilisez le dashboard pour l'assigner à un livreur.`,
+                    { parse_mode: 'HTML' }
+                ).catch(() => { });
+            }
+        }
+    });
 
     // ========== SYSTEME LIVREUR ==========
 
@@ -189,11 +268,14 @@ function setupOrderSystem(bot) {
         const isAvailable = ctx.match[1] === 'true';
         await ctx.answerCbQuery(`Statut : ${isAvailable ? 'DISPONIBLE ✅' : 'INDISPONIBLE 😴'}`);
 
-        await setLivreurAvailability(`telegram_${ctx.from.id}`, isAvailable);
+        const docId = `telegram_${ctx.from.id}`;
+        await setLivreurAvailability(docId, isAvailable);
 
-        // Rafraîchir le menu livreur immédiatement (Dynamique)
+        // IMPORTANT : Forcer la récupération de données fraîches en ignorant le cache de 5min
+        if (_userCache) _userCache.delete(docId);
+
         const settings = await getAppSettings();
-        const user = await getUser(`telegram_${ctx.from.id}`);
+        const user = await getUser(docId);
         const { getLivreurMenuKeyboard } = require('./start');
 
         const isAvail = user.is_available || (user.data && user.data.is_available);
@@ -214,37 +296,41 @@ function setupOrderSystem(bot) {
         const city = ctx.message.text.split(' ')[1];
         if (!city) return ctx.reply('❌ Usage: /ma_position [ville]');
 
-        await updateLivreurPosition(`telegram_${ctx.from.id}`, city);
-        await ctx.reply(`✅ Position mise à jour : ${city.toUpperCase()}`);
+        await updateLivreurPosition(`telegram_${ctx.from.id}`, city.toLowerCase());
+        await ctx.reply(`📍 Secteur mis à jour : ${city.toUpperCase()}`);
     });
 
-    bot.command('commandes_ville', async (ctx) => {
+    bot.action('change_city', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx, '📍 Veuillez envoyer le nom de votre ville secteur (ex: Paris, Lyon...) :');
+        ctx.state.awaiting_city = true;
+    });
+
+    bot.action('show_city_orders', async (ctx) => {
+        await ctx.answerCbQuery();
         const user = await getUser(`telegram_${ctx.from.id}`);
-        if (!user || !user.is_livreur) return ctx.reply('❌ Vous n\'êtes pas livreur.');
-        if (!user.current_city) return ctx.reply('❌ Définissez votre ville d\'abord avec /ma_position [ville]');
+        if (!user || !user.current_city) {
+            return safeEdit(ctx, '❌ Vous n\'avez pas défini de secteur. Utilisez "Changer de secteur".');
+        }
 
         const orders = await getAvailableOrdersByCity(user.current_city);
-        if (orders.length === 0) return ctx.reply(`📭 Aucune commande en attente à ${user.current_city.toUpperCase()}.`);
+        if (orders.length === 0) {
+            return safeEdit(ctx, `📭 Aucune commande disponible à ${user.current_city.toUpperCase()}.`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
+        }
 
-        let text = `📦 <b>Commandes à ${user.current_city.toUpperCase()} :</b>\n\n`;
-        const buttons = orders.map(o => [
-            Markup.button.callback(`Prendre #${o.id.substring(0, 5)} - ${o.total_price}€`, `take_${o.id}`)
-        ]);
+        let text = `📦 <b>Commandes à ${user.current_city.toUpperCase()}</b>\n\n`;
+        const buttons = orders.map(o => [Markup.button.callback(`${o.product_name} - ${o.total_price}€`, `take_order_${o.id}`)]);
+        buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
 
-        await ctx.replyWithHTML(text, Markup.inlineKeyboard(buttons));
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     });
 
-    bot.action(/^take_(.+)$/, async (ctx) => {
+    bot.action(/^take_order_(.+)$/, async (ctx) => {
         await ctx.answerCbQuery();
         const orderId = ctx.match[1];
         const order = await getOrder(orderId);
 
-        if (!order || order.status !== 'pending') {
-            return safeEdit(ctx, '❌ Commande déjà prise ou inexistante.', {
-                parse_mode: 'HTML',
-                ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]])
-            }).catch(() => ctx.reply('❌ Commande déjà prise ou inexistante.'));
-        }
+        if (!order || order.status !== 'pending') return ctx.reply('❌ Cette commande n\'est plus disponible.');
 
         await updateOrderStatus(orderId, 'taken', {
             livreur_id: `telegram_${ctx.from.id}`,
@@ -309,35 +395,17 @@ function setupOrderSystem(bot) {
         const settings = await getAppSettings();
 
         await updateOrderStatus(orderId, 'delivered');
-        await safeEdit(ctx, `${settings.ui_icon_success || '✅'} <b>Commande #${orderId.substring(0, 5)} terminée !</b>`, {
+        await incrementOrderCount(`telegram_${ctx.from.id}`);
+
+        await safeEdit(ctx, `✅ Commande <b>#${orderId.substring(0, 5)}</b> marquée comme LIVRÉE !\nFélicitations pour votre livraison.`, {
             parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Espace Livreur', 'livreur_menu')]])
-        }).catch(() => { });
-
-        // Notifier client (fallback text, usually replaced by the central notification system in API, but kept here just in case)
-        if (order && order.user_id) {
-            bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
-                `${settings.ui_icon_success || '✅'} <b>Commande livrée !</b>\n\n` +
-                `Merci d'avoir commandé chez nous. À bientôt !`,
-                { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu Base', 'main_menu')]]) }
-            ).catch(() => { });
-        }
-    });
-
-    bot.command('livree', async (ctx) => {
-        const orderId = ctx.message.text.split(' ')[1];
-        if (!orderId) return ctx.reply('❌ Usage: /livree [ID_COMMANDE]');
-
-        const order = await getOrder(orderId);
-        if (!order) return ctx.reply('❌ Commande non trouvée.');
-
-        await updateOrderStatus(orderId, 'delivered');
-        await safeEdit(ctx, '✅ Livraison confirmée. Merci pour votre travail !', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'livreur_menu')]]));
+            ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]])
+        });
 
         // Notifier client
         bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
-            `✅ <b>Commande livrée !</b>\n\n` +
-            `Merci d'avoir commandé chez nous. À bientôt !`,
+            `✅ <b>Votre commande #${orderId.substring(0, 5)} a été livrée !</b>\n\n` +
+            `Merci de votre confiance et à bientôt chez ${settings.bot_name} !`,
             { parse_mode: 'HTML' }
         ).catch(() => { });
     });
@@ -374,362 +442,70 @@ function setupOrderSystem(bot) {
             {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard([
-                    [Markup.button.callback(`${settings.ui_icon_catalog} ${settings.label_catalog}`, 'view_catalog')],
-                    [Markup.button.callback(`${settings.ui_icon_orders} ${settings.label_my_orders}`, 'my_orders')],
-                    [Markup.button.callback(`${settings.ui_icon_profile} ${settings.label_profile}`, 'my_referrals')],
-                    [Markup.button.callback(`${settings.ui_icon_livreur} Retour ${settings.label_livreur_space}`, 'livreur_menu')]
+                    [Markup.button.callback(`${settings.ui_icon_catalog} Voir le catalogue`, 'view_catalog')],
+                    [Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]
                 ])
             }
         );
     });
 
-    bot.action('show_city_orders', async (ctx) => {
-        await ctx.answerCbQuery();
-        const user = await getUser(`telegram_${ctx.from.id}`);
-        if (!user || !user.is_livreur) return ctx.reply('❌ Accès refusé.');
-
-        // Si pas de ville → montrer toutes les commandes en attente
-        let orders;
-        let title;
-        if (user.current_city) {
-            orders = await getAvailableOrdersByCity(user.current_city);
-            title = `📦 <b>Commandes à ${user.current_city.toUpperCase()} :</b>`;
-        } else {
-            // Récupérer toutes les commandes pending
-            const allOrders = await getAllOrders(20);
-            orders = allOrders.filter(o => o.status === 'pending');
-            title = `📦 <b>Toutes les commandes en attente :</b>\n\n<i>⚠️ Définissez votre secteur pour filtrer les commandes proches.</i>`;
-        }
-
-        if (orders.length === 0) {
-            return ctx.replyWithHTML(
-                `📭 Aucune commande en attente.`,
-                Markup.inlineKeyboard([[Markup.button.callback('🔄 Rafraîchir', 'show_city_orders')], [Markup.button.callback('◀️ Retour', 'livreur_menu')]])
-            );
-        }
-
-        const buttons = orders.map(o => [
-            Markup.button.callback(
-                `📍 ${o.first_name || 'Client'} | ${(o.city || 'N/A').substring(0, 25)} | ${o.total_price}€`,
-                `take_${o.id}`
-            )
-        ]);
-        buttons.push([Markup.button.callback('🔄 Rafraîchir', 'show_city_orders')]);
-        buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
-
-        await safeEdit(ctx, title, {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard(buttons)
-        });
-    });
-
-    // Historique des livraisons du livreur
     bot.action('my_deliveries', async (ctx) => {
         await ctx.answerCbQuery();
+        const userId = `telegram_${ctx.from.id}`;
         const { getLivreurHistory } = require('../services/database');
-        const livreurId = `telegram_${ctx.from.id}`;
-        const myDelivered = await getLivreurHistory(livreurId);
 
-        if (myDelivered.length === 0) {
-            return ctx.replyWithHTML(
-                `📊 <b>Historique Livraisons</b>\n\nVous n'avez pas encore effectué de livraison.`,
-                Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]])
-            );
-        }
-
-        const today = new Date().toISOString().split('T')[0];
-        const thisMonth = new Date().toISOString().substring(0, 7);
-
-        const statsToday = myDelivered.filter(o => o.created_at && new Date(o.created_at).toISOString().split('T')[0] === today);
-        const statsMonth = myDelivered.filter(o => o.created_at && new Date(o.created_at).toISOString().substring(0, 7) === thisMonth);
-
-        const caToday = statsToday.reduce((s, o) => s + (parseFloat(o.total_price) || 0), 0);
-        const caMonth = statsMonth.reduce((s, o) => s + (parseFloat(o.total_price) || 0), 0);
-        const caTotal = myDelivered.reduce((s, o) => s + (parseFloat(o.total_price) || 0), 0);
-
-        let text = `📊 <b>Mes Statistiques Gains</b>\n\n`;
-        text += `📅 <b>Aujourd'hui :</b>\n`;
-        text += `   • Courses : <b>${statsToday.length}</b>\n`;
-        text += `   • Gains : <b>${caToday.toFixed(2)}€</b>\n\n`;
-
-        text += `🗓️ <b>Ce Mois (${thisMonth}) :</b>\n`;
-        text += `   • Courses : <b>${statsMonth.length}</b>\n`;
-        text += `   • Gains : <b>${caMonth.toFixed(2)}€</b>\n\n`;
-
-        text += `🏆 <b>Total Historique :</b>\n`;
-        text += `   • Courses livrées : <b>${myDelivered.length}</b>\n`;
-        text += `   • Total Gain : <b>${caTotal.toFixed(2)}€</b>\n\n`;
-
-        const takenCount = myDeliveries.filter(o => o.status === 'taken').length;
-        if (takenCount > 0) text += `⏳ <i>Livraison(s) en cours : ${takenCount}</i>\n`;
-
-        await safeEdit(ctx, text, {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]])
-        });
-    });
-
-    bot.action('my_orders', async (ctx) => {
-        await ctx.answerCbQuery();
-        const settings = await getAppSettings();
-        const orders = await getAllOrders(10);
-        const myOrders = orders.filter(o => o.user_id === `telegram_${ctx.from.id}`);
-
-        if (myOrders.length === 0) {
-            return safeEdit(ctx, '📭 Vous n\'avez pas encore passé de commande.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
-        }
-
-        let text = `${settings.ui_icon_orders || '📦'} <b>Mes dernières commandes :</b>\n\n`;
-        myOrders.forEach(o => {
-            const statusIcon = o.status === 'delivered' ? (settings.ui_icon_success || '✅') : (o.status === 'pending' ? (settings.ui_icon_pending || '⏳') : (settings.ui_icon_error || '❌'));
-            const statusLabel = o.status === 'delivered' ? (settings.status_delivered_label || 'LIVRÉE') : (o.status === 'pending' ? (settings.status_pending_label || 'EN ATTENTE') : (o.status === 'taken' ? (settings.status_taken_label || 'EN COURS') : (settings.status_cancelled_label || 'ANNULÉE')));
-
-            text += `🔹 ${o.product_name} x${o.quantity} — ${o.total_price}€\n`;
-            text += `├ Statut : ${statusIcon} <b>${statusLabel}</b>\n`;
-            text += `└ ${o.city || 'Adresse non définie'}\n\n`;
-        });
-
-        await safeEdit(ctx, text, {
-            parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]])
-        });
-    });
-
-    // Map temporaire pour les livreurs qui changent de secteur
-    const pendingCityChange = new Map();
-
-    bot.action('change_city', async (ctx) => {
-        await ctx.answerCbQuery();
-        const userId = `telegram_${ctx.from.id}`;
-        pendingCityChange.set(userId, true);
-        await safeEdit(ctx,
-            '📍 <b>Changer de secteur</b>\n\n' +
-            '✍️ Tapez vos <b>villes ou secteurs</b> séparés par une virgule :\n' +
-            '<i>Ex: Vitry, Ivry, Thiais, Paris 13</i>',
-            Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler', 'livreur_menu')]])
-        );
-    });
-
-    // ========== GESTION TEXTE LIBRE (adresse livraison + changement secteur livreur) ==========
-    bot.on('message', async (ctx) => {
-        const userId = `telegram_${ctx.from.id}`;
-        let inputText = '';
-        if (ctx.message && ctx.message.web_app_data && ctx.message.web_app_data.data) {
-            inputText = ctx.message.web_app_data.data.trim();
-        } else if (ctx.message && ctx.message.text) {
-            inputText = ctx.message.text.trim();
-        } else return;
-
-        // Auto-delete message for cleaner UI (Flow Constant)
-        ctx.deleteMessage().catch(() => { });
-
-        if (inputText === '❌ Annuler la commande' || inputText.toLowerCase() === 'annuler') {
-            pendingCityInput.delete(userId);
-            pendingCityChange.delete(userId);
-            return safeEdit(ctx, '❌ Action annulée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
-        }
-
-        // Si le livreur change de secteur
-        if (pendingCityChange.has(userId)) {
-            pendingCityChange.delete(userId);
-            const city = inputText.replace(/<[^>]*>/g, '').trim();
-            if (city.length < 2) {
-                pendingCityChange.set(userId, true);
-                return safeEdit(ctx, '❌ Nom de ville trop court. Réessayez :', Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler', 'livreur_menu')]]));
-            }
-            await updateLivreurPosition(userId, city);
-            return safeEdit(ctx, `✅ Secteur mis à jour : <b>${city.toUpperCase()}</b>`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Espace Livreur', 'livreur_menu')]]));
-        }
-
-        // Si l'utilisateur est en attente de saisie d'adresse de livraison
-        if (pendingCityInput.has(userId)) {
-            const { productId, qty } = pendingCityInput.get(userId);
-            const address = inputText.replace(/<[^>]*>/g, '').trim();
-
-            if (address.length < 8) {
-                return safeEdit(ctx, `❌ <b>Adresse incomplète.</b>\nPrécisez numéro, rue et ville.\nEx: 15 rue de la Paix, 75001 Paris`, Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler', 'view_catalog')]]));
-            }
-
-            try {
-                const user = await getUser(userId);
-                const settings = await getAppSettings();
-                const products = await getProducts();
-                const product = products.find(p => p.id === productId);
-                if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('🍔 Catalogue', 'view_catalog')]]));
-
-                const totalPriceRaw = product.price * qty;
-
-                // SI CRÉDIT DISPONIBLE → ON DEMANDE (En respectant la règle de fidélité)
-                if (user && user.wallet_balance > 0) {
-                    const maxPct = settings.fidelity_wallet_max_pct || 50;
-                    const minSpend = settings.fidelity_min_spend || 0;
-
-                    const maxAllowedCredit = (totalPriceRaw * maxPct) / 100;
-                    const possibleDiscount = Math.min(maxAllowedCredit, user.wallet_balance);
-
-                    if (totalPriceRaw >= minSpend && possibleDiscount > 0) {
-                        pendingOrderConfirmation.set(userId, { productId, qty, address, totalPriceRaw });
-                        return safeEdit(ctx,
-                            `💰 <b>Utiliser votre solde ?</b>\n\n` +
-                            `Votre solde actuel : <b>${(user.wallet_balance).toFixed(2)}€</b>\n` +
-                            `Règle de fidélité : Vous pouvez utiliser jusqu'à <b>${maxPct}%</b> du panier (soit <b>${possibleDiscount.toFixed(2)}€</b>).\n\n` +
-                            `Voulez-vous appliquer cette réduction ?`,
-                            Markup.inlineKeyboard([
-                                [Markup.button.callback(`✅ Oui, déduire ${possibleDiscount.toFixed(2)}€`, 'confirm_order_use_credit_yes')],
-                                [Markup.button.callback('❌ Non, payer plein tarif', 'confirm_order_use_credit_no')],
-                                [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
-                            ])
-                        );
-                    }
-                }
-
-                // PAS DE CRÉDIT or rule not met → CRÉATION DIRECTE
-                await finalizeOrderCreation(ctx, userId, product, qty, address, settings, 0);
-            } catch (err) {
-                console.error('[ORDER] Error:', err);
-                await safeEdit(ctx, '❌ Erreur lors de la validation.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
-            }
-        }
-    });
-
-    // Confirmation avec crédit
-    bot.action('confirm_order_use_credit_yes', async (ctx) => {
-        await ctx.answerCbQuery();
-        const userId = `telegram_${ctx.from.id}`;
-        const pending = pendingOrderConfirmation.get(userId);
-        if (!pending) return safeEdit(ctx, '❌ Session expirée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
-
-        const user = await getUser(userId);
-        const settings = await getAppSettings();
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
-
-        const maxPct = settings.fidelity_wallet_max_pct || 50;
-        const maxAllowedCredit = (pending.totalPriceRaw * maxPct) / 100;
-        const discount = Math.min(maxAllowedCredit, user.wallet_balance);
-
-        // Déduire crédit
-        const { supabase, COL_USERS } = require('../services/database');
-        await supabase.from(COL_USERS).update({ wallet_balance: user.wallet_balance - discount }).eq('id', userId);
-
-        await finalizeOrderCreation(ctx, userId, product, pending.qty, pending.address, settings, discount);
-        pendingOrderConfirmation.delete(userId);
-    });
-
-    bot.action('confirm_order_use_credit_no', async (ctx) => {
-        await ctx.answerCbQuery();
-        const userId = `telegram_${ctx.from.id}`;
-        const pending = pendingOrderConfirmation.get(userId);
-        if (!pending) return safeEdit(ctx, '❌ Session expirée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
-
-        const settings = await getAppSettings();
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
-
-        await finalizeOrderCreation(ctx, userId, product, pending.qty, pending.address, settings, 0);
-        pendingOrderConfirmation.delete(userId);
-    });
-
-    async function finalizeOrderCreation(ctx, userId, product, qty, address, settings, discount) {
-        const finalPrice = (product.price * qty) - discount;
-        const discountText = discount > 0 ? `\n🎁 Réduction : -${discount.toFixed(2)}€` : "";
-
-        const orderId = await createOrder({
-            user_id: userId,
-            username: ctx.from.username || null,
-            first_name: ctx.from.first_name || 'Client',
-            product_name: product.name,
-            quantity: qty,
-            total_price: finalPrice,
-            city: address,
-            platform: 'telegram',
-            discount_applied: discount,
-            status: 'pending'
-        });
-
-        pendingCityInput.delete(userId);
-
-        const finalMsg = `${settings.msg_order_success || '✅ Commande enregistrée !'}\n\n` +
-            `📦 Produit : <b>${product.name} (x${qty})</b>\n` +
-            `📍 Adresse : <i>${address}</i>${discountText}\n` +
-            `💰 Total : <b>${finalPrice.toFixed(2)}€</b>\n\n` +
-            `${settings.msg_search_livreur || '⏳ Recherche d\'un livreur...'}`;
-
-        await safeEdit(ctx, finalMsg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
-
-        const notificationText = `🔔 <b>Nouvelle Commande !</b>\n\n` +
-            `📦 ${product.name} x${qty}\n📍 <b>${address.toUpperCase()}</b>\n💰 Total : <b>${finalPrice.toFixed(2)}€</b>`;
-
-        const { getAvailableLivreurs } = require('../services/database');
-        const availableLivreurs = await getAvailableLivreurs();
-        availableLivreurs.forEach(livreur => {
-            const tid = livreur.platform_id;
-            if (tid) {
-                bot.telegram.sendMessage(tid, notificationText, Markup.inlineKeyboard([[Markup.button.callback('🚴 Prendre la commande', `take_${orderId}`)]])).catch(() => { });
-            }
-        });
-    }
-
-    // ========== TRACKING & PROXIMITÉ ==========
-    function getDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-    }
-
-    async function handleLivreurTracking(botInstance, livreurId, loc) {
         try {
-            const { getLivreurOrders, getUser, db } = require('../services/database');
-            const activeOrders = await getLivreurOrders(livreurId);
-            if (activeOrders.length === 0) return;
+            const deliveries = await getLivreurHistory(userId);
 
-            for (const order of activeOrders) {
-                const client = await getUser(order.user_id);
-                if (!client || !client.latitude || !client.longitude) continue;
-
-                const dist = getDistance(loc.latitude, loc.longitude, client.latitude, client.longitude);
-                if (dist <= 1.5 && !order.notified_5m) {
-                    await botInstance.telegram.sendMessage(order.user_id.replace('telegram_', ''),
-                        `🚀 <b>Votre livreur est à moins de 5 minutes !</b>\nMerci de vous préparer à sortir pour la réception.`,
-                        { parse_mode: 'HTML' }
-                    ).catch(() => { });
-                    const { supabase } = require('../config/supabase');
-                    await supabase.from('bot_orders').update({ notified_5m: true, notified_10m: true }).eq('id', order.id);
-                } else if (dist <= 4.0 && !order.notified_10m && !order.notified_5m) {
-                    await botInstance.telegram.sendMessage(order.user_id.replace('telegram_', ''),
-                        `🚚 <b>Votre livreur arrive dans environ 10 minutes.</b>\nPréparez-vous à sortir bientôt !`,
-                        { parse_mode: 'HTML' }
-                    ).catch(() => { });
-                    const { supabase } = require('../config/supabase');
-                    await supabase.from('bot_orders').update({ notified_10m: true }).eq('id', order.id);
-                }
+            if (deliveries.length === 0) {
+                return safeEdit(ctx, `📭 Votre historique de livraison est vide.`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
             }
-        } catch (e) {
-            console.error('[TRACKING] Error:', e.message);
-        }
-    }
 
-    bot.on('location', async (ctx) => {
-        const userId = `telegram_${ctx.from.id}`;
-        const loc = ctx.message.location;
-        const { saveUserLocation } = require('../services/database');
-        await saveUserLocation(userId, loc.latitude, loc.longitude).catch(() => { });
-        await handleLivreurTracking(bot, userId, loc);
+            let text = `📊 <b>Mon historique de livraisons</b>\n\n`;
+            let totalEarned = 0;
+
+            deliveries.forEach((d, i) => {
+                // Parsing date Supabase simple
+                const dateStr = d.created_at ? new Date(d.created_at).toLocaleDateString('fr-FR') : 'Date inconnue';
+                text += `${i + 1}. #${d.id.substring(0, 5)} - ${d.product_name} (${d.total_price}€)\n` +
+                    `📅 ${dateStr} - 📍 ${d.address.substring(0, 20)}...\n\n`;
+                totalEarned += parseFloat(d.total_price);
+            });
+
+            text += `💰 <b>Total cumulé livré : ${totalEarned.toFixed(2)}€</b>`;
+
+            await safeEdit(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
+        } catch (e) {
+            console.error('Error fetching delivery history:', e);
+            await safeEdit(ctx, '❌ Erreur lors de la récupération de l\'historique.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
+        }
     });
 
-    bot.on('edited_message', async (ctx) => {
-        if (ctx.editedMessage.location) {
-            const userId = `telegram_${ctx.from.id}`;
-            const loc = ctx.editedMessage.location;
-            const { saveUserLocation } = require('../services/database');
-            await saveUserLocation(userId, loc.latitude, loc.longitude).catch(() => { });
-            await handleLivreurTracking(bot, userId, loc);
+    bot.on('text', async (ctx, next) => {
+        if (ctx.state.awaiting_city) {
+            const city = ctx.message.text.trim().toLowerCase();
+            const docId = `telegram_${ctx.from.id}`;
+            const { updateLivreurPosition, getLivreurMenuKeyboard } = require('../services/database');
+
+            await updateLivreurPosition(docId, city);
+
+            // Nettoyage input
+            await ctx.deleteMessage().catch(() => { });
+
+            const settings = ctx.state.settings;
+            const user = await getUser(docId);
+            const { getLivreurMenuKeyboard: getKB } = require('./start');
+
+            const text = `✅ <b>Secteur validé : ${city.toUpperCase()}</b>\n\n` +
+                `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
+                `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
+                `🔘 Statut : <b>${user.is_available ? 'DISPONIBLE' : 'INDISPONIBLE'}</b>`;
+
+            await safeEdit(ctx, text, getKB(settings, user));
+            delete ctx.state.awaiting_city;
+            return;
         }
+        await next();
     });
 }
 

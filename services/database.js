@@ -35,7 +35,7 @@ async function activeUsersQuery(platform, type = null) {
     return data || [];
 }
 
-let _userCache = new Map();
+const _userCache = new Map();
 
 async function registerUser(platformUser, platform = 'telegram', referrerId = null) {
     if (!platform) platform = 'telegram';
@@ -737,5 +737,6 @@ module.exports = {
     saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
-    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, nukeDatabase
+    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, nukeDatabase,
+    _userCache
 };

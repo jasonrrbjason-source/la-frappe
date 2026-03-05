@@ -299,7 +299,8 @@ function getMainMenuKeyboard(settings, user = null) {
 }
 
 function getLivreurMenuKeyboard(settings, user) {
-    const dispoBtn = user.is_available
+    const isAvail = user.is_available || (user.data && user.data.is_available);
+    const dispoBtn = isAvail
         ? Markup.button.callback(`${settings.ui_icon_error} Passer Indisponible`, 'set_dispo_false')
         : Markup.button.callback(`${settings.ui_icon_success} Passer Disponible`, 'set_dispo_true');
 

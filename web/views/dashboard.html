@@ -608,6 +608,7 @@
 
             /* Fix layout for settings and insight grids */
             #section-insights>div:first-child,
+            #section-orders>div:first-child,
             #section-settings .flex[style*="display:flex; gap:10px;"],
             #section-products .flex,
             #section-broadcast .card>div[style*="display:flex; gap:10px;"],
@@ -616,6 +617,18 @@
                 grid-template-columns: 1fr !important;
                 align-items: stretch !important;
                 gap: 15px !important;
+            }
+
+            #orderFilterContainer {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 5px !important;
+            }
+
+            #orderFilterContainer .btn {
+                flex: 1 1 auto;
+                min-width: 80px;
+                font-size: 11px !important;
             }
 
             #section-insights .btn-group {

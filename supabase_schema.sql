@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS bot_users (
   order_count NUMERIC DEFAULT 0,
   points NUMERIC DEFAULT 0,
   wallet_balance NUMERIC DEFAULT 0,
+  is_available BOOLEAN DEFAULT false,
   referral_code TEXT,
   tracked_messages JSONB DEFAULT '[]'::jsonb,
   last_menu_id NUMERIC,

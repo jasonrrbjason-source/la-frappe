@@ -188,9 +188,27 @@ async function setLivreurStatus(userId, platform, isLivreur) {
     _userCache.delete(docId);
 }
 async function setLivreurAvailability(docId, isAvailable) {
-    // Legacy fallback, is_available column does not exist on target schema
-    return Promise.resolve();
+    const user = await getUser(docId);
+    let extra = user ? (user.data || {}) : {};
+    extra.is_available = isAvailable;
+
+    // Tentative d'update sur la colonne ET le JSONB (fallback)
+    try {
+        await supabase.from(COL_USERS).update({
+            is_available: isAvailable,
+            data: extra,
+            updated_at: ts()
+        }).eq('id', docId);
+    } catch (e) {
+        // Si la colonne n'existe pas encore, update seulement le JSONB
+        await supabase.from(COL_USERS).update({
+            data: extra,
+            updated_at: ts()
+        }).eq('id', docId);
+    }
+    _userCache.delete(docId);
 }
+
 async function updateLivreurPosition(docId, input) {
     const user = await getUser(docId);
     if (!user) return;
@@ -308,6 +326,15 @@ async function getAvailableOrdersByCity(city) {
 
 async function getAllOrders(limit = 50) {
     const { data } = await supabase.from(COL_ORDERS).select('*').order('created_at', { ascending: false }).limit(limit);
+    return data || [];
+}
+
+async function getLivreurHistory(livreurId) {
+    const { data } = await supabase.from(COL_ORDERS)
+        .select('*')
+        .eq('livreur_id', livreurId)
+        .eq('status', 'delivered')
+        .order('created_at', { ascending: false });
     return data || [];
 }
 
@@ -607,7 +634,9 @@ const SETTINGS_DEFAULTS = {
     msg_choose_qty: 'Choisissez la quantité :',
     msg_search_livreur: '⏳ Recherche d\'un livreur en cours...',
     msg_order_success: '✅ <b>Commande enregistrée !</b>',
-    points_credit_value: 5
+    points_credit_value: 5,
+    fidelity_wallet_max_pct: 50,
+    fidelity_min_spend: 50
 };
 
 let _settingsCache = null;

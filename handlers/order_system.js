@@ -338,10 +338,11 @@ function setupOrderSystem(bot) {
         if (!user || !user.is_livreur) return safeEdit(ctx, '❌ Accès refusé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
         const { getLivreurMenuKeyboard } = require('./start');
+        const isAvail = user.is_available || (user.data && user.data.is_available);
         const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
             `👤 ${user.first_name}\n` +
             `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
-            `🔘 Statut : <b>${user.is_available ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
+            `🔘 Statut : <b>${isAvail ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
             `Que voulez-vous faire ?`;
         const opts = { parse_mode: 'HTML', ...getLivreurMenuKeyboard(settings, user) };
 
@@ -414,11 +415,11 @@ function setupOrderSystem(bot) {
     // Historique des livraisons du livreur
     bot.action('my_deliveries', async (ctx) => {
         await ctx.answerCbQuery();
+        const { getLivreurHistory } = require('../services/database');
         const livreurId = `telegram_${ctx.from.id}`;
-        const allOrders = await getAllOrders(50);
-        const myDeliveries = allOrders.filter(o => o.livreur_id === livreurId);
+        const myDelivered = await getLivreurHistory(livreurId);
 
-        if (myDeliveries.length === 0) {
+        if (myDelivered.length === 0) {
             return ctx.replyWithHTML(
                 `📊 <b>Historique Livraisons</b>\n\nVous n'avez pas encore effectué de livraison.`,
                 Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]])
@@ -428,14 +429,12 @@ function setupOrderSystem(bot) {
         const today = new Date().toISOString().split('T')[0];
         const thisMonth = new Date().toISOString().substring(0, 7);
 
-        const myDelivered = myDeliveries.filter(o => o.status === 'delivered');
+        const statsToday = myDelivered.filter(o => o.created_at && new Date(o.created_at).toISOString().split('T')[0] === today);
+        const statsMonth = myDelivered.filter(o => o.created_at && new Date(o.created_at).toISOString().substring(0, 7) === thisMonth);
 
-        const statsToday = myDelivered.filter(o => o.created_at && new Date(o.created_at._seconds * 1000).toISOString().split('T')[0] === today);
-        const statsMonth = myDelivered.filter(o => o.created_at && new Date(o.created_at._seconds * 1000).toISOString().substring(0, 7) === thisMonth);
-
-        const caToday = statsToday.reduce((s, o) => s + (o.total_price || 0), 0);
-        const caMonth = statsMonth.reduce((s, o) => s + (o.total_price || 0), 0);
-        const caTotal = myDelivered.reduce((s, o) => s + (o.total_price || 0), 0);
+        const caToday = statsToday.reduce((s, o) => s + (parseFloat(o.total_price) || 0), 0);
+        const caMonth = statsMonth.reduce((s, o) => s + (parseFloat(o.total_price) || 0), 0);
+        const caTotal = myDelivered.reduce((s, o) => s + (parseFloat(o.total_price) || 0), 0);
 
         let text = `📊 <b>Mes Statistiques Gains</b>\n\n`;
         text += `📅 <b>Aujourd'hui :</b>\n`;
@@ -510,6 +509,9 @@ function setupOrderSystem(bot) {
             inputText = ctx.message.text.trim();
         } else return;
 
+        // Auto-delete message for cleaner UI (Flow Constant)
+        ctx.deleteMessage().catch(() => { });
+
         if (inputText === '❌ Annuler la commande' || inputText.toLowerCase() === 'annuler') {
             pendingCityInput.delete(userId);
             pendingCityChange.delete(userId);
@@ -546,23 +548,32 @@ function setupOrderSystem(bot) {
 
                 const totalPriceRaw = product.price * qty;
 
-                // SI CRÉDIT DISPONIBLE → ON DEMANDE
+                // SI CRÉDIT DISPONIBLE → ON DEMANDE (En respectant la règle de fidélité)
                 if (user && user.wallet_balance > 0) {
-                    pendingOrderConfirmation.set(userId, { productId, qty, address, totalPriceRaw });
-                    return safeEdit(ctx,
-                        `💰 <b>Utiliser votre crédit ?</b>\n\n` +
-                        `Vous avez <b>${(user.wallet_balance).toFixed(2)}€</b> de crédit disponible.\n` +
-                        `Voulez-vous l'utiliser pour cette commande ?`,
-                        Markup.inlineKeyboard([
-                            [Markup.button.callback('✅ Oui, utiliser', 'confirm_order_use_credit_yes')],
-                            [Markup.button.callback('❌ Non, garder pour plus tard', 'confirm_order_use_credit_no')],
-                            [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
-                        ])
-                    );
-                } else {
-                    // PAS DE CRÉDIT → CRÉATION DIRECTE
-                    await finalizeOrderCreation(ctx, userId, product, qty, address, settings, 0);
+                    const maxPct = settings.fidelity_wallet_max_pct || 50;
+                    const minSpend = settings.fidelity_min_spend || 0;
+
+                    const maxAllowedCredit = (totalPriceRaw * maxPct) / 100;
+                    const possibleDiscount = Math.min(maxAllowedCredit, user.wallet_balance);
+
+                    if (totalPriceRaw >= minSpend && possibleDiscount > 0) {
+                        pendingOrderConfirmation.set(userId, { productId, qty, address, totalPriceRaw });
+                        return safeEdit(ctx,
+                            `💰 <b>Utiliser votre solde ?</b>\n\n` +
+                            `Votre solde actuel : <b>${(user.wallet_balance).toFixed(2)}€</b>\n` +
+                            `Règle de fidélité : Vous pouvez utiliser jusqu'à <b>${maxPct}%</b> du panier (soit <b>${possibleDiscount.toFixed(2)}€</b>).\n\n` +
+                            `Voulez-vous appliquer cette réduction ?`,
+                            Markup.inlineKeyboard([
+                                [Markup.button.callback(`✅ Oui, déduire ${possibleDiscount.toFixed(2)}€`, 'confirm_order_use_credit_yes')],
+                                [Markup.button.callback('❌ Non, payer plein tarif', 'confirm_order_use_credit_no')],
+                                [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
+                            ])
+                        );
+                    }
                 }
+
+                // PAS DE CRÉDIT or rule not met → CRÉATION DIRECTE
+                await finalizeOrderCreation(ctx, userId, product, qty, address, settings, 0);
             } catch (err) {
                 console.error('[ORDER] Error:', err);
                 await safeEdit(ctx, '❌ Erreur lors de la validation.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
@@ -575,14 +586,16 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const userId = `telegram_${ctx.from.id}`;
         const pending = pendingOrderConfirmation.get(userId);
-        if (!pending) return ctx.reply('❌ Session expirée.');
+        if (!pending) return safeEdit(ctx, '❌ Session expirée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
         const user = await getUser(userId);
         const settings = await getAppSettings();
         const products = await getProducts();
         const product = products.find(p => p.id === pending.productId);
 
-        const discount = Math.min(pending.totalPriceRaw, user.wallet_balance);
+        const maxPct = settings.fidelity_wallet_max_pct || 50;
+        const maxAllowedCredit = (pending.totalPriceRaw * maxPct) / 100;
+        const discount = Math.min(maxAllowedCredit, user.wallet_balance);
 
         // Déduire crédit
         const { supabase, COL_USERS } = require('../services/database');
@@ -596,7 +609,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const userId = `telegram_${ctx.from.id}`;
         const pending = pendingOrderConfirmation.get(userId);
-        if (!pending) return ctx.reply('❌ Session expirée.');
+        if (!pending) return safeEdit(ctx, '❌ Session expirée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
         const settings = await getAppSettings();
         const products = await getProducts();

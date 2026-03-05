@@ -21,7 +21,7 @@ function decryptUser(userData) {
 }
 function makeDocId(platform, platformId) { return `${platform}_${platformId}`; }
 
-function activeUsersQuery(platform, type = 'user') {
+function activeUsersQuery(platform, type = null) {
     let q = db.collection(COL_USERS).where('is_blocked', '==', false).where('is_active', '==', true);
     if (platform) q = q.where('platform', '==', platform);
     if (type) q = q.where('type', '==', type);

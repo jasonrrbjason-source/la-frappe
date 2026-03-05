@@ -11,13 +11,8 @@ function setBroadcastBot(bot) { _bot = bot; }
 async function broadcastMessage(platform, message, options = {}) {
     const { mediaFiles = [] } = options;
 
-    // Récupérer les utilisateurs ET les groupes
-    const [users, groups] = await Promise.all([
-        getAllActiveUsers(platform === 'all' ? null : 'telegram', 'user'),
-        getAllActiveUsers(platform === 'all' ? null : 'telegram', 'group')
-    ]);
-
-    const targets = [...users, ...groups];
+    // Récupérer toutes les cibles (users + groups) en une seule fois
+    const targets = await getAllActiveUsers(platform === 'all' ? null : 'telegram');
     const totalTargets = targets.length;
 
     if (totalTargets === 0) {

@@ -312,8 +312,64 @@ function setupOrderSystem(bot) {
 
     bot.action('change_city', async (ctx) => {
         await ctx.answerCbQuery();
-        await safeEdit(ctx, '📍 Veuillez envoyer le nom de votre ville secteur (ex: Paris, Lyon...) :');
-        ctx.state.awaiting_city = true;
+        const settings = ctx.state.settings;
+        const sectors = [
+            ['📍 Paris', 'sector_paris'],
+            ['🌍 Paris + IDF', 'sector_paris_idf'],
+            ['📍 Marseille', 'sector_marseille'],
+            ['🌍 Marseille + Banlieue', 'sector_marseille_banlieue'],
+            ['📍 Lyon', 'sector_lyon'],
+            ['⌨️ Autre (Saisie libre)', 'sector_manual']
+        ];
+
+        const buttons = sectors.map(s => [Markup.button.callback(s[0], s[1])]);
+        buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
+
+        await safeEdit(ctx,
+            `📍 <b>SÉLECTION DU SECTEUR</b>\n\nChoisissez votre zone de livraison actuelle :`,
+            Markup.inlineKeyboard(buttons)
+        );
+    });
+
+    bot.action(/^sector_(.+)$/, async (ctx) => {
+        const choice = ctx.match[1];
+        if (choice === 'manual') {
+            await ctx.answerCbQuery();
+            await safeEdit(ctx,
+                '⌨️ <b>Saisie manuelle</b>\n\nVeuillez envoyer le nom de votre ville ou secteur (ex: Bordeaux, Nice...) :',
+                Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', 'change_city')]])
+            );
+            ctx.state.awaiting_city = true;
+            return;
+        }
+
+        const sectorMap = {
+            'paris': 'Paris',
+            'paris_idf': 'Paris + IDF',
+            'marseille': 'Marseille',
+            'marseille_banlieue': 'Marseille + Banlieue',
+            'lyon': 'Lyon'
+        };
+
+        const cityName = sectorMap[choice] || choice;
+        await ctx.answerCbQuery(`Secteur : ${cityName} ✅`);
+
+        await updateLivreurPosition(`telegram_${ctx.from.id}`, cityName.toLowerCase());
+
+        // Rafraichir le menu livreur
+        const settings = await getAppSettings();
+        const user = await getUser(`telegram_${ctx.from.id}`);
+        const { getLivreurMenuKeyboard } = require('./start');
+
+        const isAvail = user.is_available || (user.data && user.data.is_available);
+        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
+            `👤 ${user.first_name}\n` +
+            `📍 Secteur : <b>${cityName.toUpperCase()}</b>\n` +
+            `🔘 Statut : <b>${isAvail ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
+            `Que voulez-vous faire ?`;
+
+        const opts = { parse_mode: 'HTML', ...getLivreurMenuKeyboard(settings, user) };
+        return await safeEdit(ctx, text, opts);
     });
 
     bot.action('show_city_orders', async (ctx) => {

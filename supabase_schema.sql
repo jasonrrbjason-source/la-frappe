@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS bot_products (
   name TEXT NOT NULL,
   price NUMERIC NOT NULL,
   unit TEXT,
+  unit_value TEXT,
   promo TEXT,
   image_url TEXT,
   is_active BOOLEAN DEFAULT true,

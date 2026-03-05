@@ -230,6 +230,52 @@
             color: #0a84ff;
         }
 
+        .drop-zone.has-file .drop-text {
+            display: none;
+        }
+
+        .preview-item {
+            position: relative;
+            margin: 5px;
+        }
+
+        .preview-item img,
+        .preview-item video {
+            max-height: 80px;
+            max-width: 80px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            object-fit: cover;
+        }
+
+        .remove-media {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: var(--danger);
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border: 2px solid var(--card-bg);
+            z-index: 10;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .row>div {
+            flex: 1;
+        }
+
         /* FORMS */
         .card {
             background: var(--card-bg);
@@ -830,15 +876,23 @@
                     <input id="prod_name" placeholder="ex: Jordan 4 Midnight Navy">
                     <label>Prix (€)</label>
                     <input type="number" id="prod_price" placeholder="199">
-                    <label>Unité de vente</label>
-                    <select id="prod_unit" style="margin-bottom:20px">
-                        <option value="">Pièce (par défaut)</option>
-                        <option value="g">Grammes (g)</option>
-                        <option value="kg">Kilogrammes (kg)</option>
-                        <option value="L">Litres (L)</option>
-                        <option value="cL">Centilitres (cL)</option>
-                        <option value="lot">Lot</option>
-                    </select>
+                    <div class="row">
+                        <div style="flex: 2;">
+                            <label>Unité de vente</label>
+                            <select id="prod_unit" style="margin-bottom:0">
+                                <option value="">Pièce (par défaut)</option>
+                                <option value="g">Grammes (g)</option>
+                                <option value="kg">Kilogrammes (kg)</option>
+                                <option value="L">Litres (L)</option>
+                                <option value="cL">Centilitres (cL)</option>
+                                <option value="lot">Lot</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Valeur (ex: 10)</label>
+                            <input id="prod_unit_value" placeholder="10" style="margin-bottom:0">
+                        </div>
+                    </div>
                     <label>Promo (Optionnel)</label>
                     <input type="text" id="prod_promo" placeholder="ex: 10% ou 15€">
 
@@ -1307,7 +1361,7 @@
                                     <div class="product-media-mini" style="position:relative; width:45px; height:45px; background:var(--sidebar-bg); border-radius:6px; overflow:hidden; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:20px;">
                                         📦
                                         ${isVideo ?
-                                        `<video src="${firstUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:2;" muted onerror="this.style.display='none'"></video>` :
+                                        `<video src="${firstUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:2;" muted controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;" onerror="this.style.display='none'"></video>` :
                                         `<img src="${firstUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:2;" onerror="this.style.display='none'">`
                                     }
                                         ${count > 1 ? `<span style="position:absolute; bottom:2px; right:2px; background:var(--accent); color:white; font-size:9px; padding:1px 4px; border-radius:6px; border:1px solid var(--card-bg); font-weight:bold; z-index:3;">+${count - 1}</span>` : ''}
@@ -1320,7 +1374,7 @@
                             mediaHtml = '<div style="width:45px;height:45px;border-radius:6px;background:var(--sidebar-bg);display:flex;align-items:center;justify-content:center;font-size:20px;">📦</div>';
                         }
 
-                        const unitLabel = p.unit ? `/${p.unit}` : '';
+                        const unitLabel = p.unit ? `/${p.unit_value || ''}${p.unit}` : '';
                         return `
                         <tr data-prod-idx="${idx}" onclick="editProdByIndex(${idx})" style="cursor:pointer">
                             <td data-label="Photo">${mediaHtml}</td>
@@ -1536,7 +1590,7 @@
                 const isVideo = file.type.startsWith('video');
                 return `<div style="position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden; border:1px solid var(--border);">
                     ${isVideo
-                        ? `<video src="${url}" style="width:100%;height:100%;object-fit:cover;" muted></video>`
+                        ? `<video src="${url}" style="width:100%;height:100%;object-fit:cover;" muted controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;"></video>`
                         : `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`}
                     <button onclick="removeBcMedia(${i})" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);color:white;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;">✕</button>
                 </div>`;
@@ -1625,27 +1679,93 @@
                     if (fileType === 'photo') {
                         htmlOut += `<img src="${res.url}" style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)">`;
                     } else {
-                        htmlOut += `<video src="${res.url}" controls muted style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)"></video>`;
+                        htmlOut += `<video src="${res.url}" controls muted controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;" style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)"></video>`;
                     }
                 }
 
                 // Unified storage logic
-                const mediaArray = uploadedUrls.map((url, i) => ({ url, type: uploadedTypes[i] }));
-                const mediaValue = mediaArray.length === 1 ? uploadedUrls[0] : JSON.stringify(mediaArray);
-
-                document.getElementById(urlInputId).value = mediaValue;
-
-                if (type === 'bc' && typeInputId) {
-                    document.getElementById(typeInputId).value = mediaArray.length === 1 ? uploadedTypes[0] : 'multiple';
+                const existingValue = document.getElementById(urlInputId).value;
+                let mediaArray = [];
+                if (existingValue) {
+                    try { mediaArray = JSON.parse(existingValue); }
+                    catch (e) {
+                        const type = existingValue.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
+                        mediaArray = [{ url: existingValue, type }];
+                    }
+                    if (!Array.isArray(mediaArray)) mediaArray = [mediaArray];
                 }
 
-                document.getElementById(previewId).innerHTML = htmlOut;
-                document.getElementById(previewId).parentElement.classList.add('has-file');
+                uploadedUrls.forEach((url, i) => {
+                    mediaArray.push({ url, type: uploadedTypes[i] });
+                });
+
+                document.getElementById(urlInputId).value = JSON.stringify(mediaArray);
+
+                if (type === 'bc' && typeInputId) {
+                    document.getElementById(typeInputId).value = mediaArray.length === 1 ? mediaArray[0].type : 'multiple';
+                }
+
+                renderPreview(type);
 
             } catch (err) {
                 showToast('Erreur upload: ' + err.message, 'error');
-                document.getElementById(previewId).innerHTML = '❌ Erreur';
+                renderPreview(type);
             }
+        }
+
+        function renderPreview(type) {
+            const previewId = type + '_preview';
+            const urlInputId = type === 'bc' ? 'bc_media_url' : type + '_image_url';
+            const val = document.getElementById(urlInputId).value;
+            const container = document.getElementById(previewId);
+            container.innerHTML = '';
+
+            if (!val) {
+                container.parentElement.classList.remove('has-file');
+                return;
+            }
+
+            let list = [];
+            try { list = JSON.parse(val); } catch (e) {
+                const fType = val.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
+                list = [{ url: val, type: fType }];
+            }
+            if (!Array.isArray(list)) list = [list];
+
+            list.forEach((m, idx) => {
+                const item = document.createElement('div');
+                item.className = 'preview-item';
+                item.onclick = (e) => e.stopPropagation();
+
+                if (m.type === 'video' || (m.url && m.url.match(/\.(mp4|webm|mov)(\?.*)?$/i))) {
+                    item.innerHTML = `
+                        <video src="${m.url}" muted controls controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;"></video>
+                        <div class="remove-media" onclick="removeMedia(${idx}, '${type}')">✕</div>
+                    `;
+                } else {
+                    item.innerHTML = `
+                        <img src="${m.url}">
+                        <div class="remove-media" onclick="removeMedia(${idx}, '${type}')">✕</div>
+                    `;
+                }
+                container.appendChild(item);
+            });
+            container.parentElement.classList.add('has-file');
+        }
+
+        function removeMedia(idx, type) {
+            const urlInputId = type === 'bc' ? 'bc_media_url' : type + '_image_url';
+            const val = document.getElementById(urlInputId).value;
+            let list = [];
+            try { list = JSON.parse(val); } catch (e) {
+                const fType = val.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
+                list = [{ url: val, type: fType }];
+            }
+            if (!Array.isArray(list)) list = [list];
+
+            list.splice(idx, 1);
+            document.getElementById(urlInputId).value = list.length === 0 ? '' : JSON.stringify(list);
+            renderPreview(type);
         }
 
         /* EXPORT & UTILS */
@@ -1770,11 +1890,20 @@
             const price = parseFloat(document.getElementById('prod_price').value);
             const unit = document.getElementById('prod_unit').value;
             const promo = document.getElementById('prod_promo').value;
+            const unit_value = document.getElementById('prod_unit_value').value;
             const image_url = document.getElementById('prod_image_url').value;
             if (!name || isNaN(price)) return showToast('Veuillez remplir le nom et le prix', 'error');
 
             try {
-                await api('/products', 'POST', { id: id || undefined, name, price, unit, promo, image_url: image_url || '' });
+                await api('/products', 'POST', {
+                    id: id || undefined,
+                    name,
+                    price,
+                    unit,
+                    unit_value,
+                    promo,
+                    image_url: image_url || ''
+                });
                 showToast('Produit sauvegardé !', 'success');
                 clearProdForm();
                 loadData('products');
@@ -1786,40 +1915,20 @@
         function editProdByIndex(idx) {
             const p = window._cachedProducts && window._cachedProducts[idx];
             if (!p) return;
-            editProd(p.id, p.name, p.price, p.image_url || '', p.promo || '', p.unit || '');
+            editProd(p.id, p.name, p.price, p.image_url || '', p.promo || '', p.unit || '', p.unit_value || '');
         }
 
-        function editProd(id, name, price, image_url, promo, unit) {
+        function editProd(id, name, price, image_url, promo, unit, unit_value) {
             document.getElementById('prod_id').value = id;
             document.getElementById('prod_name').value = name;
             document.getElementById('prod_price').value = price;
             document.getElementById('prod_unit').value = unit || '';
+            document.getElementById('prod_unit_value').value = unit_value || '';
             document.getElementById('prod_promo').value = promo || '';
             document.getElementById('prod_image_url').value = image_url;
 
-            const preview = document.getElementById('prod_preview');
-            preview.innerHTML = '';
-
-            if (image_url) {
-                let mediaList = [];
-                try {
-                    mediaList = JSON.parse(image_url);
-                } catch (e) {
-                    const type = image_url.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
-                    mediaList = [{ url: image_url, type }];
-                }
-
-                mediaList.forEach(m => {
-                    if (m.type === 'video') {
-                        preview.innerHTML += `<video src="${m.url}" controls muted style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)"></video>`;
-                    } else {
-                        preview.innerHTML += `<img src="${m.url}" style="max-height:80px; max-width:80px; margin:5px; border-radius:8px; border:1px solid var(--border)">`;
-                    }
-                });
-                preview.parentElement.classList.add('has-file');
-            } else {
-                preview.parentElement.classList.remove('has-file');
-            }
+            document.getElementById('prod_image_url').value = image_url;
+            renderPreview('prod');
         }
 
         function clearProdForm() {
@@ -1827,10 +1936,10 @@
             document.getElementById('prod_name').value = '';
             document.getElementById('prod_price').value = '';
             document.getElementById('prod_unit').value = '';
+            document.getElementById('prod_unit_value').value = '';
             document.getElementById('prod_promo').value = '';
             document.getElementById('prod_image_url').value = '';
-            document.getElementById('prod_preview').innerHTML = '';
-            document.getElementById('prod_preview').parentElement.classList.remove('has-file');
+            renderPreview('prod');
         }
 
         async function delProd(id) {

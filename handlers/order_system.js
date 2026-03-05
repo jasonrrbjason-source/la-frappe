@@ -20,7 +20,8 @@ function setupOrderSystem(bot) {
         }
 
         const buttons = products.map(p => {
-            const unitLabel = p.unit ? `/${p.unit}` : '';
+            const uv = p.unit_value ? p.unit_value : '';
+            const unitLabel = p.unit ? `/${uv}${p.unit}` : '';
             const promoLabel = p.promo ? ` 🔥${p.promo}` : '';
             return [Markup.button.callback(`${p.name} - ${p.price}€${unitLabel}${promoLabel}`, `buy_${p.id}`)];
         });
@@ -47,10 +48,12 @@ function setupOrderSystem(bot) {
 
             debugLog(`[PRODUCT-VIEW] ${product.name} par ${ctx.from.id}`);
 
+            const uv = product.unit_value ? product.unit_value : '';
+            const unitLabel = product.unit ? `/${uv}${product.unit}` : '';
             const promoText = product.promo ? `🎁 Promo : <b>${product.promo}</b>\n` : '';
             const settings = ctx.state.settings;
             let caption = `🛒 <b>${product.name}</b>\n` +
-                `💰 Prix unité : <b>${product.price}€</b>\n` +
+                `💰 Prix unité : <b>${product.price}€${unitLabel}</b>\n` +
                 promoText + `\n` +
                 `<b>${settings.msg_choose_qty}</b>`;
 

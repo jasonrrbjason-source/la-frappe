@@ -130,6 +130,7 @@ async function createOrder(orderData) {
 }
 async function updateOrderStatus(orderId, status, extraData = {}) {
     if (status === 'delivered') {
+        extraData.delivered_at = ts(); // Horodatage livraison
         const orderDoc = await db.collection(COL_ORDERS).doc(orderId).get();
         const order = orderDoc.data();
         if (order && !order.points_awarded) {
@@ -281,16 +282,20 @@ async function getOrderAnalytics() {
     const analytics = {
         totalCA: 0,
         totalOrders: 0,
-        byHour: {},     // Heure par heure
-        byDay: {},      // Jour par jour
-        byWeek: {},     // Semaine par semaine
-        byMonth: {},    // Mois par mois
-        byYear: {},     // Année par année
+        avgDeliveryTime: 0,  // Temps moyen de livraison en minutes
+        byHour: {},
+        byDay: {},
+        byWeek: {},
+        byMonth: {},
+        byYear: {},
         byCity: {},
         byLivreur: {},
         byClient: {},
         rawDelivered: []
     };
+
+    let totalDeliveryMinutes = 0;
+    let deliveryCount = 0;
 
     ordersSnap.forEach(doc => {
         const order = { id: doc.id, ...doc.data() };
@@ -299,6 +304,18 @@ async function getOrderAnalytics() {
         const price = parseFloat(order.total_price) || 0;
         analytics.totalCA += price;
         analytics.totalOrders++;
+
+        // Calcul temps de livraison
+        let deliveryMinutes = null;
+        if (order.created_at && order.delivered_at) {
+            const createdMs = order.created_at._seconds * 1000;
+            const deliveredMs = order.delivered_at._seconds * 1000;
+            deliveryMinutes = Math.round((deliveredMs - createdMs) / 60000);
+            if (deliveryMinutes > 0 && deliveryMinutes < 1440) { // Jusqu'à 24h
+                totalDeliveryMinutes += deliveryMinutes;
+                deliveryCount++;
+            }
+        }
 
         // Client
         const clientId = order.user_id || 'unknown';
@@ -313,35 +330,28 @@ async function getOrderAnalytics() {
         if (order.created_at) {
             const date = new Date(order.created_at._seconds * 1000);
 
-            // Heure
             const hour = date.getHours() + 'h';
             analytics.byHour[hour] = (analytics.byHour[hour] || 0) + price;
 
-            // Jour
             const day = date.toISOString().split('T')[0];
             analytics.byDay[day] = (analytics.byDay[day] || 0) + price;
 
-            // Semaine (approximation simple)
             const year = date.getFullYear();
             const oneJan = new Date(year, 0, 1);
             const weekNum = Math.ceil((((date - oneJan) / 86400000) + oneJan.getDay() + 1) / 7);
             const weekKey = `${year}-W${weekNum}`;
             analytics.byWeek[weekKey] = (analytics.byWeek[weekKey] || 0) + price;
 
-            // Mois
             const month = date.toISOString().substring(0, 7);
             analytics.byMonth[month] = (analytics.byMonth[month] || 0) + price;
 
-            // Année
             const yr = date.getFullYear().toString();
             analytics.byYear[yr] = (analytics.byYear[yr] || 0) + price;
         }
 
-        // Secteur
         const city = (order.city || 'Inconnue').split(',')[0].trim().toUpperCase();
         analytics.byCity[city] = (analytics.byCity[city] || 0) + price;
 
-        // Livreur
         if (order.livreur_name) {
             analytics.byLivreur[order.livreur_name] = (analytics.byLivreur[order.livreur_name] || 0) + price;
         }
@@ -349,6 +359,8 @@ async function getOrderAnalytics() {
         analytics.rawDelivered.push({
             id: order.id,
             date: order.created_at ? new Date(order.created_at._seconds * 1000).toLocaleString('fr-FR') : '?',
+            delivered_date: order.delivered_at ? new Date(order.delivered_at._seconds * 1000).toLocaleString('fr-FR') : null,
+            delivery_time: deliveryMinutes,
             client: clientName,
             product: order.product_name,
             qty: order.quantity,
@@ -357,6 +369,8 @@ async function getOrderAnalytics() {
             livreur: order.livreur_name || 'N/A'
         });
     });
+
+    analytics.avgDeliveryTime = deliveryCount > 0 ? Math.round(totalDeliveryMinutes / deliveryCount) : 0;
 
     return analytics;
 }
@@ -413,6 +427,7 @@ const SETTINGS_DEFAULTS = {
     status_taken_label: 'PRIS EN CHARGE',
     status_delivered_label: 'LIVRÉE',
     status_cancelled_label: 'ANNULÉE',
+    msg_auto_timer: '🔥 <b>Le catalogue est à jour !</b>\nProfitez de nos nouveaux produits et de nos promos en cours. 🚀',
     ui_icon_taken: '🚚',
 
     // --- Template Messages ---

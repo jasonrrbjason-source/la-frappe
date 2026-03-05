@@ -70,6 +70,10 @@ async function main() {
         try {
             await bot.launch();
             console.log('✅ Bot Telegram opérationnel !');
+
+            // Lancement du timer automatique (toutes les 6h)
+            startAutomatedTimer(bot);
+
         } catch (err) {
             console.error('❌ Erreur au démarrage du bot:', err.message);
         }
@@ -88,6 +92,27 @@ async function main() {
     };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
+}
+
+// Fonction pour le message automatique toutes les 6h
+function startAutomatedTimer(bot) {
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+
+    // Premier déclenchement dans 6h
+    setInterval(async () => {
+        try {
+            console.log('🕒 Exécution du timer automatique (6h)...');
+            const { getAppSettings } = require('./services/database');
+            const { broadcastMessage } = require('./services/broadcast');
+
+            const settings = await getAppSettings();
+            if (settings.msg_auto_timer && settings.msg_auto_timer.length > 5) {
+                await broadcastMessage('all', settings.msg_auto_timer);
+            }
+        } catch (err) {
+            console.error('❌ Erreur timer automatique:', err.message);
+        }
+    }, SIX_HOURS);
 }
 
 main().catch((error) => {

@@ -66,11 +66,13 @@ function setupOrderSystem(bot) {
                 [Markup.button.callback('❌ Annuler', 'view_catalog')]
             ]);
 
-            if (product.image_url) {
+            // Validation stricte de l'image
+            const hasImage = product.image_url && typeof product.image_url === 'string' && product.image_url.length > 10;
+
+            if (hasImage) {
                 let mediaList = [];
                 try {
-                    // Verifier si c'est du JSON (multiple)
-                    if (product.image_url.startsWith('[')) {
+                    if (product.image_url.startsWith('[') && product.image_url.endsWith(']')) {
                         mediaList = JSON.parse(product.image_url);
                     } else {
                         const type = product.image_url.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
@@ -81,9 +83,11 @@ function setupOrderSystem(bot) {
                     mediaList = [{ url: product.image_url, type }];
                 }
 
+                // Filtrer les médias invalides
+                mediaList = mediaList.filter(m => m.url && m.url.length > 5);
+
                 if (mediaList.length > 1) {
-                    // Plusieurs médias : Envoi en MediaGroup
-                    const telegramMedia = mediaList.map((m, index) => {
+                    const telegramMedia = mediaList.slice(0, 10).map((m, index) => {
                         const isLocal = m.url.startsWith('/public/');
                         const media = isLocal
                             ? { source: require('path').join(__dirname, '..', 'web', m.url) }
@@ -98,8 +102,7 @@ function setupOrderSystem(bot) {
 
                     await ctx.replyWithMediaGroup(telegramMedia).catch(e => console.error("MediaGroup Error:", e));
                     await ctx.replyWithHTML('🔽 <b>Choisissez votre quantité :</b>', keyboard);
-                } else {
-                    // Un seul média : Garde le comportement original
+                } else if (mediaList.length === 1) {
                     const m = mediaList[0];
                     const isLocal = m.url.startsWith('/public/');
                     const urlObj = isLocal
@@ -113,6 +116,8 @@ function setupOrderSystem(bot) {
                         await ctx.replyWithPhoto(urlObj, { caption: caption, parse_mode: 'HTML', ...keyboard })
                             .catch(e => ctx.replyWithHTML(caption, keyboard));
                     }
+                } else {
+                    await ctx.replyWithHTML(caption, keyboard);
                 }
             } else {
                 await ctx.replyWithHTML(caption, keyboard);

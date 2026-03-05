@@ -773,6 +773,17 @@
             </div>
 
             <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));">
+                <div class="card" style="padding:20px; display:flex; align-items:center; gap:15px;">
+                    <div style="font-size:32px;">⏱️</div>
+                    <div>
+                        <div style="color:var(--text-muted); font-size:13px;">Temps moyen de livraison</div>
+                        <div id="avg-delivery-time" style="font-size:28px; font-weight:700; color:var(--accent);">—
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));">
                 <div class="card" style="grid-column: span 2;">
                     <h3 id="chart-title">📈 Évolution des Revenus (Macro)</h3>
                     <div style="height:350px; margin-top:20px;">
@@ -879,11 +890,12 @@
                 <table id="orderTable">
                     <thead>
                         <tr>
-                            <th>ID</th>
                             <th>Client</th>
                             <th>Produit</th>
                             <th>Total</th>
-                            <th>Ville</th>
+                            <th>Adresse</th>
+                            <th>Commandé le</th>
+                            <th>Livré le</th>
                             <th>Statut</th>
                             <th>Action</th>
                         </tr>
@@ -1197,9 +1209,10 @@
                 }
                 if (id === 'products') {
                     const products = await api('/products');
-                    document.querySelector('#productTable tbody').innerHTML = products.map(p => {
+                    window._cachedProducts = products;
+                    document.querySelector('#productTable tbody').innerHTML = products.map((p, idx) => {
                         let mediaHtml = '';
-                        if (p.image_url) {
+                        if (p.image_url && p.image_url.length > 10) {
                             let firstUrl = p.image_url;
                             let count = 1;
                             try {
@@ -1209,29 +1222,34 @@
                             } catch (e) { }
 
                             const isVideo = firstUrl.match(/\.(mp4|webm|mov)(\?.*)?$/i);
-                            mediaHtml = `
-                                <div style="position:relative; width:45px; height:45px;">
-                                    ${isVideo ?
-                                    `<video src="${firstUrl}" style="width:100%;height:100%;border-radius:6px;object-fit:cover;" muted></video>` :
-                                    `<img src="${firstUrl}" style="width:100%;height:100%;border-radius:6px;object-fit:cover;">`
-                                }
-                                    ${count > 1 ? `<span style="position:absolute; bottom:-5px; right:-5px; background:var(--accent); color:white; font-size:10px; padding:2px 5px; border-radius:10px; border:2px solid var(--card-bg)">+${count - 1}</span>` : ''}
-                                </div>
-                            `;
+                            const isBase64 = firstUrl.startsWith('data:');
+                            if (isBase64 || firstUrl.startsWith('http')) {
+                                mediaHtml = `
+                                    <div style="position:relative; width:45px; height:45px;">
+                                        ${isVideo ?
+                                        `<video src="${firstUrl}" style="width:100%;height:100%;border-radius:6px;object-fit:cover;" muted></video>` :
+                                        `<img src="${firstUrl}" style="width:100%;height:100%;border-radius:6px;object-fit:cover;">`
+                                    }
+                                        ${count > 1 ? `<span style="position:absolute; bottom:-5px; right:-5px; background:var(--accent); color:white; font-size:10px; padding:2px 5px; border-radius:10px; border:2px solid var(--card-bg)">+${count - 1}</span>` : ''}
+                                    </div>
+                                `;
+                            } else {
+                                mediaHtml = '<div style="width:45px;height:45px;border-radius:6px;background:var(--sidebar-bg);display:flex;align-items:center;justify-content:center;font-size:20px;">📦</div>';
+                            }
                         } else {
-                            mediaHtml = `<img src="https://via.placeholder.com/45" style="width:45px;height:45px;border-radius:6px;object-fit:cover;">`;
+                            mediaHtml = '<div style="width:45px;height:45px;border-radius:6px;background:var(--sidebar-bg);display:flex;align-items:center;justify-content:center;font-size:20px;">📦</div>';
                         }
 
                         const unitLabel = p.unit ? `/${p.unit}` : '';
                         return `
-                        <tr onclick="editProd('${p.doc_id}', '${p.name.replace(/'/g, "\\'")}', ${p.price}, '${(p.image_url || '').replace(/'/g, "\\'")}', '${(p.promo || '').replace(/'/g, "\\'")}', '${p.unit || ''}')" style="cursor:pointer">
+                        <tr data-prod-idx="${idx}" onclick="editProdByIndex(${idx})" style="cursor:pointer">
                             <td>${mediaHtml}</td>
                             <td><b>${p.name}</b></td>
                             <td>${p.price}€${unitLabel}</td>
                             <td>${p.promo || '-'}</td>
                             <td class="action-btns">
-                                <button class="btn btn-outline" onclick="editProd('${p.id}', '${p.name.replace(/'/g, "\\'")}', ${p.price}, '${p.image_url || ''}', '${p.promo || ''}', '${p.unit || ''}')">Edit</button>
-                                <button class="btn btn-danger" onclick="delProd('${p.id}')">Delete</button>
+                                <button class="btn btn-outline" onclick="event.stopPropagation(); editProdByIndex(${idx})">Edit</button>
+                                <button class="btn btn-danger" onclick="event.stopPropagation(); delProd('${p.id}')">Delete</button>
                             </td>
                         </tr>
                     `;
@@ -1247,13 +1265,26 @@
                         if (o.status === 'delivered') label = s.status_delivered_label || 'LIVRÉE';
                         if (o.status === 'cancelled') label = s.status_cancelled_label || 'ANNULÉE';
 
+                        // Formatage dates
+                        let createdTime = '—';
+                        if (o.created_at) {
+                            const d = o.created_at._seconds ? new Date(o.created_at._seconds * 1000) : new Date(o.created_at);
+                            createdTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                        }
+                        let deliveredTime = '—';
+                        if (o.delivered_at) {
+                            const d = o.delivered_at._seconds ? new Date(o.delivered_at._seconds * 1000) : new Date(o.delivered_at);
+                            deliveredTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                        }
+
                         return `
                         <tr>
-                            <td><small>#${o.id.substring(0, 6)}</small></td>
                             <td><b>${o.first_name}</b></td>
                             <td>${o.product_name} (x${o.quantity})</td>
-                            <td>${o.total_price}€</td>
-                            <td>${o.city}</td>
+                            <td><b>${o.total_price}€</b></td>
+                            <td><small>${o.city || '—'}</small></td>
+                            <td><small>🕐 ${createdTime}</small></td>
+                            <td><small>${o.status === 'delivered' ? '✅ ' + deliveredTime : '—'}</small></td>
                             <td><span class="badge badge-${o.status}">${label}</span></td>
                             <td>
                                 <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
@@ -1304,6 +1335,9 @@
                     const data = await api('/analytics');
                     window.lastAnalytics = data;
                     window.currentAnalyticsRaw = data.rawDelivered;
+
+                    // Afficher le temps moyen de livraison
+                    document.getElementById('avg-delivery-time').innerText = (data.avgDeliveryTime || 0) + ' min';
 
                     // 1. Chart CA par Ville
                     if (chartInstances.cities) chartInstances.cities.destroy();
@@ -1621,9 +1655,20 @@
             const image_url = document.getElementById('prod_image_url').value;
             if (!name || isNaN(price)) return showToast('Veuillez remplir le nom et le prix', 'error');
 
-            await api('/products', 'POST', { id, name, price, unit, promo, image_url });
-            clearProdForm();
-            loadData('products');
+            try {
+                await api('/products', 'POST', { id: id || undefined, name, price, unit, promo, image_url: image_url || '' });
+                showToast('Produit sauvegardé !', 'success');
+                clearProdForm();
+                loadData('products');
+            } catch (e) {
+                showToast('Erreur: ' + e.message, 'error');
+            }
+        }
+
+        function editProdByIndex(idx) {
+            const p = window._cachedProducts && window._cachedProducts[idx];
+            if (!p) return;
+            editProd(p.id, p.name, p.price, p.image_url || '', p.promo || '', p.unit || '');
         }
 
         function editProd(id, name, price, image_url, promo, unit) {

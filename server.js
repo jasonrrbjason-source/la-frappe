@@ -265,11 +265,11 @@ function createServer() {
     app.get('/api/livreurs', authMiddleware, async (req, res) => {
         try {
             const dbModule = require('./services/database');
-            const snap = await dbModule.db.collection('bot_users').where('is_livreur', '==', true).get();
-            const livreurs = snap.docs.map(d => {
-                const data = d.data();
-                try { return dbModule.decryptUser({ ...data, doc_id: d.id }); }
-                catch { return { ...data, doc_id: d.id }; }
+            const { supabase, COL_USERS } = dbModule;
+            const { data } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
+            const livreurs = (data || []).map(d => {
+                try { return dbModule.decryptUser({ ...d, doc_id: d.id }); }
+                catch { return { ...d, doc_id: d.id }; }
             });
             res.json(livreurs);
         } catch (e) { console.error('Livreurs API error:', e); res.status(500).json({ error: e.message }); }

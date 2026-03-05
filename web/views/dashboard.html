@@ -508,20 +508,15 @@
             }
 
             .stats-grid {
-                grid-template-columns: repeat(2, 1fr) !important;
-                gap: 10px;
-            }
-
-            .section-insights .stats-grid {
                 grid-template-columns: 1fr !important;
+                gap: 15px;
             }
 
             /* Fix headers and multi-col inputs */
             #section-insights>div:first-child,
             #section-settings .flex[style*="display:flex; gap:10px;"],
             #section-products .flex,
-            #section-broadcast .card>div[style*="display:flex; gap:10px;"],
-            .stats-grid>div[style*="grid-column: span 2"] {
+            #section-broadcast .card>div[style*="display:flex; gap:10px;"] {
                 flex-direction: column !important;
                 align-items: stretch !important;
                 gap: 15px !important;
@@ -542,25 +537,31 @@
         }
 
         /* ========== SMALL PHONES ========== */
-        @media (max-width: 380px) {
+        @media (max-width: 480px) {
             .stats-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: 1fr !important;
             }
 
             .stat-value {
-                font-size: 18px;
+                font-size: 22px;
             }
 
             .main {
-                padding: 65px 8px 16px;
-            }
-
-            #bc_media_grid {
-                grid-template-columns: repeat(2, 1fr) !important;
+                padding: 70px 10px 100px;
             }
 
             h1 {
                 font-size: 18px;
+                text-align: center;
+            }
+
+            #section-insights h1 {
+                font-size: 22px;
+            }
+
+            .btn-accent[onclick="exportAnalyticsCSV()"] {
+                width: 100% !important;
+                margin-top: 10px;
             }
         }
 

@@ -1364,8 +1364,68 @@
         }
 
         /* FILE UPLOAD & DRAG & DROP */
+        // ========== BROADCAST FILES (must be declared early) ==========
+        let bcFiles = [];
+
+        function addBcMedia(input) {
+            const newFiles = Array.from(input.files);
+            bcFiles = bcFiles.concat(newFiles);
+            renderBcGrid();
+            input.value = '';
+        }
+
+        function removeBcMedia(index) {
+            bcFiles.splice(index, 1);
+            renderBcGrid();
+        }
+
+        function renderBcGrid() {
+            const grid = document.getElementById('bc_media_grid');
+            if (!grid) return;
+            if (bcFiles.length === 0) { grid.innerHTML = ''; return; }
+            grid.innerHTML = bcFiles.map((file, i) => {
+                const url = URL.createObjectURL(file);
+                const isVideo = file.type.startsWith('video');
+                return `<div style="position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden; border:1px solid var(--border);">
+                    ${isVideo
+                        ? `<video src="${url}" style="width:100%;height:100%;object-fit:cover;" muted></video>`
+                        : `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`}
+                    <button onclick="removeBcMedia(${i})" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);color:white;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;">✕</button>
+                </div>`;
+            }).join('');
+        }
+
+        async function sendBC() {
+            const message = document.getElementById('bcMsg').value;
+            const platform = document.getElementById('bcPlatform').value;
+            if (!message && bcFiles.length === 0) return showToast('Écrivez un message ou ajoutez un média.', 'error');
+            const ok = await showModal('Diffusion', `Envoyer à tous les membres ?\n${bcFiles.length > 0 ? bcFiles.length + ' média(s) joints' : 'Texte uniquement'}`);
+            if (!ok) return;
+            try {
+                const formData = new FormData();
+                formData.append('message', message);
+                formData.append('platform', platform);
+                bcFiles.forEach((f, i) => formData.append('media_' + i, f));
+                formData.append('media_count', bcFiles.length);
+                const r = await fetch('/api/broadcast', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${TOKEN}` },
+                    body: formData
+                });
+                const res = await r.json();
+                if (!r.ok) throw new Error(res.error || 'Erreur serveur');
+                showToast('🚀 Diffusion lancée !', 'success');
+                document.getElementById('bcMsg').value = '';
+                bcFiles = [];
+                renderBcGrid();
+            } catch (e) {
+                showToast('Erreur: ' + e.message, 'error');
+            }
+        }
+
         function initDragAndDrop(zoneId, previewId, urlInputId, typeInputId = null, type) {
             const zone = document.getElementById(zoneId);
+            if (!zone) return; // Skip if element doesn't exist
             zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
             zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
             zone.addEventListener('drop', (e) => {
@@ -1377,7 +1437,6 @@
         }
 
         initDragAndDrop('prod_drop_zone', 'prod_preview', 'prod_image_url', null, 'prod');
-        initDragAndDrop('bc_drop_zone', 'bc_preview', 'bc_media_url', 'bc_media_type', 'bc');
 
         function handleFileUpload(input, type) {
             const files = Array.from(input.files);
@@ -1619,68 +1678,6 @@
             showToast('Produit supprimé', 'success');
         }
 
-        // ========== BROADCAST ==========
-        let bcFiles = []; // Stocke les fichiers sélectionnés
-
-        function addBcMedia(input) {
-            const newFiles = Array.from(input.files);
-            bcFiles = bcFiles.concat(newFiles);
-            renderBcGrid();
-            input.value = ''; // Reset input
-        }
-
-        function removeBcMedia(index) {
-            bcFiles.splice(index, 1);
-            renderBcGrid();
-        }
-
-        function renderBcGrid() {
-            const grid = document.getElementById('bc_media_grid');
-            if (bcFiles.length === 0) { grid.innerHTML = ''; return; }
-
-            grid.innerHTML = bcFiles.map((file, i) => {
-                const url = URL.createObjectURL(file);
-                const isVideo = file.type.startsWith('video');
-                return `<div style="position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden; border:1px solid var(--border);">
-                    ${isVideo
-                        ? `<video src="${url}" style="width:100%;height:100%;object-fit:cover;" muted></video>`
-                        : `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`}
-                    <button onclick="removeBcMedia(${i})" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);color:white;border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;">✕</button>
-                </div>`;
-            }).join('');
-        }
-
-        async function sendBC() {
-            const message = document.getElementById('bcMsg').value;
-            const platform = document.getElementById('bcPlatform').value;
-
-            if (!message && bcFiles.length === 0) return showToast('Écrivez un message ou ajoutez un média.', 'error');
-            const ok = await showModal('Diffusion', `Envoyer à tous les membres ?\n${bcFiles.length > 0 ? bcFiles.length + ' média(s) joints' : 'Texte uniquement'}`);
-            if (!ok) return;
-
-            try {
-                const formData = new FormData();
-                formData.append('message', message);
-                formData.append('platform', platform);
-                bcFiles.forEach((f, i) => formData.append('media_' + i, f));
-                formData.append('media_count', bcFiles.length);
-
-                const r = await fetch('/api/broadcast', {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${TOKEN}` },
-                    body: formData
-                });
-                const res = await r.json();
-                if (!r.ok) throw new Error(res.error || 'Erreur serveur');
-
-                showToast('🚀 Diffusion lancée !', 'success');
-                document.getElementById('bcMsg').value = '';
-                bcFiles = [];
-                renderBcGrid();
-            } catch (e) {
-                showToast('Erreur: ' + e.message, 'error');
-            }
-        }
 
         async function saveSettings() {
             await api('/settings', 'POST', {

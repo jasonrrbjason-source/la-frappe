@@ -179,23 +179,32 @@ function createServer() {
 
             let finalUrl = `/public/uploads/${fileName}`;
 
-            // 2. Tentative d'upload sur Firebase Storage (Persistance sur Railway)
+            // 2. Tentative d'upload sur Supabase Storage (Persistance Cloud)
             try {
-                const bucket = admin.storage().bucket();
-                const firebaseFile = bucket.file(`uploads/${fileName}`);
+                const { supabase } = require('./config/supabase');
 
-                debugLog(`[UPLOAD] Tentative Firebase Storage: ${fileName}`);
+                debugLog(`[UPLOAD] Tentative Supabase Storage: ${fileName}`);
 
-                await firebaseFile.save(file.data, {
-                    metadata: { contentType: file.mimetype },
-                    public: true
-                });
+                // Read the file data from buffer
+                const fileData = file.data;
+                const { data, error } = await supabase.storage
+                    .from('uploads')
+                    .upload(fileName, fileData, {
+                        contentType: file.mimetype,
+                        upsert: true
+                    });
 
-                // URL publique standard Firebase Storage
-                finalUrl = `https://storage.googleapis.com/${bucket.name}/uploads/${fileName}`;
-                debugLog(`[UPLOAD-OK] Firebase: ${finalUrl}`);
+                if (error) {
+                    throw error;
+                }
+
+                // URL publique standard Supabase Storage
+                const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(fileName);
+                finalUrl = publicData.publicUrl;
+
+                debugLog(`[UPLOAD-OK] Supabase: ${finalUrl}`);
             } catch (storageErr) {
-                debugLog(`[UPLOAD-WARN] Échec Firebase Storage: ${storageErr.message}. Utilisation fallback local.`);
+                debugLog(`[UPLOAD-WARN] Échec Supabase Storage: ${storageErr.message}. Utilisation fallback local.`);
             }
 
             res.json({ success: true, url: finalUrl });

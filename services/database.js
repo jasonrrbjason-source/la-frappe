@@ -1,4 +1,4 @@
-const { db, admin } = require('../config/firebase');
+const { supabase } = require('../config/supabase');
 const encryption = require('./encryption');
 
 const COL_USERS = 'bot_users';
@@ -8,12 +8,18 @@ const COL_REFERRALS = 'bot_referrals';
 const COL_SETTINGS = 'bot_settings';
 const COL_PRODUCTS = 'bot_products';
 const COL_ORDERS = 'bot_orders';
-function ts() { return admin.firestore.FieldValue.serverTimestamp(); }
-function incr(n = 1) { return admin.firestore.FieldValue.increment(n); }
+const COL_DAILY_STATS = 'bot_daily_stats';
+
+function ts() { return new Date().toISOString(); }
+
+// Helper pour simplifier Supabase updates numériques
+const incr = (n = 1) => n;
+
 function decryptUser(userData) {
     if (!userData) return null;
     return {
         ...userData,
+        doc_id: userData.id,
         username: encryption.decrypt(userData.username),
         first_name: encryption.decrypt(userData.first_name),
         last_name: encryption.decrypt(userData.last_name),
@@ -21,18 +27,20 @@ function decryptUser(userData) {
 }
 function makeDocId(platform, platformId) { return `${platform}_${platformId}`; }
 
-function activeUsersQuery(platform, type = null) {
-    let q = db.collection(COL_USERS).where('is_blocked', '==', false).where('is_active', '==', true);
-    if (platform) q = q.where('platform', '==', platform);
-    if (type) q = q.where('type', '==', type);
-    return q;
+async function activeUsersQuery(platform, type = null) {
+    let q = supabase.from(COL_USERS).select('*').eq('is_blocked', false).eq('is_active', true);
+    if (platform) q = q.eq('platform', platform);
+    if (type) q = q.eq('type', type);
+    const { data } = await q;
+    return data || [];
 }
 
 async function registerUser(platformUser, platform = 'telegram', referrerId = null) {
-    if (!platform) platform = 'telegram'; // Sécurité si l'argument est passé explicitement à null
+    if (!platform) platform = 'telegram';
     const docId = makeDocId(platform, platformUser.id);
-    const userRef = db.collection(COL_USERS).doc(docId);
-    const existing = await userRef.get();
+    const { data: existingArray } = await supabase.from(COL_USERS).select('*').eq('id', docId).limit(1);
+    const existing = existingArray && existingArray.length > 0 ? existingArray[0] : null;
+
     const isGroup = platformUser.type === 'group' || platformUser.type === 'supergroup';
     const coreData = {
         platform,
@@ -47,27 +55,37 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         is_active: true,
         is_blocked: false,
     };
-    if (existing.exists) {
-        await userRef.update(coreData);
-        return { isNew: false, user: decryptUser({ ...existing.data(), ...coreData, doc_id: docId }) };
+
+    if (existing) {
+        await supabase.from(COL_USERS).update(coreData).eq('id', docId);
+        return { isNew: false, user: decryptUser({ ...existing, ...coreData }) };
     }
+
     const newUser = {
-        ...coreData, doc_id: docId, date_inscription: ts(),
-        is_blocked: false, is_active: true,
-        referred_by: referrerId || null, referral_count: 0,
-        order_count: 0, points: 0, wallet_balance: 0, // <-- Nouveaux champs
+        id: docId,
+        doc_id: docId,
+        ...coreData,
+        date_inscription: ts(),
+        is_blocked: false,
+        is_active: true,
+        referred_by: referrerId || null,
+        referral_count: 0,
+        order_count: 0,
+        points: 0,
+        wallet_balance: 0,
         referral_code: generateReferralCode(platform, platformUser.id),
     };
-    await userRef.set(newUser);
+    await supabase.from(COL_USERS).insert([newUser]);
     await incrementStat('total_users');
     await incrementDailyStat('new_users');
+
     if (referrerId) {
         try {
-            const snap = await db.collection(COL_USERS).where('referral_code', '==', referrerId).limit(1).get();
-            if (!snap.empty) {
-                const referrerDoc = snap.docs[0];
-                await referrerDoc.ref.update({ referral_count: incr() });
-                await db.collection(COL_REFERRALS).add({ referrer_id: referrerDoc.id, referred_id: docId, created_at: ts() });
+            const { data: refDocs } = await supabase.from(COL_USERS).select('*').eq('referral_code', referrerId).limit(1);
+            if (refDocs && refDocs.length > 0) {
+                const referrerDoc = refDocs[0];
+                await supabase.from(COL_USERS).update({ referral_count: referrerDoc.referral_count + 1 }).eq('id', referrerDoc.id);
+                await supabase.from(COL_REFERRALS).insert([{ id: `${Date.now()}-${Math.random()}`, referrer_id: referrerDoc.id, referred_id: docId, created_at: ts() }]);
                 await incrementStat('total_referrals');
             }
         } catch (e) { console.error("Error processing referral:", e.message); }
@@ -76,166 +94,174 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
 }
 
 async function getAllActiveUsers(platform = null, type = null) {
-    const snapshot = await activeUsersQuery(platform, type).get();
-    const list = snapshot.docs.map((d) => decryptUser(d.data()));
+    const list = await activeUsersQuery(platform, type);
     console.log(`[DB] getAllActiveUsers(platform=${platform}, type=${type}) -> ${list.length} trouvés`);
-    return list;
+    return list.map(d => decryptUser(d));
 }
 async function markUserBlocked(docId) {
-    await db.collection(COL_USERS).doc(docId).update({ is_blocked: true, blocked_at: ts() });
+    await supabase.from(COL_USERS).update({ is_blocked: true, blocked_at: ts() }).eq('id', docId);
 }
 async function deleteUser(docId) {
-    await db.collection(COL_USERS).doc(docId).delete();
+    await supabase.from(COL_USERS).delete().eq('id', docId);
 }
 async function incrementOrderCount(docId) {
-    await db.collection(COL_USERS).doc(docId).update({ order_count: incr() });
+    const user = await getUser(docId);
+    if (user) await supabase.from(COL_USERS).update({ order_count: (user.order_count || 0) + 1 }).eq('id', docId);
 }
 
 // --- Livreurs ---
 async function setLivreurStatus(userId, platform, isLivreur) {
     const docId = makeDocId(platform, userId);
-    await db.collection(COL_USERS).doc(docId).update({
+    await supabase.from(COL_USERS).update({
         is_livreur: isLivreur,
-        is_available: isLivreur, // Par défaut dispo si promu
+        is_available: isLivreur,
         updated_at: ts()
-    });
+    }).eq('id', docId);
 }
 async function setLivreurAvailability(docId, isAvailable) {
-    await db.collection(COL_USERS).doc(docId).update({
+    await supabase.from(COL_USERS).update({
         is_available: isAvailable,
         updated_at: ts()
-    });
+    }).eq('id', docId);
 }
 async function updateLivreurPosition(docId, input) {
-    // Si c'est une chaîne avec des virgules, transformer en tableau
+    const user = await getUser(docId);
+    if (!user) return;
     const sectors = input.split(',').map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
-    await db.collection(COL_USERS).doc(docId).update({
-        current_city: input.toLowerCase(), // Pour la compatibilité
-        sectors: sectors, // Liste des zones couvertes
-        last_position_update: ts()
-    });
+    // On met tout dans data
+    let tracked = user.data || {};
+    tracked.sectors = sectors;
+    tracked.current_city = input.toLowerCase();
+    tracked.last_position_update = ts();
+    await supabase.from(COL_USERS).update({ data: tracked }).eq('id', docId);
 }
+
 async function saveUserLocation(docId, lat, lon, city = null) {
-    const updates = {
-        latitude: lat,
-        longitude: lon,
-        last_gps_update: ts()
-    };
-    if (city) updates.current_city = city.toLowerCase();
-    await db.collection(COL_USERS).doc(docId).update(updates);
+    const user = await getUser(docId);
+    if (!user) return;
+    let tracked = user.data || {};
+    tracked.latitude = lat;
+    tracked.longitude = lon;
+    tracked.last_gps_update = ts();
+    if (city) tracked.current_city = city.toLowerCase();
+    await supabase.from(COL_USERS).update({ data: tracked }).eq('id', docId);
 }
+
 async function getActiveLivreursCount() {
-    const snap = await db.collection(COL_USERS)
-        .where('is_livreur', '==', true)
-        .where('is_active', '==', true)
-        .get();
-    return snap.size;
+    const { count } = await supabase.from(COL_USERS).select('*', { count: 'exact', head: true })
+        .eq('is_livreur', true).eq('is_active', true);
+    return count || 0;
 }
 
 async function addMessageToTrack(docId, messageId) {
-    const ref = db.collection(COL_USERS).doc(docId);
-    await ref.update({
-        tracked_messages: admin.firestore.FieldValue.arrayUnion(messageId),
-        last_menu_id: messageId
-    }).catch(() => { });
+    const user = await getUser(docId);
+    if (!user) return;
+    let tracked = user.tracked_messages || [];
+    if (!tracked.includes(messageId)) tracked.push(messageId);
+    await supabase.from(COL_USERS).update({ tracked_messages: tracked, last_menu_id: messageId }).eq('id', docId);
 }
 
 async function getLastMenuId(docId) {
-    const doc = await db.collection(COL_USERS).doc(docId).get();
-    return doc.exists ? doc.data().last_menu_id : null;
+    const user = await getUser(docId);
+    return user ? user.last_menu_id : null;
 }
 
 // --- Orders ---
 async function createOrder(orderData) {
-    const ref = await db.collection(COL_ORDERS).add({
+    const id = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    const { data, error } = await supabase.from(COL_ORDERS).insert([{
+        id: id,
         ...orderData,
-        status: 'pending', // pending, taken, delivered, cancelled
+        status: 'pending',
         created_at: ts()
-    });
+    }]).select();
+    if (error) console.error("Error createOrder", error);
     await incrementStat('total_orders');
-    return ref.id;
+    return id;
 }
+
 async function updateOrderStatus(orderId, status, extraData = {}) {
     if (status === 'delivered') {
-        extraData.delivered_at = ts(); // Horodatage livraison
-        const orderDoc = await db.collection(COL_ORDERS).doc(orderId).get();
-        const order = orderDoc.data();
+        extraData.delivered_at = ts();
+        const order = await getOrder(orderId);
         if (order && !order.points_awarded) {
-            const userRef = db.collection(COL_USERS).doc(order.user_id);
-            const userDoc = await userRef.get();
-            if (userDoc.exists) {
-                const userData = userDoc.data();
+            const user = await getUser(order.user_id);
+            if (user) {
                 const price = parseFloat(order.total_price) || 0;
-
                 const settings = await getAppSettings();
                 const pointsRatio = settings.points_ratio || 1;
                 const refBonus = settings.ref_bonus || 5;
 
                 const pointsToAdd = Math.floor(price * pointsRatio);
-                const isFirstOrder = userData.order_count === 0;
+                const isFirstOrder = user.order_count === 0;
 
                 const updates = {
-                    points: incr(pointsToAdd),
-                    order_count: incr(1)
+                    points: (user.points || 0) + pointsToAdd,
+                    order_count: (user.order_count || 0) + 1
                 };
 
-                // Bonus Parrainage
-                if (isFirstOrder && userData.referred_by) {
-                    updates.wallet_balance = incr(refBonus);
-                    const referrerRef = db.collection(COL_USERS).doc(userData.referred_by);
-                    await referrerRef.update({ wallet_balance: incr(refBonus) }).catch(() => { });
+                if (isFirstOrder && user.referred_by) {
+                    updates.wallet_balance = (user.wallet_balance || 0) + refBonus;
+                    const referrer = await getUser(user.referred_by);
+                    if (referrer) {
+                        await supabase.from(COL_USERS).update({ wallet_balance: (referrer.wallet_balance || 0) + refBonus }).eq('id', referrer.id);
+                    }
                 }
-
-                await userRef.update(updates);
+                await supabase.from(COL_USERS).update(updates).eq('id', user.id);
                 extraData.points_awarded = true;
             }
         }
     }
+    await supabase.from(COL_ORDERS).update({ status, ...extraData, updated_at: ts() }).eq('id', orderId);
+}
 
-    await db.collection(COL_ORDERS).doc(orderId).update({
-        status,
-        ...extraData,
-        updated_at: ts()
-    });
-}
 async function getOrder(orderId) {
-    const doc = await db.collection(COL_ORDERS).doc(orderId).get();
-    return doc.exists ? { id: doc.id, ...doc.data() } : null;
+    const { data } = await supabase.from(COL_ORDERS).select('*').eq('id', orderId).limit(1);
+    return data && data.length > 0 ? data[0] : null;
 }
+
 async function getAvailableOrdersByCity(city) {
-    const snap = await db.collection(COL_ORDERS)
-        .where('status', '==', 'pending')
-        .where('city', '==', city.toLowerCase())
-        .orderBy('created_at', 'desc')
-        .get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const { data } = await supabase.from(COL_ORDERS)
+        .select('*')
+        .eq('status', 'pending')
+        .eq('city', city.toLowerCase())
+        .order('created_at', { ascending: false });
+    return data || [];
 }
+
 async function getAllOrders(limit = 50) {
-    const snap = await db.collection(COL_ORDERS).orderBy('created_at', 'desc').limit(limit).get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const { data } = await supabase.from(COL_ORDERS).select('*').order('created_at', { ascending: false }).limit(limit);
+    return data || [];
 }
+
 async function getLivreurOrders(livreurId) {
-    const snap = await db.collection(COL_ORDERS)
-        .where('livreur_id', '==', livreurId)
-        .where('status', '==', 'taken')
-        .get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const { data } = await supabase.from(COL_ORDERS)
+        .select('*')
+        .eq('livreur_id', livreurId)
+        .eq('status', 'taken');
+    return data || [];
 }
+
 async function getUser(docId) {
-    const doc = await db.collection(COL_USERS).doc(docId).get();
-    return doc.exists ? decryptUser(doc.data()) : null;
+    const { data } = await supabase.from(COL_USERS).select('*').eq('id', docId).limit(1);
+    return data && data.length > 0 ? decryptUser(data[0]) : null;
 }
+
 async function getUserCount(platform = null) {
-    const base = db.collection(COL_USERS);
-    const q = platform ? base.where('platform', '==', platform) : base;
-    return (await q.count().get()).data().count;
+    let q = supabase.from(COL_USERS).select('*', { count: 'exact', head: true });
+    if (platform) q = q.eq('platform', platform);
+    const { count } = await q;
+    return count || 0;
 }
 async function getActiveUserCount(platform = null) {
-    return (await activeUsersQuery(platform).count().get()).data().count;
+    let q = supabase.from(COL_USERS).select('*', { count: 'exact', head: true }).eq('is_blocked', false).eq('is_active', true);
+    if (platform) q = q.eq('platform', platform);
+    const { count } = await q;
+    return count || 0;
 }
 async function getRecentUsers(limit = 20) {
-    const snap = await db.collection(COL_USERS).orderBy('date_inscription', 'desc').limit(limit).get();
-    return snap.docs.map((d) => decryptUser(d.data()));
+    const { data } = await supabase.from(COL_USERS).select('*').order('date_inscription', { ascending: false }).limit(limit);
+    return (data || []).map(decryptUser);
 }
 async function searchUsers(query) {
     if (isNaN(query)) return [];
@@ -243,115 +269,110 @@ async function searchUsers(query) {
     return user ? [user] : [];
 }
 
-// --- Referral ---
 function generateReferralCode(platform, platformId) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
     let code = '';
     for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
     return `ref_${platform}_${platformId}_${code}`;
 }
-// Reference to processReferral removed since implementation is now inside registerUser
+
 async function getReferralLeaderboard(limit = 10) {
-    const snap = await db.collection(COL_USERS)
-        .where('referral_count', '>', 0).orderBy('referral_count', 'desc').limit(limit).get();
-    return snap.docs.map((d) => decryptUser(d.data()));
+    const { data } = await supabase.from(COL_USERS).select('*').gt('referral_count', 0).order('referral_count', { ascending: false }).limit(limit);
+    return (data || []).map(decryptUser);
 }
 
 // --- Stats ---
 async function incrementStat(name) {
-    await db.collection(COL_STATS).doc('global').set({ [name]: incr() }, { merge: true });
+    const { data } = await supabase.from(COL_STATS).select('*').eq('id', 'global').limit(1);
+    const globalStats = data && data.length > 0 ? data[0] : { id: 'global' };
+    const val = (globalStats[name] || 0) + 1;
+    await supabase.from(COL_STATS).upsert({ ...globalStats, [name]: val, id: 'global' });
 }
+
 async function incrementDailyStat(name) {
     const today = new Date().toISOString().split('T')[0];
-    await db.collection(COL_STATS).doc(`daily_${today}`).set({ date: today, [name]: incr() }, { merge: true });
+    const { data } = await supabase.from(COL_DAILY_STATS).select('*').eq('id', `daily_${today}`).limit(1);
+    const daily = data && data.length > 0 ? data[0] : { id: `daily_${today}`, date: today };
+    const val = (daily[name] || 0) + 1;
+    await supabase.from(COL_DAILY_STATS).upsert({ ...daily, [name]: val, id: `daily_${today}`, date: today });
 }
+
 async function getGlobalStats() {
-    const doc = await db.collection(COL_STATS).doc('global').get();
-    return doc.exists ? doc.data() : {};
+    const { data } = await supabase.from(COL_STATS).select('*').eq('id', 'global').limit(1);
+    return data && data.length > 0 ? data[0] : {};
 }
+
 async function getDailyStats(days = 30) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
-    const snap = await db.collection(COL_STATS)
-        .where('date', '>=', cutoff.toISOString().split('T')[0]).orderBy('date', 'asc').get();
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const { data } = await supabase.from(COL_DAILY_STATS)
+        .select('*')
+        .gte('date', cutoff.toISOString().split('T')[0])
+        .order('date', { ascending: true });
+    return data || [];
 }
+
 async function getStatsOverview() {
-    const [total, active, stats, bcSnap, ordersSnap, livreursSnap] = await Promise.all([
-        getUserCount(),
-        getActiveUserCount(),
-        getGlobalStats(),
-        db.collection(COL_BROADCASTS).orderBy('created_at', 'desc').limit(5).get(),
-        db.collection(COL_ORDERS).get(),
-        db.collection(COL_USERS).where('is_livreur', '==', true).get()
-    ]);
+    const total = await getUserCount();
+    const active = await getActiveUserCount();
+    const stats = await getGlobalStats();
+
+    const { data: bcSnap } = await supabase.from(COL_BROADCASTS).select('*').order('created_at', { ascending: false }).limit(5);
+    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('*');
+    const { data: livreursSnap } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
 
     let totalCA = 0;
-    ordersSnap.docs.forEach(d => {
-        const order = d.data();
+    (ordersSnap || []).forEach(order => {
         if (order.status === 'delivered') {
             totalCA += (parseFloat(order.total_price) || 0);
         }
     });
 
-    const activeLivreurs = livreursSnap.docs.filter(d => d.data().is_available === true).length;
+    const activeLivreurs = (livreursSnap || []).filter(d => d.is_available === true).length;
 
     return {
         totalUsers: total,
         activeUsers: active,
         totalStats: stats,
-        totalOrders: ordersSnap.size,
+        totalOrders: (ordersSnap || []).length,
         totalCA: totalCA.toFixed(2),
-        totalLivreurs: livreursSnap.size,
+        totalLivreurs: (livreursSnap || []).length,
         activeLivreurs: activeLivreurs,
-        recentBroadcasts: bcSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        recentBroadcasts: bcSnap || []
     };
 }
 
-/**
- * Agrège les données pour le dashboard analytics
- */
 async function getOrderAnalytics() {
-    const ordersSnap = await db.collection(COL_ORDERS).get();
+    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('*');
     const analytics = {
         totalCA: 0,
         totalOrders: 0,
-        avgDeliveryTime: 0,  // Temps moyen de livraison en minutes
-        byHour: {},
-        byDay: {},
-        byWeek: {},
-        byMonth: {},
-        byYear: {},
-        byCity: {},
-        byLivreur: {},
-        byClient: {},
+        avgDeliveryTime: 0,
+        byHour: {}, byDay: {}, byWeek: {}, byMonth: {}, byYear: {}, byCity: {}, byLivreur: {}, byClient: {},
         rawDelivered: []
     };
 
     let totalDeliveryMinutes = 0;
     let deliveryCount = 0;
 
-    ordersSnap.forEach(doc => {
-        const order = { id: doc.id, ...doc.data() };
+    (ordersSnap || []).forEach(order => {
         if (order.status !== 'delivered') return;
 
         const price = parseFloat(order.total_price) || 0;
         analytics.totalCA += price;
         analytics.totalOrders++;
 
-        // Calcul temps de livraison
         let deliveryMinutes = null;
         if (order.created_at && order.delivered_at) {
-            const createdMs = order.created_at._seconds * 1000;
-            const deliveredMs = order.delivered_at._seconds * 1000;
+            const createdMs = new Date(order.created_at).getTime();
+            const deliveredMs = new Date(order.delivered_at).getTime();
             deliveryMinutes = Math.round((deliveredMs - createdMs) / 60000);
-            if (deliveryMinutes > 0 && deliveryMinutes < 1440) { // Jusqu'à 24h
+            if (deliveryMinutes > 0 && deliveryMinutes < 1440) {
                 totalDeliveryMinutes += deliveryMinutes;
                 deliveryCount++;
             }
         }
 
-        // Client
         const clientId = order.user_id || 'unknown';
         const clientName = order.first_name || order.username || 'Client Inconnu';
         if (!analytics.byClient[clientId]) {
@@ -360,10 +381,8 @@ async function getOrderAnalytics() {
         analytics.byClient[clientId].ca += price;
         analytics.byClient[clientId].orders++;
 
-        // Temps
         if (order.created_at) {
-            const date = new Date(order.created_at._seconds * 1000);
-
+            const date = new Date(order.created_at);
             const hour = date.getHours() + 'h';
             analytics.byHour[hour] = (analytics.byHour[hour] || 0) + price;
 
@@ -392,8 +411,8 @@ async function getOrderAnalytics() {
 
         analytics.rawDelivered.push({
             id: order.id,
-            date: order.created_at ? new Date(order.created_at._seconds * 1000).toLocaleString('fr-FR') : '?',
-            delivered_date: order.delivered_at ? new Date(order.delivered_at._seconds * 1000).toLocaleString('fr-FR') : null,
+            date: order.created_at ? new Date(order.created_at).toLocaleString('fr-FR') : '?',
+            delivered_date: order.delivered_at ? new Date(order.delivered_at).toLocaleString('fr-FR') : null,
             delivery_time: deliveryMinutes,
             client: clientName,
             product: order.product_name,
@@ -405,17 +424,20 @@ async function getOrderAnalytics() {
     });
 
     analytics.avgDeliveryTime = deliveryCount > 0 ? Math.round(totalDeliveryMinutes / deliveryCount) : 0;
-
     return analytics;
 }
 
 async function getAvailableLivreurs(city = null) {
-    let q = db.collection(COL_USERS).where('is_livreur', '==', true).where('is_available', '==', true);
+    let q = supabase.from(COL_USERS).select('*').eq('is_livreur', true).eq('is_available', true);
+    /* Note from translation : on firebase it queried a dynamic JSON object. We adapt if it uses 'data' structure or root.
+       I mapped 'current_city' on data field, but the query requires JSONB search.
+       Let's query all first then filter, or adjust if schema keeps it tracked_messages. */
+    const { data } = await q;
+    let list = data || [];
     if (city) {
-        q = q.where('current_city', '==', city.toLowerCase());
+        list = list.filter(d => d.data && d.data.current_city === city.toLowerCase());
     }
-    const snapshot = await q.get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return list;
 }
 
 // --- Settings ---
@@ -424,8 +446,6 @@ const SETTINGS_DEFAULTS = {
     welcome_message: 'Bienvenue ! Vous faites partie de la famille.',
     admin_password: process.env.ADMIN_PASSWORD || 'admin123456',
     admin_telegram_id: String(process.env.ADMIN_TELEGRAM_ID || ''),
-
-    // --- Composants UI (Emojis & Icônes) ---
     ui_icon_catalog: '🍔',
     ui_icon_orders: '📦',
     ui_icon_contact: '📱',
@@ -444,8 +464,6 @@ const SETTINGS_DEFAULTS = {
     ui_icon_stats: '📊',
     ui_icon_broadcast: '📢',
     ui_icon_logout: '🚪',
-
-    // --- Libellés Boutons (Navigation) ---
     label_catalog: 'Catalogue Produits',
     label_my_orders: 'Mes Commandes',
     label_contact: 'Mon contact privé',
@@ -455,72 +473,66 @@ const SETTINGS_DEFAULTS = {
     label_admin_bot: 'Console Admin (Bot)',
     label_admin_web: 'Dashboard Web',
     label_livreur_space: 'Espace Livreur',
-
-    // --- Statuts Commande ---
     status_pending_label: 'EN ATTENTE',
     status_taken_label: 'PRIS EN CHARGE',
     status_delivered_label: 'LIVRÉE',
     status_cancelled_label: 'ANNULÉE',
     msg_auto_timer: '🔥 <b>Le catalogue est à jour !</b>\nProfitez de nos nouveaux produits et de nos promos en cours. 🚀',
     ui_icon_taken: '🚚',
-
-    // --- Template Messages ---
     msg_choose_qty: 'Choisissez la quantité :',
     msg_search_livreur: '⏳ Recherche d\'un livreur en cours...',
     msg_order_success: '✅ <b>Commande enregistrée !</b>'
 };
+
 async function getAppSettings() {
-    const ref = db.collection(COL_SETTINGS).doc('config');
-    const doc = await ref.get();
-    if (!doc.exists) { await ref.set(SETTINGS_DEFAULTS); return SETTINGS_DEFAULTS; }
-    return { ...SETTINGS_DEFAULTS, ...doc.data() };
+    const { data } = await supabase.from(COL_SETTINGS).select('*').eq('id', 'config').limit(1);
+    if (!data || data.length === 0) {
+        await supabase.from(COL_SETTINGS).insert([{ id: 'config', ...SETTINGS_DEFAULTS }]);
+        return SETTINGS_DEFAULTS;
+    }
+    return { ...SETTINGS_DEFAULTS, ...data[0] };
 }
+
 async function updateAppSettings(settings) {
-    await db.collection(COL_SETTINGS).doc('config').update(settings);
+    await supabase.from(COL_SETTINGS).update(settings).eq('id', 'config');
 }
 
 // --- Products ---
 async function getProducts() {
-    const snap = await db.collection(COL_PRODUCTS).get();
-    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    const { data } = await supabase.from(COL_PRODUCTS).select('*');
+    return data || [];
 }
 async function saveProduct(data) {
-    const id = data.id;
+    const id = data.id || `${Date.now()}`;
     delete data.id;
-    if (id) {
-        await db.collection(COL_PRODUCTS).doc(id).update(data);
-        return id;
-    }
-    const ref = await db.collection(COL_PRODUCTS).add({ ...data, created_at: ts() });
-    return ref.id;
+    const { error } = await supabase.from(COL_PRODUCTS).upsert({ id, ...data, created_at: ts() });
+    if (error) console.error("Error saveProduct", error);
+    return id;
 }
 async function deleteProduct(id) {
-    await db.collection(COL_PRODUCTS).doc(id).delete();
+    await supabase.from(COL_PRODUCTS).delete().eq('id', id);
 }
 
 // --- Broadcasts ---
 async function saveBroadcast(data) {
-    const ref = await db.collection(COL_BROADCASTS).add({ ...data, created_at: ts() });
-    return ref.id;
+    const id = `${Date.now()}`;
+    await supabase.from(COL_BROADCASTS).insert([{ id, ...data, created_at: ts() }]);
+    return id;
 }
 async function updateBroadcast(broadcastId, data) {
-    await db.collection(COL_BROADCASTS).doc(broadcastId).update(data);
+    await supabase.from(COL_BROADCASTS).update(data).eq('id', broadcastId);
 }
 
 async function nukeDatabase() {
-    const collections = [COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS];
+    const collections = [COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS, COL_DAILY_STATS, COL_REFERRALS, COL_SETTINGS];
     for (const col of collections) {
-        const snap = await db.collection(col).get();
-        const batch = db.batch();
-        snap.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
+        await supabase.from(col).delete().neq('id', 'neverMatchThisString12345'); // Deletes all rows where ID != "..."
     }
-    // Specifique pour les stats journalières qui sont dans une sous-collection ou doc
-    const dailyStats = await db.collection('bot_daily_stats').get();
-    const batch2 = db.batch();
-    dailyStats.forEach(doc => batch2.delete(doc.ref));
-    await batch2.commit();
 }
+
+// Mock the DB/Admin to prevent server.js from crashing if it calls db.xx
+const db = {};
+const admin = {};
 
 module.exports = {
     db, admin, incr, ts, makeDocId, decryptUser,

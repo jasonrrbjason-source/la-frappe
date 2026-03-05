@@ -90,18 +90,18 @@ async function sendToUser(user, message, options = {}) {
         if (mediaFiles.length > 1) {
             // Envoi en groupe de médias (max 10)
             const mediaGroup = mediaFiles.slice(0, 10).map((f, i) => {
-                const isVideo = f.mimetype.startsWith('video');
+                const isVideo = f.mimetype.startsWith('video') || f.name?.match(/\.(mp4|webm|mov)$/i);
                 return {
                     type: isVideo ? 'video' : 'photo',
-                    media: { source: Buffer.from(f.data) },
+                    media: { source: f.data, filename: f.name || (isVideo ? 'video.mp4' : 'photo.jpg') },
                     ...(i === 0 && caption ? { caption: caption, parse_mode: 'HTML' } : {})
                 };
             });
             await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
         } else if (mediaFiles.length === 1) {
             const f = mediaFiles[0];
-            const isVideo = f.mimetype.startsWith('video');
-            const source = { source: Buffer.from(f.data) };
+            const isVideo = f.mimetype.startsWith('video') || f.name?.match(/\.(mp4|webm|mov)$/i);
+            const source = { source: f.data, filename: f.name || (isVideo ? 'video.mp4' : 'photo.jpg') };
             if (isVideo) {
                 await _bot.telegram.sendVideo(chatId, source, { caption: caption, parse_mode: 'HTML' });
             } else {

@@ -285,11 +285,21 @@ function createServer() {
             const mediaFiles = [];
             if (req.files) {
                 const fs = require('fs');
+                console.log(`[BROADCAST] Réception de ${mediaCount} fichiers attendus.`);
                 for (let i = 0; i < mediaCount; i++) {
                     const f = req.files[`media_${i}`];
                     if (f) {
-                        const fileData = f.tempFilePath ? fs.readFileSync(f.tempFilePath) : f.data;
-                        mediaFiles.push({ data: fileData, mimetype: f.mimetype, name: f.name });
+                        try {
+                            const fileData = f.tempFilePath ? fs.readFileSync(f.tempFilePath) : f.data;
+                            if (fileData && fileData.length > 0) {
+                                mediaFiles.push({ data: fileData, mimetype: f.mimetype, name: f.name });
+                                console.log(`[BROADCAST] Fichier ${i} chargé: ${f.name} (${f.mimetype}, ${fileData.length} bytes)`);
+                            }
+                        } catch (err) {
+                            console.error(`[BROADCAST] Erreur lecture fichier ${i}:`, err.message);
+                        }
+                    } else {
+                        console.warn(`[BROADCAST] Fichier media_${i} manquant dans req.files`);
                     }
                 }
             }
@@ -298,8 +308,13 @@ function createServer() {
                 return res.status(400).json({ error: 'Message ou média requis' });
             }
 
+            console.log(`[BROADCAST] Lancement diffusion: "${message.substring(0, 20)}..." Platform: ${platform}, Medias: ${mediaFiles.length}`);
             res.json({ status: 'started', media_count: mediaFiles.length });
-            broadcastMessage(platform, message, { mediaFiles }).catch(console.error);
+
+            // Lancer la diffusion
+            broadcastMessage(platform, message, { mediaFiles }).catch(err => {
+                console.error('[BROADCAST] Erreur fatale diffusion:', err);
+            });
         } catch (e) {
             console.error('API Broadcast error:', e);
             res.status(500).json({ error: 'Erreur broadcast' });

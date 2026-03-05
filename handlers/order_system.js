@@ -249,7 +249,10 @@ function setupOrderSystem(bot) {
             `Cliquez sur le bouton ci-dessous une fois livré :`,
             {
                 parse_mode: 'HTML',
-                ...Markup.inlineKeyboard([[Markup.button.callback(`${settings.ui_icon_success} MARQUER COMME LIVRÉE`, `finish_${orderId}`)]])
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback(`${settings.ui_icon_success} MARQUER COMME LIVRÉE`, `finish_${orderId}`)],
+                    [Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]
+                ])
             }
         ).catch(() => { });
 

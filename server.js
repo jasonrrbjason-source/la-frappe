@@ -185,11 +185,13 @@ function createServer() {
 
                 debugLog(`[UPLOAD] Tentative Supabase Storage: ${fileName}`);
 
-                // Read the file data from buffer
-                const fileData = file.data;
+                // Read the file data from disk since 'useTempFiles' strips the buffer in req.files
+                const fs = require('fs');
+                const fileBuf = fs.readFileSync(uploadPath);
+
                 const { data, error } = await supabase.storage
                     .from('uploads')
-                    .upload(fileName, fileData, {
+                    .upload(fileName, fileBuf, {
                         contentType: file.mimetype,
                         upsert: true
                     });

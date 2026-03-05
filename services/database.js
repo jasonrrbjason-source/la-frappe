@@ -72,7 +72,7 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         let finalUser;
         if (nowMs - lastActiveMs > 300000) { // 5 minutes
             await supabase.from(COL_USERS).update(coreData).eq('id', docId);
-    _userCache.delete(docId);
+            _userCache.delete(docId);
             finalUser = { ...existing, ...coreData };
         } else {
             // Pas de DB call
@@ -110,7 +110,7 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
             if (refDocs && refDocs.length > 0) {
                 const referrerDoc = refDocs[0];
                 await supabase.from(COL_USERS).update({ referral_count: referrerDoc.referral_count + 1 }).eq('id', referrerDoc.id);
-    _userCache.delete(referrerDoc.id);
+                _userCache.delete(referrerDoc.id);
                 await supabase.from(COL_REFERRALS).insert([{ id: `${Date.now()}-${Math.random()}`, referrer_id: referrerDoc.id, referred_id: docId, created_at: ts() }]);
                 await incrementStat('total_referrals');
             }
@@ -236,11 +236,11 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
                     const referrer = await getUser(user.referred_by);
                     if (referrer) {
                         await supabase.from(COL_USERS).update({ wallet_balance: (referrer.wallet_balance || 0) + refBonus }).eq('id', referrer.id);
-    _userCache.delete(referrer.id);
+                        _userCache.delete(referrer.id);
                     }
                 }
                 await supabase.from(COL_USERS).update(updates).eq('id', user.id);
-    _userCache.delete(user.id);
+                _userCache.delete(user.id);
                 extraData.points_awarded = true;
             }
         }
@@ -607,6 +607,7 @@ const db = {};
 const admin = {};
 
 module.exports = {
+    supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
     db, admin, incr, ts, makeDocId, decryptUser,
     registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser,
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers,

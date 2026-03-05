@@ -518,7 +518,8 @@ function setupOrderSystem(bot) {
                     const discount = Math.min(totalPrice, user.wallet_balance);
                     totalPrice -= discount;
                     discountText = `\n🎁 Réduction : -${discount.toFixed(2)}€`;
-                    await require('../services/database').db.collection('bot_users').doc(userId).update({ wallet_balance: require('../services/database').incr(-discount) });
+                    const { supabase, COL_USERS } = require('../services/database');
+                    await supabase.from(COL_USERS).update({ wallet_balance: user.wallet_balance - discount }).eq('id', userId);
                 }
 
                 const orderId = await createOrder({

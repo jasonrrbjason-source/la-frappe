@@ -41,7 +41,7 @@ function setupStartHandler(bot) {
                     `🔗 <b>Votre lien de parrainage :</b>\n` +
                     `<code>https://t.me/${ctx.botInfo.username}?start=${registeredUser.referral_code}</code>`;
 
-                if (!referrerId) pendingReferralInput.set(userId, true);
+                if (!referrerId) pendingReferralInput.set(docId, true);
             } else {
                 welcomeText = registeredUser.is_livreur
                     ? `${settings.ui_icon_livreur} <b>Bienvenue, livreur ${user.first_name} !</b>\n\n📍 Secteur : <b>${registeredUser.current_city ? registeredUser.current_city.toUpperCase() : 'Non défini'}</b>\n🔘 Statut : <b>${registeredUser.is_available ? 'DISPONIBLE' : 'INDISPONIBLE'}</b>`
@@ -140,22 +140,22 @@ function setupStartHandler(bot) {
         const chunkCredit = 10;
         const chunkPts = ptsExchange * chunkCredit;
 
-        const userId = `telegram_${ctx.from.id}`;
-        const userRef = require('../services/database').db.collection('bot_users').doc(userId);
-        const userDoc = await userRef.get();
+        const docId = `telegram_${ctx.from.id}`;
+        const userDoc = await getUser(docId);
 
-        if (userDoc.exists && userDoc.data().points >= chunkPts) {
-            await userRef.update({
-                points: require('../services/database').incr(-chunkPts),
-                wallet_balance: require('../services/database').incr(chunkCredit)
-            });
+        if (userDoc && userDoc.points >= chunkPts) {
+            const { supabase, COL_USERS } = require('../services/database');
+            await supabase.from(COL_USERS).update({
+                points: userDoc.points - chunkPts,
+                wallet_balance: (userDoc.wallet_balance || 0) + chunkCredit
+            }).eq('id', docId);
             await ctx.answerCbQuery(`🎉 Succès ! +${chunkCredit}€ ajoutés.`, { show_alert: true });
         } else {
             return ctx.answerCbQuery(`❌ Points insuffisants (${chunkPts} pts requis).`, { show_alert: true });
         }
 
         // Simuler le clic sur le profil pour rafraîchir sans handleUpdate
-        const user = await getUser(userId);
+        const user = await getUser(docId);
         const botUsername = ctx.botInfo.username;
         const refLink = `https://t.me/${botUsername}?start=${user.referral_code}`;
         const refBonus = settings.ref_bonus || 5;
@@ -233,31 +233,34 @@ function setupStartHandler(bot) {
     });
 
     bot.on('text', async (ctx, next) => {
-        const userId = `telegram_${ctx.from.id}`;
+        const docId = `telegram_${ctx.from.id}`;
         const inputText = ctx.message.text.trim();
 
         // Si pas en attente de code parrain, passer au handler suivant
-        if (!pendingReferralInput.has(userId)) return next();
+        if (!pendingReferralInput.has(docId)) return next();
         // Si le texte ne commence pas par ref_, c'est peut-être l'adresse -> passer au suivant
         if (!inputText.startsWith('ref_')) {
-            pendingReferralInput.delete(userId);
+            pendingReferralInput.delete(docId);
             return next();
         }
 
-        pendingReferralInput.delete(userId);
+        pendingReferralInput.delete(docId);
 
         try {
             const db = require('../services/database');
-            const snap = await db.db.collection('bot_users').where('referral_code', '==', inputText).limit(1).get();
-            if (!snap.empty && snap.docs[0].id !== userId) {
-                const referrerDoc = snap.docs[0];
-                await referrerDoc.ref.update({ referral_count: db.incr() });
-                await db.db.collection('bot_users').doc(userId).update({ referred_by: referrerDoc.id });
-                await db.db.collection('referrals').add({
+            const { supabase, COL_USERS, COL_REFERRALS } = db;
+            const { data: snap } = await supabase.from(COL_USERS).select('*').eq('referral_code', inputText).limit(1);
+
+            if (snap && snap.length > 0 && snap[0].id !== docId) {
+                const referrerDoc = snap[0];
+                await supabase.from(COL_USERS).update({ referral_count: referrerDoc.referral_count + 1 }).eq('id', referrerDoc.id);
+                await supabase.from(COL_USERS).update({ referred_by: referrerDoc.id }).eq('id', docId);
+                await supabase.from(COL_REFERRALS).insert([{
+                    id: `${Date.now()}-${Math.random()}`,
                     referrer_id: referrerDoc.id,
-                    referred_id: userId,
+                    referred_id: docId,
                     created_at: db.ts()
-                });
+                }]);
                 return safeEdit(ctx, '🎉 Code parrainage validé ! Votre parrain a été crédité. Vous gagnerez chacun un bonus à votre première commande.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
             } else {
                 return safeEdit(ctx, '❌ Code parrainage invalide ou déjà utilisé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));

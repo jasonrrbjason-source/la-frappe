@@ -89,17 +89,21 @@ function setupOrderSystem(bot) {
 
                 if (mediaList.length > 1) {
                     productMediaGroup = mediaList.map(m => {
-                        const isVideo = m.type === 'video' || m.url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
+                        const url = typeof m === 'string' ? m : m.url;
+                        const type = typeof m === 'object' ? m.type : null;
+                        const isVideo = type === 'video' || url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
                         return {
                             type: isVideo ? 'video' : 'photo',
-                            media: m.url
+                            media: url
                         };
                     });
                     keyboard.mediaGroup = productMediaGroup;
                 } else if (mediaList.length === 1) {
                     const m = mediaList[0];
-                    const isVideo = m.type === 'video' || m.url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
-                    const productMedia = m.url;
+                    const url = typeof m === 'string' ? m : m.url;
+                    const type = typeof m === 'object' ? m.type : null;
+                    const isVideo = type === 'video' || url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
+                    const productMedia = url;
 
                     if (isVideo) {
                         keyboard.video = productMedia;

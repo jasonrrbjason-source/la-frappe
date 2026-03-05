@@ -223,6 +223,8 @@
             color: #ff453a;
         }
 
+        .badge-arrival_1h,
+        .badge-arrival_30min,
         .badge-arrival_10min,
         .badge-arrival_5min,
         .badge-arrived {
@@ -1398,6 +1400,8 @@
                         if (o.status === 'taken') label = s.status_taken_label || 'PRIS EN CHARGE';
                         if (o.status === 'delivered') label = s.status_delivered_label || 'LIVRÉE';
                         if (o.status === 'cancelled') label = s.status_cancelled_label || 'ANNULÉE';
+                        if (o.status === 'arrival_1h') label = "ARRIVE -1H";
+                        if (o.status === 'arrival_30min') label = "30 MIN";
                         if (o.status === 'arrival_10min') label = '10 MIN';
                         if (o.status === 'arrival_5min') label = '5 MIN';
                         if (o.status === 'arrived') label = 'ARRIVÉ';
@@ -1427,6 +1431,8 @@
                                 <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
                                     <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>${s.status_pending_label || 'EN ATTENTE'}</option>
                                     <option value="taken" ${o.status === 'taken' ? 'selected' : ''}>${s.status_taken_label || 'PRIS EN CHARGE'}</option>
+                                    <option value="arrival_1h" ${o.status === 'arrival_1h' ? 'selected' : ''}>🚚 ARRIVER DANS - D'UNE HEURE</option>
+                                    <option value="arrival_30min" ${o.status === 'arrival_30min' ? 'selected' : ''}>⏳ ARRIVE DANS 30 min</option>
                                     <option value="arrival_10min" ${o.status === 'arrival_10min' ? 'selected' : ''}>⏳ ARRIVE DANS 10 min</option>
                                     <option value="arrival_5min" ${o.status === 'arrival_5min' ? 'selected' : ''}>⏳ ARRIVE DANS 5 min</option>
                                     <option value="arrived" ${o.status === 'arrived' ? 'selected' : ''}>📍 ARRIVÉ</option>
@@ -1715,7 +1721,6 @@
 
         function renderPreview(type) {
             const previewId = type + '_preview';
-            const urlInputId = type === 'bc' ? 'bc_media_url' : type + '_image_url';
             const val = document.getElementById(urlInputId).value;
             const container = document.getElementById(previewId);
             container.innerHTML = '';
@@ -1727,7 +1732,7 @@
 
             let list = [];
             try { list = JSON.parse(val); } catch (e) {
-                const fType = val.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
+                const fType = val.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i) ? 'video' : 'photo';
                 list = [{ url: val, type: fType }];
             }
             if (!Array.isArray(list)) list = [list];
@@ -1737,16 +1742,20 @@
                 item.className = 'preview-item';
                 item.onclick = (e) => e.stopPropagation();
 
-                if (m.type === 'video' || (m.url && m.url.match(/\.(mp4|webm|mov)(\?.*)?$/i))) {
+                const url = typeof m === 'string' ? m : m.url;
+                const type = typeof m === 'object' ? m.type : null;
+                const isVideo = type === 'video' || (url && url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i));
+
+                if (isVideo) {
                     item.innerHTML = `
-                        <video src="${m.url}" muted controls controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;"></video>
-                        <div class="remove-media" onclick="removeMedia(${idx}, '${type}')">✕</div>
-                    `;
+                            <video src="${url}" muted controls controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;"></video>
+                            <div class="remove-media" onclick="removeMedia(${idx}, '${type}')">✕</div>
+                        `;
                 } else {
                     item.innerHTML = `
-                        <img src="${m.url}">
-                        <div class="remove-media" onclick="removeMedia(${idx}, '${type}')">✕</div>
-                    `;
+                            <img src="${url}">
+                            <div class="remove-media" onclick="removeMedia(${idx}, '${type}')">✕</div>
+                        `;
                 }
                 container.appendChild(item);
             });
@@ -1895,6 +1904,7 @@
             if (!name || isNaN(price)) return showToast('Veuillez remplir le nom et le prix', 'error');
 
             try {
+                console.log("[SAVE-PROD] Payload:", { id, name, price, unit, unit_value, image_url });
                 await api('/products', 'POST', {
                     id: id || undefined,
                     name,
@@ -1908,6 +1918,7 @@
                 clearProdForm();
                 loadData('products');
             } catch (e) {
+                console.error("[SAVE-PROD-ERROR]", e);
                 showToast('Erreur: ' + e.message, 'error');
             }
         }

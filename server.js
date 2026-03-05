@@ -323,6 +323,12 @@ function createServer() {
                         case 'taken':
                             text = `${statusIcon} <b>Commande #${shortId} ${statusLabel} !</b>\n\nUn livreur a pris en charge votre commande et arrive vers vous. 💨`;
                             break;
+                        case 'arrival_1h':
+                            text = `🚚 <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>moins d'une heure</b>. 📦`;
+                            break;
+                        case 'arrival_30min':
+                            text = `⏳ <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>30 min</b> ! Soyez prêt(e). 🛵`;
+                            break;
                         case 'arrival_10min':
                             text = `⏳ <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>10 min</b> ! Préparez-vous. 🛵`;
                             break;

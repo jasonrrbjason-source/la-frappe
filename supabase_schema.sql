@@ -167,17 +167,25 @@ CREATE TABLE IF NOT EXISTS bot_settings (
 -- CONFIGURATION DU STOCKAGE (STORAGE)
 -- =========================================================================
 
--- Crée un bucket de stockage public pour les médias
+-- Crée un bucket de stockage public pour les médias (guarded)
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('uploads', 'uploads', true) 
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- Règle pour permettre à tout le monde de lire les images/vidéos
+DROP POLICY IF EXISTS "Public Access" ON storage.objects;
 CREATE POLICY "Public Access" 
 ON storage.objects FOR SELECT 
 USING (bucket_id = 'uploads');
 
 -- Règle pour permettre au serveur Node.js d'envoyer/supprimer des fichiers
+DROP POLICY IF EXISTS "Service Role Full Access" ON storage.objects;
 CREATE POLICY "Service Role Full Access" 
 ON storage.objects FOR ALL 
 USING (auth.role() = 'service_role');
+
+-- =========================================================================
+-- MIGRATIONS (SI LES TABLES EXISTENT DÉJÀ)
+-- =========================================================================
+-- ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS current_city TEXT;
+-- ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}'::jsonb;

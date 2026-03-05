@@ -119,6 +119,14 @@ async function main() {
             await bot.launch();
             console.log('✅ Bot Telegram opérationnel !');
 
+            // Configuration du menu des commandes Telegram
+            await bot.telegram.setMyCommands([
+                { command: 'start', description: '🏠 Lancer le bot / Accueil' },
+                { command: 'menu', description: '🛒 Voir le catalogue' },
+                { command: 'orders', description: '📦 Mes commandes' },
+                { command: 'help', description: '❓ Aide et support' }
+            ]).catch(e => console.error('⚠️ Impossible de définir les commandes:', e.message));
+
             // Lancement du timer automatique (toutes les 6h)
             startAutomatedTimer(bot);
 

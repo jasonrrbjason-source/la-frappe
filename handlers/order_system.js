@@ -123,6 +123,7 @@ function setupOrderSystem(bot) {
 
     // Map temporaire pour stocker les infos en attente de saisie
     const pendingCityInput = new Map();
+    const pendingOrderConfirmation = new Map();
 
     // Sélection Quantité -> demande d'adresse
     bot.action(/^qty_(.+)_(.+)$/, async (ctx) => {
@@ -509,63 +510,113 @@ function setupOrderSystem(bot) {
             }
 
             try {
+                const user = await getUser(userId);
                 const settings = await getAppSettings();
                 const products = await getProducts();
                 const product = products.find(p => p.id === productId);
                 if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('🍔 Catalogue', 'view_catalog')]]));
 
-                const user = await getUser(userId);
-                let totalPrice = product.price * qty;
-                let discountText = "";
-                let appliedDiscountAmount = 0;
+                const totalPriceRaw = product.price * qty;
 
+                // SI CRÉDIT DISPONIBLE → ON DEMANDE
                 if (user && user.wallet_balance > 0) {
-                    appliedDiscountAmount = Math.min(totalPrice, user.wallet_balance);
-                    totalPrice -= appliedDiscountAmount;
-                    discountText = `\n🎁 Réduction : -${appliedDiscountAmount.toFixed(2)}€`;
-                    const { supabase, COL_USERS } = require('../services/database');
-                    await supabase.from(COL_USERS).update({ wallet_balance: user.wallet_balance - appliedDiscountAmount }).eq('id', userId);
+                    pendingOrderConfirmation.set(userId, { productId, qty, address, totalPriceRaw });
+                    return safeEdit(ctx,
+                        `💰 <b>Utiliser votre crédit ?</b>\n\n` +
+                        `Vous avez <b>${(user.wallet_balance).toFixed(2)}€</b> de crédit disponible.\n` +
+                        `Voulez-vous l'utiliser pour cette commande ?`,
+                        Markup.inlineKeyboard([
+                            [Markup.button.callback('✅ Oui, utiliser', 'confirm_order_use_credit_yes')],
+                            [Markup.button.callback('❌ Non, garder pour plus tard', 'confirm_order_use_credit_no')],
+                            [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
+                        ])
+                    );
+                } else {
+                    // PAS DE CRÉDIT → CRÉATION DIRECTE
+                    await finalizeOrderCreation(ctx, userId, product, qty, address, settings, 0);
                 }
-
-                const orderId = await createOrder({
-                    user_id: userId,
-                    username: ctx.from.username || null,
-                    first_name: ctx.from.first_name || 'Client',
-                    product_name: product.name,
-                    quantity: qty,
-                    total_price: totalPrice,
-                    city: address,
-                    platform: 'telegram',
-                    discount_applied: appliedDiscountAmount,
-                    status: 'pending'
-                });
-
-                pendingCityInput.delete(userId);
-
-                const finalMsg = `${settings.msg_order_success || '✅ Commande enregistrée !'}\n\n` +
-                    `📦 Produit : <b>${product.name} (x${qty})</b>\n` +
-                    `📍 Adresse : <i>${address}</i>${discountText}\n` +
-                    `💰 Total : <b>${totalPrice.toFixed(2)}€</b>\n\n` +
-                    `${settings.msg_search_livreur || '⏳ Recherche d\'un livreur...'}`;
-
-                await safeEdit(ctx, finalMsg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
-
-                const notificationText = `🔔 <b>Nouvelle Commande !</b>\n\n` +
-                    `📦 ${product.name} x${qty}\n📍 <b>${address.toUpperCase()}</b>\n💰 Total : <b>${totalPrice.toFixed(2)}€</b>`;
-
-                const availableLivreurs = await getAvailableLivreurs();
-                availableLivreurs.forEach(livreur => {
-                    const tid = livreur.platform_id;
-                    if (tid) {
-                        bot.telegram.sendMessage(tid, notificationText, Markup.inlineKeyboard([[Markup.button.callback('🚴 Prendre la commande', `take_${orderId}`)]])).catch(() => { });
-                    }
-                });
             } catch (err) {
                 console.error('[ORDER] Error:', err);
                 await safeEdit(ctx, '❌ Erreur lors de la validation.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
             }
         }
     });
+
+    // Confirmation avec crédit
+    bot.action('confirm_order_use_credit_yes', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = `telegram_${ctx.from.id}`;
+        const pending = pendingOrderConfirmation.get(userId);
+        if (!pending) return ctx.reply('❌ Session expirée.');
+
+        const user = await getUser(userId);
+        const settings = await getAppSettings();
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+
+        const discount = Math.min(pending.totalPriceRaw, user.wallet_balance);
+
+        // Déduire crédit
+        const { supabase, COL_USERS } = require('../services/database');
+        await supabase.from(COL_USERS).update({ wallet_balance: user.wallet_balance - discount }).eq('id', userId);
+
+        await finalizeOrderCreation(ctx, userId, product, pending.qty, pending.address, settings, discount);
+        pendingOrderConfirmation.delete(userId);
+    });
+
+    bot.action('confirm_order_use_credit_no', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = `telegram_${ctx.from.id}`;
+        const pending = pendingOrderConfirmation.get(userId);
+        if (!pending) return ctx.reply('❌ Session expirée.');
+
+        const settings = await getAppSettings();
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+
+        await finalizeOrderCreation(ctx, userId, product, pending.qty, pending.address, settings, 0);
+        pendingOrderConfirmation.delete(userId);
+    });
+
+    async function finalizeOrderCreation(ctx, userId, product, qty, address, settings, discount) {
+        const finalPrice = (product.price * qty) - discount;
+        const discountText = discount > 0 ? `\n🎁 Réduction : -${discount.toFixed(2)}€` : "";
+
+        const orderId = await createOrder({
+            user_id: userId,
+            username: ctx.from.username || null,
+            first_name: ctx.from.first_name || 'Client',
+            product_name: product.name,
+            quantity: qty,
+            total_price: finalPrice,
+            city: address,
+            platform: 'telegram',
+            discount_applied: discount,
+            status: 'pending'
+        });
+
+        pendingCityInput.delete(userId);
+
+        const finalMsg = `${settings.msg_order_success || '✅ Commande enregistrée !'}\n\n` +
+            `📦 Produit : <b>${product.name} (x${qty})</b>\n` +
+            `📍 Adresse : <i>${address}</i>${discountText}\n` +
+            `💰 Total : <b>${finalPrice.toFixed(2)}€</b>\n\n` +
+            `${settings.msg_search_livreur || '⏳ Recherche d\'un livreur...'}`;
+
+        await safeEdit(ctx, finalMsg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+
+        const notificationText = `🔔 <b>Nouvelle Commande !</b>\n\n` +
+            `📦 ${product.name} x${qty}\n📍 <b>${address.toUpperCase()}</b>\n💰 Total : <b>${finalPrice.toFixed(2)}€</b>`;
+
+        const { getAvailableLivreurs } = require('../services/database');
+        const availableLivreurs = await getAvailableLivreurs();
+        availableLivreurs.forEach(livreur => {
+            const tid = livreur.platform_id;
+            if (tid) {
+                bot.telegram.sendMessage(tid, notificationText, Markup.inlineKeyboard([[Markup.button.callback('🚴 Prendre la commande', `take_${orderId}`)]])).catch(() => { });
+            }
+        });
+    }
 
     // ========== TRACKING & PROXIMITÉ ==========
     function getDistance(lat1, lon1, lat2, lon2) {
@@ -590,20 +641,20 @@ function setupOrderSystem(bot) {
                 if (!client || !client.latitude || !client.longitude) continue;
 
                 const dist = getDistance(loc.latitude, loc.longitude, client.latitude, client.longitude);
-                const orderRef = db.collection('orders').doc(order.id);
-
                 if (dist <= 1.5 && !order.notified_5m) {
                     await botInstance.telegram.sendMessage(order.user_id.replace('telegram_', ''),
                         `🚀 <b>Votre livreur est à moins de 5 minutes !</b>\nMerci de vous préparer à sortir pour la réception.`,
                         { parse_mode: 'HTML' }
                     ).catch(() => { });
-                    await orderRef.update({ notified_5m: true, notified_10m: true });
+                    const { supabase } = require('../config/supabase');
+                    await supabase.from('bot_orders').update({ notified_5m: true, notified_10m: true }).eq('id', order.id);
                 } else if (dist <= 4.0 && !order.notified_10m && !order.notified_5m) {
                     await botInstance.telegram.sendMessage(order.user_id.replace('telegram_', ''),
                         `🚚 <b>Votre livreur arrive dans environ 10 minutes.</b>\nPréparez-vous à sortir bientôt !`,
                         { parse_mode: 'HTML' }
                     ).catch(() => { });
-                    await orderRef.update({ notified_10m: true });
+                    const { supabase } = require('../config/supabase');
+                    await supabase.from('bot_orders').update({ notified_10m: true }).eq('id', order.id);
                 }
             }
         } catch (e) {

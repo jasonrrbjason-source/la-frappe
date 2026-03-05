@@ -335,6 +335,30 @@
             color: #fff;
         }
 
+        .search-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 16px 12px 40px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
         .btn-outline {
             background: transparent;
             border: 1px solid var(--border);
@@ -846,18 +870,29 @@
                     <h3>🚴 Performance Livreurs</h3>
                     <div id="list-livreurs" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
                 </div>
+
+                <div class="card">
+                    <h3>🔥 Top Produits (Ventes)</h3>
+                    <div id="list-top-products" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
+                </div>
             </div>
         </section>
 
         <!-- USERS -->
         <section class="section" id="section-users">
             <h1>Utilisateurs</h1>
-            <div class="card">
+            <div class="search-container">
+                <span class="search-icon">🔍</span>
+                <input type="text" class="search-input" id="user-search"
+                    placeholder="Rechercher par nom, username ou ID..." onkeyup="searchUsersUI()">
+            </div>
+
+            <div class="card" style="padding:0; overflow-x:auto;">
                 <table class="responsive-table">
                     <thead>
                         <tr>
-                            <th>Membre</th>
-                            <th>Parrainages</th>
+                            <th>Identité</th>
+                            <th>Fidélité</th>
                             <th>Commandes</th>
                             <th>Actions</th>
                         </tr>
@@ -989,6 +1024,22 @@
         <!-- LIVREURS -->
         <section class="section" id="section-livreurs">
             <h1>🚴 Gestion des Livreurs</h1>
+
+            <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <div class="flex" style="gap:15px; align-items:center;">
+                    <div class="search-container" style="margin:0; width:300px;">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" class="search-input" id="livreur-search"
+                            placeholder="Rechercher un livreur..." onkeyup="searchLivreursUI()">
+                    </div>
+                    <label style="margin:0; display:flex; align-items:center; gap:8px; cursor:pointer;">
+                        <input type="checkbox" id="online-livreurs-only" onchange="loadData('livreurs')"
+                            style="width:18px; height:18px;">
+                        <span style="font-size:13px; color:var(--text-main);">En ligne uniquement</span>
+                    </label>
+                </div>
+                <button class="btn btn-accent" onclick="loadData('livreurs')">🔄 Rafraîchir</button>
+            </div>
             <div class="card" style="margin-bottom:20px">
                 <p style="color:var(--text-muted);margin-bottom:16px">Liste de tous les utilisateurs ayant le statut
                     livreur. Pour promouvoir un utilisateur en livreur, allez dans la section <b>Utilisateurs</b>.</p>
@@ -1313,41 +1364,25 @@
                 }
                 if (id === 'users') {
                     const users = await api('/users');
-                    document.getElementById('userTable').innerHTML = users.map(u => `
-                        <tr>
-                            <td data-label="Membre">
-                                <div class="user-info">
-                                    <div class="avatar">${u.first_name ? u.first_name[0] : '?'}</div>
-                                    <div>
-                                        <b>${u.first_name || 'Inconnu'}</b><br>
-                                        <small style="color:var(--text-muted)">@${u.username || u.platform_id}</small>
-                                    </div>
-                                </div>
-                            </td>
-                            <td data-label="Parrainages"><span class="badge" style="background:var(--hover)">${u.referral_count || 0}</span></td>
-                            <td data-label="Commandes"><span class="badge" style="border:1px solid var(--border)">${u.order_count || 0}</span></td>
-                            <td data-label="Actions" class="action-btns">
-                                <button class="btn btn-outline btn-sm" onclick="delUser('${u.doc_id}')">Supprimer</button>
-                                ${u.is_livreur ?
-                            `<button class="btn btn-outline btn-sm" onclick="toggleLivreur('${u.platform_id}', '${u.platform}', false)">Retirer Livreur</button>` :
-                            `<button class="btn btn-accent btn-sm" onclick="toggleLivreur('${u.platform_id}', '${u.platform}', true)">Promouvoir</button>`
-                        }
-                            </td>
-                        </tr>
-                    `).join('');
+                    window._cachedUsers = users;
+                    renderUsersTable(users);
                 }
                 if (id === 'products') {
                     const products = await api('/products');
                     window._cachedProducts = products;
                     document.querySelector('#productTable tbody').innerHTML = products.map((p, idx) => {
                         let mediaHtml = '';
-                        if (p.image_url && p.image_url.length > 10) {
+                        if (p.image_url && p.image_url.length > 5) {
                             let firstUrl = p.image_url;
                             let count = 1;
                             try {
-                                const arr = JSON.parse(p.image_url);
-                                firstUrl = arr[0].url;
-                                count = arr.length;
+                                if (p.image_url.startsWith('[') && p.image_url.endsWith(']')) {
+                                    const arr = JSON.parse(p.image_url);
+                                    if (arr.length > 0) {
+                                        firstUrl = typeof arr[0] === 'string' ? arr[0] : arr[0].url;
+                                        count = arr.length;
+                                    }
+                                }
                             } catch (e) { }
 
                             const isVideo = firstUrl.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
@@ -1393,6 +1428,9 @@
                 }
                 if (id === 'orders') {
                     const orders = await api('/orders');
+                    const livreurs = await api('/livreurs');
+                    const livreurOptions = livreurs.map(l => `<option value="${l.id || l.doc_id}">${l.first_name || 'Livreur'}</option>`).join('');
+
                     document.querySelector('#orderTable tbody').innerHTML = orders.map(o => {
                         let label = o.status.toUpperCase();
                         const s = window.appSettings || {};
@@ -1428,17 +1466,27 @@
                             <td data-label="Livré à"><small>${o.status === 'delivered' ? '✅ ' + deliveredTime : '—'}</small></td>
                             <td data-label="Statut"><span class="badge badge-${o.status}">${label}</span></td>
                             <td data-label="Action">
-                                <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
-                                    <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>${s.status_pending_label || 'EN ATTENTE'}</option>
-                                    <option value="taken" ${o.status === 'taken' ? 'selected' : ''}>${s.status_taken_label || 'PRIS EN CHARGE'}</option>
-                                    <option value="arrival_1h" ${o.status === 'arrival_1h' ? 'selected' : ''}>🚚 ARRIVER DANS - D'UNE HEURE</option>
-                                    <option value="arrival_30min" ${o.status === 'arrival_30min' ? 'selected' : ''}>⏳ ARRIVE DANS 30 min</option>
-                                    <option value="arrival_10min" ${o.status === 'arrival_10min' ? 'selected' : ''}>⏳ ARRIVE DANS 10 min</option>
-                                    <option value="arrival_5min" ${o.status === 'arrival_5min' ? 'selected' : ''}>⏳ ARRIVE DANS 5 min</option>
-                                    <option value="arrived" ${o.status === 'arrived' ? 'selected' : ''}>📍 ARRIVÉ</option>
-                                    <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>${s.status_delivered_label || 'LIVRÉE'}</option>
-                                    <option value="cancelled" ${o.status === 'cancelled' ? 'selected' : ''}>${s.status_cancelled_label || 'ANNULÉE'}</option>
-                                </select>
+                                <div style="display:flex; flex-direction:column; gap:4px;">
+                                    <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
+                                        <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>${s.status_pending_label || 'EN ATTENTE'}</option>
+                                        <option value="taken" ${o.status === 'taken' ? 'selected' : ''}>${s.status_taken_label || 'PRIS EN CHARGE'}</option>
+                                        <option value="arrival_1h" ${o.status === 'arrival_1h' ? 'selected' : ''}>🚚 Arrivée -1h</option>
+                                        <option value="arrival_30min" ${o.status === 'arrival_30min' ? 'selected' : ''}>⏳ 30 min</option>
+                                        <option value="arrival_10min" ${o.status === 'arrival_10min' ? 'selected' : ''}>⏳ 10 min</option>
+                                        <option value="arrival_5min" ${o.status === 'arrival_5min' ? 'selected' : ''}>⚡ 5 min</option>
+                                        <option value="arrived" ${o.status === 'arrived' ? 'selected' : ''}>📍 Arrivé</option>
+                                        <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>${s.status_delivered_label || 'LIVRÉE'}</option>
+                                        <option value="cancelled" ${o.status === 'cancelled' ? 'selected' : ''}>${s.status_cancelled_label || 'ANNULÉE'}</option>
+                                    </select>
+                                    ${o.status === 'pending' ? `
+                                        <select onchange="assignDriver('${o.id}', this.value, this.options[this.selectedIndex].text)" style="margin:0; padding:4px; font-size:10px; background:rgba(255,255,255,0.05);">
+                                            <option value="">👤 Assigner livreur...</option>
+                                            ${livreurOptions}
+                                        </select>
+                                    ` : `
+                                        <small style="font-size:9px; color:var(--text-muted)">${o.livreur_name ? '👤 ' + o.livreur_name : ''}</small>
+                                    `}
+                                </div>
                             </td>
                         </tr>
                     `
@@ -1446,37 +1494,27 @@
                 }
                 if (id === 'livreurs') {
                     try {
-                        const livreurs = await api('/livreurs');
-                        const tbody = document.getElementById('livreursTable');
-                        if (!livreurs || livreurs.length === 0) {
-                            tbody.innerHTML = '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-muted)">Aucun livreur enregistré. Promouvez un utilisateur depuis la section Utilisateurs.</td></tr>';
-                        } else {
-                            tbody.innerHTML = livreurs.map(l => `
-                                <tr style="border-bottom:1px solid var(--border)">
-                                    <td data-label="Livreur">
-                                        <div style="display:flex;align-items:center;gap:10px">
-                                            <div class="avatar">${l.first_name ? l.first_name[0].toUpperCase() : '?'}</div>
-                                            <div>
-                                                <b>${l.first_name || 'Inconnu'}</b><br>
-                                                <small style="color:var(--text-muted)">@${l.username || l.platform_id}</small>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td data-label="Status">
-                                        <span class="badge" style="background:${l.is_available ? '#1a3a1a' : '#3a1a1a'};color:${l.is_available ? '#4caf50' : '#f44336'}">
-                                            ${l.is_available ? '✅ Disponible' : '⛔ Indisponible'}
-                                        </span>
-                                    </td>
-                                    <td data-label="Ville/Secteur">${l.current_city ? l.current_city.toUpperCase() : '—'}</td>
-                                    <td data-label="Actions" class="action-btns">
-                                        <button class="btn btn-danger btn-sm" onclick="toggleLivreur('${l.platform_id}', '${l.platform}', false);loadData('livreurs')">Retirer</button>
-                                    </td>
-                                </tr>
-                            `).join('');
+                        let livreurs = await api('/livreurs');
+                        const onlyOnline = document.getElementById('online-livreurs-only').checked;
+                        if (onlyOnline) {
+                            livreurs = livreurs.filter(l => l.is_available);
                         }
+                        renderLivreursTable(livreurs);
                     } catch (e) {
                         document.getElementById('livreursTable').innerHTML = '<tr><td colspan="4" style="color:var(--danger);padding:20px">Erreur de chargement.</td></tr>';
                     }
+                }
+                if (id === 'broadcast') {
+                    const history = await api('/broadcasts');
+                    document.getElementById('bcHistoryTable').querySelector('tbody').innerHTML = history.map(h => `
+                        <tr>
+                            <td data-label="Date"><small>${new Date(h.created_at).toLocaleString()}</small></td>
+                            <td data-label="Message"><div style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${h.message || '(Média uniquement)'}</div></td>
+                            <td data-label="Cibles">${h.target_count || 0}</td>
+                            <td data-label="Succès"><span style="color:#4caf50">${h.success_count || 0}</span></td>
+                            <td data-label="Échecs"><span style="color:#f44336">${h.failed_count || 0}</span></td>
+                        </tr>
+                    `).join('');
                 }
                 if (id === 'insights') {
                     const data = await api('/analytics');
@@ -1509,6 +1547,15 @@
 
                     renderMainChart(window.currentTimeframe || 'hour');
                     renderFilteredInsights(data);
+
+                    // Top Produits
+                    const topProds = Object.entries(data.byProduct || {}).sort((a, b) => b[1].qty - a[1].qty).slice(0, 10);
+                    document.getElementById('list-top-products').innerHTML = topProds.map(e => `
+                        <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border)">
+                            <span>${e[0]}</span>
+                            <b>${e[1].qty} vendus (${e[1].ca.toFixed(2)}€)</b>
+                        </div>
+                    `).join('');
                 }
                 if (id === 'settings') {
                     const s = await api('/settings');
@@ -2034,6 +2081,177 @@
         async function toggleLivreur(userId, platform, isLivreur) {
             await api('/livreurs/status', 'POST', { userId, platform, isLivreur });
             loadData('users');
+        }
+
+        async function searchUsersUI() {
+            const q = document.getElementById('user-search').value;
+            if (q.length < 2) {
+                if (window._cachedUsers) renderUsersTable(window._cachedUsers);
+                return;
+            }
+            try {
+                const results = await api('/users/search?q=' + encodeURIComponent(q));
+                renderUsersTable(results);
+            } catch (e) { }
+        }
+
+        async function searchLivreursUI() {
+            const q = document.getElementById('livreur-search').value;
+            if (q.length < 2) {
+                loadData('livreurs');
+                return;
+            }
+            try {
+                const results = await api('/livreurs/search?q=' + encodeURIComponent(q));
+                renderLivreursTable(results);
+            } catch (e) { }
+        }
+
+        function renderUsersTable(users) {
+            document.getElementById('userTable').innerHTML = users.map(u => `
+                <tr>
+                    <td data-label="Identité">
+                        <div class="user-info">
+                            <div class="avatar">${u.first_name ? u.first_name[0] : '?'}</div>
+                            <div>
+                                <b>${u.first_name || 'Inconnu'}</b><br>
+                                <small style="color:var(--text-muted)">@${u.username || u.platform_id}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td data-label="Fidélité">
+                        <div style="font-size:12px;">⭐ <b>${u.points || 0} pts</b></div>
+                        <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:var(--success); cursor:pointer;" onclick="editWalletUI('${u.doc_id}', ${u.wallet_balance || 0})">
+                            💰 <b>${(u.wallet_balance || 0).toFixed(2)}€</b> ✏️
+                        </div>
+                    </td>
+                    <td data-label="Commandes"><span class="badge" style="border:1px solid var(--border)">${u.order_count || 0}</span></td>
+                    <td data-label="Actions" class="action-btns">
+                        <button class="btn btn-outline btn-sm" onclick="delUser('${u.doc_id}')">Supprimer</button>
+                        ${u.is_livreur ?
+                    `<button class="btn btn-outline btn-sm" onclick="toggleLivreur('${u.platform_id}', '${u.platform}', false)">Retirer Livreur</button>` :
+                    `<button class="btn btn-accent btn-sm" onclick="toggleLivreur('${u.platform_id}', '${u.platform}', true)">Promouvoir</button>`
+                }
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function editWalletUI(userId, current) {
+            const val = prompt('Nouveau solde du portefeuille (€) :', current);
+            if (val === null) return;
+            const amount = parseFloat(val);
+            if (isNaN(amount)) return showToast('Montant invalide', 'error');
+            try {
+                await api('/users/wallet', 'POST', { userId, amount });
+                showToast('Portefeuille mis à jour !');
+                loadData('users');
+            } catch (e) { showToast(e.message, 'error'); }
+        }
+
+        function renderLivreursTable(livreurs) {
+            const tbody = document.getElementById('livreursTable');
+            if (!livreurs || livreurs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--text-muted)">Aucun livreur trouvé.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = livreurs.map(l => `
+                <tr style="border-bottom:1px solid var(--border)">
+                    <td data-label="Livreur">
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <div class="avatar">${l.first_name ? l.first_name[0].toUpperCase() : '?'}</div>
+                            <div>
+                                <b>${l.first_name || 'Inconnu'}</b><br>
+                                <small style="color:var(--text-muted)">@${l.username || l.platform_id}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td data-label="Status">
+                        <span class="badge" style="background:${l.is_available ? '#1a3a1a' : '#3a1a1a'};color:${l.is_available ? '#4caf50' : '#f44336'}">
+                            ${l.is_available ? '✅ Disponible' : '⛔ Indisponible'}
+                        </span>
+                    </td>
+                    <td data-label="Ville/Secteur">${l.current_city ? l.current_city.toUpperCase() : '—'}</td>
+                    <td data-label="Actions" class="action-btns">
+                        <button class="btn btn-danger btn-sm" onclick="toggleLivreur('${l.platform_id}', '${l.platform}', false);loadData('livreurs')">Retirer</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function assignDriver(orderId, livreurId, livreurName) {
+            if (!livreurId) return;
+            try {
+                await api('/orders/assign', 'POST', { orderId, livreurId, livreurName });
+                showToast('Livreur assigné avec succès !');
+                loadData('orders');
+            } catch (e) { showToast(e.message, 'error'); }
+        }
+
+        async function saveSettings() {
+            try {
+                const s = {
+                    bot_name: document.getElementById('set_bot_name').value,
+                    dashboard_title: document.getElementById('set_title').value,
+                    accent_color: document.getElementById('set_color').value,
+                    admin_telegram_id: document.getElementById('set_admin_tg_id').value,
+                    admin_password: document.getElementById('set_current_password').value,
+                    dashboard_url: document.getElementById('set_dashboard_url').value,
+                    private_contact_url: document.getElementById('set_private_contact_url').value,
+                    channel_url: document.getElementById('set_channel_url').value,
+                    points_ratio: parseFloat(document.getElementById('set_pts_ratio').value),
+                    points_exchange: parseInt(document.getElementById('set_pts_exchange').value),
+                    points_credit_value: 5, // Default
+                    ref_bonus: parseFloat(document.getElementById('set_ref_bonus').value),
+                    languages: document.getElementById('set_lang').value,
+
+                    welcome_message: document.getElementById('set_welcome_msg').value,
+                    msg_choose_qty: document.getElementById('set_msg_qty').value,
+
+                    ui_icon_catalog: document.getElementById('set_ui_icon_catalog').value,
+                    label_catalog: document.getElementById('set_label_catalog').value,
+                    ui_icon_orders: document.getElementById('set_ui_icon_orders').value,
+                    label_my_orders: document.getElementById('set_label_my_orders').value,
+                    ui_icon_contact: document.getElementById('set_ui_icon_contact').value,
+                    label_contact: document.getElementById('set_label_contact').value,
+                    ui_icon_profile: document.getElementById('set_ui_icon_profile').value,
+                    label_profile: document.getElementById('set_label_profile').value,
+                    ui_icon_livreur: document.getElementById('set_ui_icon_livreur').value,
+                    label_livreur: document.getElementById('set_label_livreur').value,
+                    ui_icon_admin: document.getElementById('set_ui_icon_admin').value,
+                    label_admin_bot: document.getElementById('set_label_admin_bot').value,
+                    ui_icon_web: document.getElementById('set_ui_icon_web').value,
+                    label_admin_web: document.getElementById('set_label_admin_web').value,
+                    ui_icon_wallet: document.getElementById('set_ui_icon_wallet').value,
+                    ui_icon_points: document.getElementById('set_ui_icon_points').value,
+                    ui_icon_channel: document.getElementById('set_ui_icon_channel').value,
+                    label_channel: document.getElementById('set_label_channel').value,
+                    ui_icon_welcome: document.getElementById('set_ui_icon_welcome').value,
+                    label_welcome: document.getElementById('set_label_welcome').value,
+
+                    status_pending_label: document.getElementById('set_status_pending_label').value,
+                    ui_icon_pending: document.getElementById('set_ui_icon_pending').value,
+                    status_taken_label: document.getElementById('set_status_taken_label').value,
+                    ui_icon_taken: document.getElementById('set_ui_icon_taken').value,
+                    status_delivered_label: document.getElementById('set_status_delivered_label').value,
+                    ui_icon_success: document.getElementById('set_ui_icon_success').value,
+                    status_cancelled_label: document.getElementById('set_status_cancelled_label').value,
+                    ui_icon_error: document.getElementById('set_ui_icon_error').value
+                };
+                await api('/settings', 'POST', s);
+                showToast('Paramètres mis à jour !');
+                window.appSettings = s;
+                updateNavbarIcons();
+            } catch (err) { showToast(err.message, 'error'); }
+        }
+
+        async function toggleLivreur(platformId, platform, isLivreur) {
+            try {
+                await api('/livreurs/status', 'POST', { userId: platformId, platform, isLivreur });
+                showToast(isLivreur ? 'Utilisateur promu livreur !' : 'Statut livreur retiré.');
+                loadData('users');
+                if (document.getElementById('section-livreurs').classList.contains('active')) loadData('livreurs');
+            } catch (err) { showToast(err.message, 'error'); }
         }
 
         async function delUser(id) {

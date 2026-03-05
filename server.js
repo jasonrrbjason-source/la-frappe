@@ -6,9 +6,10 @@ const {
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers,
     getReferralLeaderboard, getStatsOverview, getDailyStats,
     getProducts, saveProduct, deleteProduct,
-    getAllOrders, updateOrderStatus, setLivreurStatus, getOrder,
+    getAllOrders, updateOrderStatus, setLivreurStatus, getOrder, assignOrderLivreur,
     setLivreurAvailability, getAppSettings, updateAppSettings,
-    deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics,
+    deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics, searchLivreurs,
+    getBroadcastHistory,
     db, admin, nukeDatabase
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
@@ -235,12 +236,26 @@ function createServer() {
         } catch (e) { res.status(500).send(e.message); }
     });
 
+    app.post('/api/users/wallet', authMiddleware, async (req, res) => {
+        const { userId, amount } = req.body;
+        try {
+            const { supabase, COL_USERS } = require('./services/database');
+            await supabase.from(COL_USERS).update({ wallet_balance: parseFloat(amount) }).eq('id', userId);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
     app.post('/api/livreurs/status', authMiddleware, async (req, res) => {
         const { userId, platform, isLivreur } = req.body;
         try {
             await setLivreurStatus(userId, platform, isLivreur);
             res.json({ success: true });
         } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.get('/api/livreurs/search', authMiddleware, async (req, res) => {
+        try { res.json(await searchLivreurs(req.query.q)); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
     app.post('/api/livreurs/availability', authMiddleware, async (req, res) => {
@@ -353,6 +368,25 @@ function createServer() {
         } catch (e) { console.error('Order Status API error:', e); res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
+    app.post('/api/orders/assign', authMiddleware, async (req, res) => {
+        try {
+            const { orderId, livreurId, livreurName } = req.body;
+            await assignOrderLivreur(orderId, livreurId, livreurName);
+
+            // Notification
+            const order = await getOrder(orderId);
+            if (order && order.user_id && order.user_id.startsWith('telegram_')) {
+                const tgId = order.user_id.replace('telegram_', '');
+                const bot = getBotInstance();
+                if (bot) {
+                    const text = `🚚 <b>Votre commande #${orderId.substring(0, 5)} est prise en charge !</b>\n\nLe livreur <b>${livreurName}</b> arrive vers vous. 💨`;
+                    bot.telegram.sendMessage(tgId, text, { parse_mode: 'HTML' }).catch(() => { });
+                }
+            }
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     /**
      * Broadcast - accepte FormData avec fichiers médias
      */
@@ -400,6 +434,11 @@ function createServer() {
             debugLog(`[API-BC-CRITICAL] ${e.message}`);
             res.status(500).json({ error: 'Erreur broadcast' });
         }
+    });
+
+    app.get('/api/broadcasts', authMiddleware, async (req, res) => {
+        try { res.json(await getBroadcastHistory()); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
     app.use('/api/*', (req, res) => {

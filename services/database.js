@@ -242,10 +242,46 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
                 await supabase.from(COL_USERS).update(updates).eq('id', user.id);
                 _userCache.delete(user.id);
                 extraData.points_awarded = true;
+
+                // --- AUTO CONVERSION POINTS -> CREDIT ---
+                const updatedUser = await getUser(user.id);
+                if (updatedUser) {
+                    const threshold = settings.points_exchange || 100;
+                    const creditValue = settings.points_credit_value || 5;
+                    if (updatedUser.points >= threshold) {
+                        const conversions = Math.floor(updatedUser.points / threshold);
+                        const pointsToDeduced = conversions * threshold;
+                        const creditToAdd = conversions * creditValue;
+
+                        await supabase.from(COL_USERS).update({
+                            points: updatedUser.points - pointsToDeduced,
+                            wallet_balance: (updatedUser.wallet_balance || 0) + creditToAdd
+                        }).eq('id', updatedUser.id);
+                        _userCache.delete(updatedUser.id);
+
+                        // Notify user if possible
+                        try {
+                            const { getBotInstance } = require('../server');
+                            const bot = getBotInstance();
+                            if (bot) {
+                                bot.telegram.sendMessage(updatedUser.platform_id, `🎊 <b>Félicitations !</b>\n\nVos ${pointsToDeduced} points de fidélité ont été convertis en <b>${creditToAdd}€ de crédit</b> sur votre compte.\nCe crédit sera déduit automatiquement de votre prochaine commande ! 🚀`, { parse_mode: 'HTML' }).catch(() => { });
+                            }
+                        } catch (e) { }
+                    }
+                }
             }
         }
     }
     await supabase.from(COL_ORDERS).update({ status, ...extraData, updated_at: ts() }).eq('id', orderId);
+}
+
+async function assignOrderLivreur(orderId, livreurId, livreurName) {
+    await supabase.from(COL_ORDERS).update({
+        livreur_id: livreurId,
+        livreur_name: livreurName,
+        status: 'taken',
+        updated_at: ts()
+    }).eq('id', orderId);
 }
 
 async function getOrder(orderId) {
@@ -310,9 +346,35 @@ async function getRecentUsers(limit = 20) {
     return (data || []).map(decryptUser);
 }
 async function searchUsers(query) {
-    if (isNaN(query)) return [];
-    const user = await getUser(`telegram_${query}`);
-    return user ? [user] : [];
+    if (!query) return [];
+    const isId = !isNaN(query);
+    let q = supabase.from(COL_USERS).select('*');
+
+    if (isId) {
+        q = q.or(`platform_id.eq.${query},id.eq.telegram_${query}`);
+    } else {
+        const clean = query.replace('@', '');
+        q = q.or(`username.ilike.%${clean}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
+    }
+
+    const { data } = await q.limit(20);
+    return (data || []).map(decryptUser);
+}
+
+async function searchLivreurs(query) {
+    if (!query) return [];
+    const isId = !isNaN(query);
+    let q = supabase.from(COL_USERS).select('*').eq('is_livreur', true);
+
+    if (isId) {
+        q = q.or(`platform_id.eq.${query},id.eq.telegram_${query}`);
+    } else {
+        const clean = query.replace('@', '');
+        q = q.or(`username.ilike.%${clean}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
+    }
+
+    const { data } = await q.limit(20);
+    return (data || []).map(decryptUser);
 }
 
 function generateReferralCode(platform, platformId) {
@@ -394,7 +456,7 @@ async function getOrderAnalytics() {
         totalCA: 0,
         totalOrders: 0,
         avgDeliveryTime: 0,
-        byHour: {}, byDay: {}, byWeek: {}, byMonth: {}, byYear: {}, byCity: {}, byLivreur: {}, byClient: {},
+        byHour: {}, byDay: {}, byWeek: {}, byMonth: {}, byYear: {}, byCity: {}, byLivreur: {}, byClient: {}, byProduct: {},
         rawDelivered: []
     };
 
@@ -454,6 +516,13 @@ async function getOrderAnalytics() {
         if (order.livreur_name) {
             analytics.byLivreur[order.livreur_name] = (analytics.byLivreur[order.livreur_name] || 0) + price;
         }
+
+        const prodName = order.product_name || 'Inconnu';
+        if (!analytics.byProduct[prodName]) {
+            analytics.byProduct[prodName] = { ca: 0, qty: 0 };
+        }
+        analytics.byProduct[prodName].ca += price;
+        analytics.byProduct[prodName].qty += (parseFloat(order.quantity) || 0);
 
         analytics.rawDelivered.push({
             id: order.id,
@@ -527,7 +596,8 @@ const SETTINGS_DEFAULTS = {
     ui_icon_taken: '🚚',
     msg_choose_qty: 'Choisissez la quantité :',
     msg_search_livreur: '⏳ Recherche d\'un livreur en cours...',
-    msg_order_success: '✅ <b>Commande enregistrée !</b>'
+    msg_order_success: '✅ <b>Commande enregistrée !</b>',
+    points_credit_value: 5
 };
 
 let _settingsCache = null;
@@ -575,7 +645,10 @@ async function saveProduct(data) {
     const id = data.id || `${Date.now()}`;
     delete data.id;
     const { error } = await supabase.from(COL_PRODUCTS).upsert({ id, ...data, created_at: ts() });
-    if (error) console.error("Error saveProduct", error);
+    if (error) {
+        console.error("Error saveProduct", error);
+        throw new Error(`Erreur Supabase: ${error.message}`);
+    }
     _productsCache = null; // Invalidate cache
     return id;
 }
@@ -595,6 +668,11 @@ async function updateBroadcast(broadcastId, data) {
     await supabase.from(COL_BROADCASTS).update(data).eq('id', broadcastId);
 }
 
+async function getBroadcastHistory(limit = 50) {
+    const { data } = await supabase.from(COL_BROADCASTS).select('*').order('created_at', { ascending: false }).limit(limit);
+    return data || [];
+}
+
 async function nukeDatabase() {
     const collections = [COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS, COL_DAILY_STATS, COL_REFERRALS, COL_SETTINGS];
     for (const col of collections) {
@@ -610,11 +688,11 @@ module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
     db, admin, incr, ts, makeDocId, decryptUser,
     registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser,
-    getUserCount, getActiveUserCount, getRecentUsers, searchUsers,
+    getUserCount, getActiveUserCount, getRecentUsers, searchUsers, searchLivreurs,
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,
-    createOrder, updateOrderStatus, getOrder, getAvailableOrdersByCity, getAllOrders,
-    saveBroadcast, updateBroadcast, incrementStat, incrementDailyStat,
+    createOrder, updateOrderStatus, assignOrderLivreur, getOrder, getAvailableOrdersByCity, getAllOrders,
+    saveBroadcast, updateBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, nukeDatabase

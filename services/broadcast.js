@@ -33,28 +33,32 @@ async function broadcastMessage(platform, message, options = {}) {
     }
 
     // 1. Upload des nouveaux médias vers Supabase Storage
-    const uploadedMedia = [...existingUrls]; // Start with existing if any
+    const unifiedMediaList = [...existingUrls]; // Start with existing if any
     const { supabase } = require('../config/supabase');
     for (let f of mediaFiles) {
         try {
-            const fileName = `bc-${Date.now()}-${Math.round(Math.random() * 1E9)}-${f.name}`;
+            const fileName = `bc-${Date.now()}-${Math.round(Math.random() * 1E9)}-${f.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
             const { error } = await supabase.storage.from('uploads').upload(fileName, f.data, {
                 contentType: f.mimetype,
                 upsert: true
             });
             if (!error) {
                 const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(fileName);
-                uploadedMedia.push({ url: publicData.publicUrl, type: f.mimetype.includes('video') ? 'video' : 'photo' });
+                unifiedMediaList.push({ url: publicData.publicUrl, type: f.mimetype.includes('video') ? 'video' : 'photo' });
+            } else {
+                debugLog(`[BC-UPLOAD-WARN] Supabase error: ${error.message}. Fallback to buffer.`);
+                unifiedMediaList.push({ source: f.data, filename: f.name, type: f.mimetype.includes('video') ? 'video' : 'photo' });
             }
         } catch (e) {
             debugLog(`[BC-UPLOAD-ERR] ${e.message}`);
+            unifiedMediaList.push({ source: f.data, filename: f.name, type: f.mimetype.includes('video') ? 'video' : 'photo' });
         }
     }
 
     // 2. Init log en DB
     const broadcastId = await saveBroadcast({
-        message: message ? message : `[Médias: ${uploadedMedia.length}]`,
-        media_urls: uploadedMedia,
+        message: message ? message : `[Médias: ${unifiedMediaList.length}]`,
+        media_urls: unifiedMediaList.filter(m => m.url), // Only store URLs in DB
         total_target: totalTargets,
         target_platform: platform,
         status: 'in_progress',
@@ -65,14 +69,14 @@ async function broadcastMessage(platform, message, options = {}) {
     let failedCount = 0;
     let blockedCount = 0;
 
-    const currentBatchSize = mediaFiles.length > 0 ? MEDIA_BATCH_SIZE : TEXT_BATCH_SIZE;
+    const currentBatchSize = unifiedMediaList.length > 0 ? MEDIA_BATCH_SIZE : TEXT_BATCH_SIZE;
 
     for (let i = 0; i < targets.length; i += currentBatchSize) {
         const batch = targets.slice(i, i + currentBatchSize);
         debugLog(`[BC-BATCH] Lot ${Math.floor(i / currentBatchSize) + 1} (${batch.length} cibles)`);
 
         const results = await Promise.allSettled(
-            batch.map((user) => sendToUser(user, message, { mediaFiles, mediaUrls: existingUrls }))
+            batch.map((user) => sendToUser(user, message, unifiedMediaList))
         );
 
         for (const [idx, result] of results.entries()) {
@@ -109,7 +113,7 @@ async function broadcastMessage(platform, message, options = {}) {
     return { success: successCount, failed: failedCount, blocked: blockedCount, total: totalTargets, broadcastId };
 }
 
-async function sendToUser(user, message, { mediaFiles = [], mediaUrls = [] }) {
+async function sendToUser(user, message, unifiedMediaList = []) {
     if (!_bot) {
         debugLog("[BC-ERROR] Bot non initialisé dans le service broadcast");
         return { success: false, error: "Bot non prêt" };
@@ -120,30 +124,21 @@ async function sendToUser(user, message, { mediaFiles = [], mediaUrls = [] }) {
     const caption = message ? (message.length > 1020 ? message.substring(0, 1017) + '...' : message) : '';
 
     try {
-        // Préparer tous les médias (fichiers ou URLs)
-        const allMedia = [
-            ...mediaUrls.map(m => ({ type: m.type, source: m.url })),
-            ...mediaFiles.map(f => {
-                const isVideo = (f.mimetype && f.mimetype.includes('video')) || (f.name && f.name.match(/\.(mp4|webm|mov|m4v|avi|mkv)$/i));
-                return { type: isVideo ? 'video' : 'photo', source: f.data, filename: f.name };
-            })
-        ];
-
-        if (allMedia.length > 1) {
-            const mediaGroup = allMedia.slice(0, 10).map((m, i) => ({
+        if (unifiedMediaList.length > 1) {
+            const mediaGroup = unifiedMediaList.slice(0, 10).map((m, i) => ({
                 type: m.type,
-                media: m.source,
+                media: m.url || m.source,
                 ...(i === 0 && caption ? { caption: caption, parse_mode: 'HTML' } : {})
             }));
-            debugLog(`[BC-SEND] MediaGroup (${mediaGroup.length}) -> ${chatId}`);
+            debugLog(`[BC-SEND] MediaGroup (${mediaGroup.length}) CDN Stream -> ${chatId}`);
             await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
-        } else if (allMedia.length === 1) {
-            const m = allMedia[0];
-            debugLog(`[BC-SEND] Single ${m.type.toUpperCase()} -> ${chatId}`);
+        } else if (unifiedMediaList.length === 1) {
+            const m = unifiedMediaList[0];
+            debugLog(`[BC-SEND] Single ${m.type.toUpperCase()} CDN Stream -> ${chatId}`);
             if (m.type === 'video') {
-                await _bot.telegram.sendVideo(chatId, m.source, { caption: caption, parse_mode: 'HTML' });
+                await _bot.telegram.sendVideo(chatId, m.url || m.source, { caption: caption, parse_mode: 'HTML' });
             } else {
-                await _bot.telegram.sendPhoto(chatId, m.source, { caption: caption, parse_mode: 'HTML' });
+                await _bot.telegram.sendPhoto(chatId, m.url || m.source, { caption: caption, parse_mode: 'HTML' });
             }
         } else {
             // Texte uniquement

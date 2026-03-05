@@ -3,17 +3,9 @@ const {
     getProducts, createOrder, getUser, setLivreurStatus,
     updateLivreurPosition, getAvailableOrdersByCity, updateOrderStatus,
     getOrder, getAppSettings, getAllOrders, setLivreurAvailability,
-    incrementOrderCount, getAvailableLivreurs
+    incrementOrderCount, getAvailableLivreurs, getLastMenuId
 } = require('../services/database');
-
-// Helper: essaye d'éditer le message, sinon envoie un nouveau
-async function safeEdit(ctx, text, opts) {
-    try {
-        await safeEdit(ctx, text, opts);
-    } catch (e) {
-        await ctx.replyWithHTML(text, opts.reply_markup ? { reply_markup: opts.reply_markup } : undefined);
-    }
-}
+const { safeEdit } = require('../services/utils');
 
 function setupOrderSystem(bot) {
     // ========== CATALOGUE & COMMANDE ==========
@@ -21,9 +13,10 @@ function setupOrderSystem(bot) {
     bot.action('view_catalog', async (ctx) => {
         await ctx.answerCbQuery();
         const products = await getProducts();
+        const settings = await getAppSettings();
 
         if (products.length === 0) {
-            return ctx.reply('📭 Le catalogue est actuellement vide.');
+            return safeEdit(ctx, '📭 Le catalogue est actuellement vide.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
         }
 
         const buttons = products.map(p => {
@@ -33,13 +26,9 @@ function setupOrderSystem(bot) {
         });
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
 
-        const settings = await getAppSettings();
         await safeEdit(ctx,
             `${settings.ui_icon_catalog} <b>${settings.label_catalog}</b>\n\nChoisissez un produit pour commander :`,
-            {
-                parse_mode: 'HTML',
-                ...Markup.inlineKeyboard(buttons)
-            }
+            Markup.inlineKeyboard(buttons)
         );
     });
 
@@ -51,7 +40,7 @@ function setupOrderSystem(bot) {
             const products = await getProducts();
             const product = products.find(p => p.id === productId);
 
-            if (!product) return ctx.reply('❌ Produit non trouvé.');
+            if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
             const promoText = product.promo ? `🎁 Promo : <b>${product.promo}</b>\n` : '';
             const settings = await getAppSettings();
@@ -66,7 +55,8 @@ function setupOrderSystem(bot) {
                 [Markup.button.callback('❌ Annuler', 'view_catalog')]
             ]);
 
-            // Validation stricte de l'image
+            // Préparation des médias
+            let productMedia = null;
             const hasImage = product.image_url && typeof product.image_url === 'string' && product.image_url.length > 10;
 
             if (hasImage) {
@@ -83,84 +73,63 @@ function setupOrderSystem(bot) {
                     mediaList = [{ url: product.image_url, type }];
                 }
 
-                // Filtrer les médias invalides
                 mediaList = mediaList.filter(m => m.url && m.url.length > 5);
 
-                if (mediaList.length > 1) {
-                    const telegramMedia = mediaList.slice(0, 10).map((m, index) => {
-                        const isLocal = m.url.startsWith('/public/');
-                        const media = isLocal
-                            ? { source: require('path').join(__dirname, '..', 'web', m.url) }
-                            : m.url;
-                        return {
-                            type: m.type === 'video' ? 'video' : 'photo',
-                            media: media,
-                            caption: index === 0 ? caption : undefined,
-                            parse_mode: index === 0 ? 'HTML' : undefined
-                        };
-                    });
-
-                    await ctx.replyWithMediaGroup(telegramMedia).catch(e => console.error("MediaGroup Error:", e));
-                    await ctx.replyWithHTML('🔽 <b>Choisissez votre quantité :</b>', keyboard);
-                } else if (mediaList.length === 1) {
+                if (mediaList.length > 0) {
                     const m = mediaList[0];
                     const isLocal = m.url.startsWith('/public/');
-                    const urlObj = isLocal
-                        ? { source: require('path').join(__dirname, '..', 'web', m.url) }
-                        : m.url;
+                    if (isLocal) {
+                        const relativePath = m.url.replace(/^\/public\//, 'web/public/');
+                        productMedia = { source: require('path').resolve(process.cwd(), relativePath) };
+                    } else {
+                        productMedia = m.url;
+                    }
 
                     if (m.type === 'video') {
-                        await ctx.replyWithVideo(urlObj, { caption: caption, parse_mode: 'HTML', ...keyboard })
-                            .catch(e => ctx.replyWithHTML(caption, keyboard));
+                        keyboard.video = productMedia;
                     } else {
-                        await ctx.replyWithPhoto(urlObj, { caption: caption, parse_mode: 'HTML', ...keyboard })
-                            .catch(e => ctx.replyWithHTML(caption, keyboard));
+                        keyboard.photo = productMedia;
                     }
-                } else {
-                    await ctx.replyWithHTML(caption, keyboard);
                 }
-            } else {
-                await ctx.replyWithHTML(caption, keyboard);
             }
-        } catch (e) {
-            console.error('Fatal action error on buy_', e);
-            try { await ctx.reply("❌ Une erreur s'est produite lors du chargement du produit."); } catch (err) { }
-        }
+
+            await safeEdit(ctx, caption, keyboard);
+        } catch (e) { console.error('Error buy_', e); }
     });
 
-    // Map temporaire pour stocker les infos en attente de saisie de ville
+    // Map temporaire pour stocker les infos en attente de saisie
     const pendingCityInput = new Map();
 
-    // Sélection Quantité -> demande d'adresse directement
+    // Sélection Quantité -> demande d'adresse
     bot.action(/^qty_(.+)_(.+)$/, async (ctx) => {
         await ctx.answerCbQuery();
         const productId = ctx.match[1];
         const qty = parseInt(ctx.match[2]);
         const userId = `telegram_${ctx.from.id}`;
-        pendingCityInput.set(userId, { productId, qty });
+
+        const products = await getProducts();
+        const product = products.find(p => p.id === productId);
+        if (!product) return ctx.reply('❌ Produit non trouvé.');
+
+        pendingCityInput.set(userId, { productId, qty, price: product.price, name: product.name });
 
         const settings = await getAppSettings();
+        const text = `🛒 <b>${product.name}</b> (x${qty})\n` +
+            `💰 Total : <b>${(product.price * qty).toFixed(2)}€</b>\n\n` +
+            `🏠 <b>Veuillez maintenant envoyer votre adresse de livraison complète par message texte.</b>\n` +
+            `<i>Ex: 12 rue de la Paix, 75000 Paris</i>`;
+
         let pickerUrl = '';
         if (settings.dashboard_url && settings.dashboard_url.includes('http')) {
             pickerUrl = settings.dashboard_url.replace(/\/dashboard\/?$/, '') + '/address-picker';
         }
 
+        const buttons = [[Markup.button.callback('❌ Annuler', 'view_catalog')]];
         if (pickerUrl) {
-            await ctx.replyWithHTML(
-                '📍 <b>Adresse de livraison</b>\n\n' +
-                '✍️ Veuillez utiliser notre système de suggestion d\'adresse ci-dessous (recommandé) ou taper votre adresse manuellement :',
-                Markup.keyboard([
-                    [Markup.button.webApp("📍 Utiliser l'autocomplétion", pickerUrl)],
-                    ["❌ Annuler la commande"]
-                ]).resize().oneTime()
-            );
-        } else {
-            await ctx.replyWithHTML(
-                '📍 <b>Adresse de livraison</b>\n\n' +
-                '✍️ Tapez votre <b>adresse complète</b> (numéro, rue, code postal, ville) :',
-                Markup.keyboard([["❌ Annuler la commande"]]).resize().oneTime()
-            );
+            buttons.unshift([Markup.button.webApp("📍 Utiliser l'autocomplétion", pickerUrl)]);
         }
+
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     });
 
 
@@ -168,13 +137,11 @@ function setupOrderSystem(bot) {
 
     bot.command('livreur_start', async (ctx) => {
         await setLivreurStatus(ctx.from.id, 'telegram', true);
-        await ctx.replyWithHTML(
+        await safeEdit(ctx,
             '🚴 <b>Bienvenue dans l\'équipe de livraison !</b>\n\n' +
             'Vous êtes maintenant enregistré comme livreur.\n\n' +
-            '<b>Commandes :</b>\n' +
-            '1. /dispo - Pour indiquer si vous êtes prêt à livrer\n' +
-            '2. /ma_position [ville] - Pour vous localiser\n' +
-            '3. /commandes_ville - Pour voir les livraisons'
+            '<b>Utilisez le menu ci-dessous pour gérer vos livraisons :</b>',
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu Livreur', 'livreur_menu')]])
         );
     });
 
@@ -301,7 +268,7 @@ function setupOrderSystem(bot) {
         if (!order) return ctx.reply('❌ Commande non trouvée.');
 
         await updateOrderStatus(orderId, 'delivered');
-        await ctx.reply('✅ Livraison confirmée. Merci pour votre travail !');
+        await safeEdit(ctx, '✅ Livraison confirmée. Merci pour votre travail !', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'livreur_menu')]]));
 
         // Notifier client
         bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
@@ -315,7 +282,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
-        if (!user || !user.is_livreur) return ctx.reply('❌ Accès refusé.');
+        if (!user || !user.is_livreur) return safeEdit(ctx, '❌ Accès refusé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
         const { getLivreurMenuKeyboard } = require('./start');
         const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
@@ -446,7 +413,7 @@ function setupOrderSystem(bot) {
         const myOrders = orders.filter(o => o.user_id === `telegram_${ctx.from.id}`);
 
         if (myOrders.length === 0) {
-            return ctx.reply('📭 Vous n\'avez pas encore passé de commande.');
+            return safeEdit(ctx, '📭 Vous n\'avez pas encore passé de commande.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
         }
 
         let text = `${settings.ui_icon_orders || '📦'} <b>Mes dernières commandes :</b>\n\n`;
@@ -472,7 +439,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const userId = `telegram_${ctx.from.id}`;
         pendingCityChange.set(userId, true);
-        await ctx.replyWithHTML(
+        await safeEdit(ctx,
             '📍 <b>Changer de secteur</b>\n\n' +
             '✍️ Tapez vos <b>villes ou secteurs</b> séparés par une virgule :\n' +
             '<i>Ex: Vitry, Ivry, Thiais, Paris 13</i>',
@@ -483,22 +450,17 @@ function setupOrderSystem(bot) {
     // ========== GESTION TEXTE LIBRE (adresse livraison + changement secteur livreur) ==========
     bot.on('message', async (ctx) => {
         const userId = `telegram_${ctx.from.id}`;
-
         let inputText = '';
         if (ctx.message && ctx.message.web_app_data && ctx.message.web_app_data.data) {
             inputText = ctx.message.web_app_data.data.trim();
-            // Nettoyage du clavier immédiatement après la saisie via UX Autocomplétion
-            await ctx.reply('⏳ Traitement de votre adresse...', Markup.removeKeyboard());
         } else if (ctx.message && ctx.message.text) {
             inputText = ctx.message.text.trim();
-        } else {
-            return;
-        }
+        } else return;
 
         if (inputText === '❌ Annuler la commande' || inputText.toLowerCase() === 'annuler') {
             pendingCityInput.delete(userId);
             pendingCityChange.delete(userId);
-            return ctx.reply('❌ Commande annulée.', Markup.removeKeyboard());
+            return safeEdit(ctx, '❌ Action annulée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
         }
 
         // Si le livreur change de secteur
@@ -507,13 +469,10 @@ function setupOrderSystem(bot) {
             const city = inputText.replace(/<[^>]*>/g, '').trim();
             if (city.length < 2) {
                 pendingCityChange.set(userId, true);
-                return ctx.reply('❌ Nom de ville trop court. Réessayez :');
+                return safeEdit(ctx, '❌ Nom de ville trop court. Réessayez :', Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler', 'livreur_menu')]]));
             }
             await updateLivreurPosition(userId, city);
-            return ctx.replyWithHTML(
-                `✅ Secteur mis à jour : <b>${city.toUpperCase()}</b>\n\nVous recevrez les commandes de cette zone.`,
-                Markup.inlineKeyboard([[Markup.button.callback('◀️ Espace Livreur', 'livreur_menu')]])
-            );
+            return safeEdit(ctx, `✅ Secteur mis à jour : <b>${city.toUpperCase()}</b>`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Espace Livreur', 'livreur_menu')]]));
         }
 
         // Si l'utilisateur est en attente de saisie d'adresse de livraison
@@ -521,126 +480,60 @@ function setupOrderSystem(bot) {
             const { productId, qty } = pendingCityInput.get(userId);
             const address = inputText.replace(/<[^>]*>/g, '').trim();
 
-            // Validation d'adresse : minimum numéro + rue + ville
-            const hasNumber = /\d/.test(address);
-            const hasLetters = /[a-zA-ZÀ-ÿ]{3,}/.test(address);
-            const hasCommaOrSpace = address.includes(',') || address.split(/\s+/).length >= 3;
-            const isLongEnough = address.length >= 10;
-
-            if (!isLongEnough || !hasNumber || !hasLetters || !hasCommaOrSpace) {
-                return ctx.replyWithHTML(
-                    `❌ <b>Adresse invalide.</b>\n\n` +
-                    `Votre adresse doit contenir :\n` +
-                    `${hasNumber ? '✅' : '❌'} Un numéro de rue\n` +
-                    `${hasLetters ? '✅' : '❌'} Un nom de rue\n` +
-                    `${hasCommaOrSpace ? '✅' : '❌'} Une ville ou code postal\n\n` +
-                    `📝 <i>Exemple : 15 rue de la Paix, 75001 Paris</i>`
-                );
-            }
-
-            // Localisation Tacite (Géocodage de l'adresse)
-            const axios = require('axios');
-            try {
-                const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
-                const geoRes = await axios.get(geoUrl, { headers: { 'User-Agent': 'LaFrappeBot' }, timeout: 3000 });
-                if (geoRes.data && geoRes.data.length > 0) {
-                    const { lat, lon } = geoRes.data[0];
-                    const { saveUserLocation } = require('../services/database');
-                    await saveUserLocation(userId, parseFloat(lat), parseFloat(lon));
-                    console.log(`[GEO] Client ${userId} localisé : ${lat}, ${lon}`);
-                }
-            } catch (geoe) {
-                console.error('Geocoding error:', geoe.message);
+            if (address.length < 8) {
+                return safeEdit(ctx, `❌ <b>Adresse incomplète.</b>\nPrécisez numéro, rue et ville.\nEx: 15 rue de la Paix, 75001 Paris`, Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler', 'view_catalog')]]));
             }
 
             try {
                 const settings = await getAppSettings();
                 const products = await getProducts();
                 const product = products.find(p => p.id === productId);
-
-                if (!product) {
-                    pendingCityInput.delete(userId);
-                    return ctx.reply('❌ Produit non trouvé. Veuillez réessayer depuis le catalogue.', Markup.inlineKeyboard([[Markup.button.callback('🍔 Catalogue', 'view_catalog')]]));
-                }
+                if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('🍔 Catalogue', 'view_catalog')]]));
 
                 const user = await getUser(userId);
                 let totalPrice = product.price * qty;
-                let discount = 0;
+                let discountText = "";
 
                 if (user && user.wallet_balance > 0) {
-                    discount = Math.min(totalPrice, user.wallet_balance);
+                    const discount = Math.min(totalPrice, user.wallet_balance);
                     totalPrice -= discount;
-                    const dbModule = require('../services/database');
-                    const userRef = dbModule.db.collection('bot_users').doc(userId);
-                    await userRef.update({ wallet_balance: dbModule.incr(-discount) });
+                    discountText = `\n🎁 Réduction : -${discount.toFixed(2)}€`;
+                    await require('../services/database').db.collection('bot_users').doc(userId).update({ wallet_balance: require('../services/database').incr(-discount) });
                 }
 
                 const orderId = await createOrder({
                     user_id: userId,
-                    username: ctx.from.username || '',
-                    first_name: ctx.from.first_name || 'Client',
                     product_name: product.name,
                     quantity: qty,
                     total_price: totalPrice,
-                    discount_applied: discount,
-                    city: address,
-                    platform: 'telegram'
+                    address: address,
+                    status: 'pending'
                 });
 
-                // Succès : on supprime l'attente
                 pendingCityInput.delete(userId);
-                console.log('[ORDER] ✅ Order created:', orderId);
 
-                const discountText = discount > 0 ? `\n🎁 Réduction portefeuille : <b>-${discount.toFixed(2)}€</b>` : '';
-                await ctx.replyWithHTML(
-                    `${settings.msg_order_success || '✅ <b>Commande enregistrée !</b>'}\n\n` +
-                    `📦 Produit : ${product.name} (x${qty})\n` +
-                    `📍 Adresse : ${address}${discountText}\n` +
-                    `💰 Total à payer : <b>${totalPrice.toFixed(2)}€</b>\n\n` +
-                    `💵 <b>Paiement en liquide à la livraison.</b>\n` +
-                    `${settings.msg_search_livreur || '⏳ Recherche d\'un livreur en cours...'}`,
-                    Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]])
-                );
+                const finalMsg = `${settings.msg_order_success || '✅ Commande enregistrée !'}\n\n` +
+                    `📦 Produit : <b>${product.name} (x${qty})</b>\n` +
+                    `📍 Adresse : <i>${address}</i>${discountText}\n` +
+                    `💰 Total : <b>${totalPrice.toFixed(2)}€</b>\n\n` +
+                    `${settings.msg_search_livreur || '⏳ Recherche d\'un livreur...'}`;
+
+                await safeEdit(ctx, finalMsg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
                 const notificationText = `🔔 <b>Nouvelle Commande !</b>\n\n` +
-                    `👤 Client : <b>${ctx.from.first_name || 'Client'}</b>\n` +
-                    `📦 ${product.name} x${qty}\n` +
-                    `📍 <b>${address.toUpperCase()}</b>\n` +
-                    `💰 Total : <b>${totalPrice.toFixed(2)}€</b>`;
-
-                const notificationKeyboard = Markup.inlineKeyboard([
-                    [Markup.button.callback('🚴 Prendre la commande', `take_${orderId}`)]
-                ]);
-
-                if (settings.admin_telegram_id) {
-                    bot.telegram.sendMessage(settings.admin_telegram_id,
-                        notificationText + `\n👤 Client : ${ctx.from.first_name} (@${ctx.from.username || '?'})`,
-                        { parse_mode: 'HTML' }
-                    ).catch(e => console.error("Admin notify error:", e.message));
-                }
+                    `📦 ${product.name} x${qty}\n📍 <b>${address.toUpperCase()}</b>\n💰 Total : <b>${totalPrice.toFixed(2)}€</b>`;
 
                 const availableLivreurs = await getAvailableLivreurs();
                 availableLivreurs.forEach(livreur => {
-                    const telegramId = livreur.platform_id;
-                    if (telegramId && telegramId !== settings.admin_telegram_id) {
-                        const sectors = livreur.sectors || (livreur.current_city ? [livreur.current_city.toLowerCase()] : []);
-                        const isMatch = sectors.length === 0 || sectors.some(s => address.toLowerCase().includes(s));
-                        if (isMatch) {
-                            bot.telegram.sendMessage(telegramId, notificationText, {
-                                parse_mode: 'HTML',
-                                ...notificationKeyboard
-                            }).catch(e => console.error(`Livreur ${telegramId} notify error:`, e.message));
-                        }
+                    const tid = livreur.platform_id;
+                    if (tid) {
+                        bot.telegram.sendMessage(tid, notificationText, Markup.inlineKeyboard([[Markup.button.callback('🚴 Prendre la commande', `take_${orderId}`)]])).catch(() => { });
                     }
                 });
             } catch (err) {
-                console.error('[ORDER] ❌ Error creating order:', err);
-                await ctx.replyWithHTML(
-                    '❌ <b>Erreur lors de la validation.</b>\n\nVeuillez vérifier votre adresse et recommencer :',
-                    Markup.keyboard([["❌ Annuler la commande"]]).resize().oneTime()
-                );
+                console.error('[ORDER] Error:', err);
+                await safeEdit(ctx, '❌ Erreur lors de la validation.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
             }
-            return;
         }
     });
 
@@ -656,61 +549,53 @@ function setupOrderSystem(bot) {
         return R * c;
     }
 
-    async function handleLivreurTracking(ctx, userId, loc) {
-        const user = await getUser(userId);
-        if (!user || !user.is_livreur) return;
+    async function handleLivreurTracking(botInstance, livreurId, loc) {
+        try {
+            const { getLivreurOrders, getUser, db } = require('../services/database');
+            const activeOrders = await getLivreurOrders(livreurId);
+            if (activeOrders.length === 0) return;
 
-        // Sauvegarder la position du livreur
-        const { saveUserLocation, db } = require('../services/database');
-        await saveUserLocation(userId, loc.latitude, loc.longitude);
+            for (const order of activeOrders) {
+                const client = await getUser(order.user_id);
+                if (!client || !client.latitude || !client.longitude) continue;
 
-        // Trouver les commandes actives du livreur (status: taken)
-        const ordersSnap = await db.collection('orders')
-            .where('livreur_id', '==', userId)
-            .where('status', '==', 'taken')
-            .get();
+                const dist = getDistance(loc.latitude, loc.longitude, client.latitude, client.longitude);
+                const orderRef = db.collection('orders').doc(order.id);
 
-        if (ordersSnap.empty) return;
-
-        for (const orderDoc of ordersSnap.docs) {
-            const order = orderDoc.data();
-            const orderId = orderDoc.id;
-            const clientUserId = order.user_id;
-
-            // Chercher la position du client
-            const client = await getUser(clientUserId);
-            if (!client || !client.latitude) continue;
-
-            const dist = getDistance(loc.latitude, loc.longitude, client.latitude, client.longitude);
-            // Estimation : 1km = 3 min (vitesse moyenne ville)
-            const timeEst = Math.round(dist * 3);
-
-            // Notification 10 min
-            if (timeEst <= 10 && timeEst > 5 && !order.notified_10min) {
-                const text = `🚀 <b>Votre livreur arrive !</b>\n\nPréparez-vous, il est à environ <b>10 minutes</b> de chez vous.`;
-                await bot.telegram.sendMessage(clientUserId.replace('telegram_', ''), text, { parse_mode: 'HTML' }).catch(console.error);
-                await db.collection('orders').doc(orderId).update({ notified_10min: true });
+                if (dist <= 1.5 && !order.notified_5m) {
+                    await botInstance.telegram.sendMessage(order.user_id.replace('telegram_', ''),
+                        `🚀 <b>Votre livreur est à moins de 5 minutes !</b>\nMerci de vous préparer à sortir pour la réception.`,
+                        { parse_mode: 'HTML' }
+                    ).catch(() => { });
+                    await orderRef.update({ notified_5m: true, notified_10m: true });
+                } else if (dist <= 4.0 && !order.notified_10m && !order.notified_5m) {
+                    await botInstance.telegram.sendMessage(order.user_id.replace('telegram_', ''),
+                        `🚚 <b>Votre livreur arrive dans environ 10 minutes.</b>\nPréparez-vous à sortir bientôt !`,
+                        { parse_mode: 'HTML' }
+                    ).catch(() => { });
+                    await orderRef.update({ notified_10m: true });
+                }
             }
-
-            // Notification 5 min
-            if (timeEst <= 5 && !order.notified_5min) {
-                const text = `💨 <b>Votre livreur est tout proche !</b>\n\nIl arrive dans moins de <b>5 minutes</b>. Merci de sortir pour le réceptionner.`;
-                await bot.telegram.sendMessage(clientUserId.replace('telegram_', ''), text, { parse_mode: 'HTML' }).catch(console.error);
-                await db.collection('orders').doc(orderId).update({ notified_5min: true });
-            }
+        } catch (e) {
+            console.error('[TRACKING] Error:', e.message);
         }
     }
 
-    // Écouter les mises à jour de position (normales et en temps réel)
     bot.on('location', async (ctx) => {
         const userId = `telegram_${ctx.from.id}`;
-        await handleLivreurTracking(ctx, userId, ctx.message.location);
+        const loc = ctx.message.location;
+        const { saveUserLocation } = require('../services/database');
+        await saveUserLocation(userId, loc.latitude, loc.longitude).catch(() => { });
+        await handleLivreurTracking(bot, userId, loc);
     });
 
     bot.on('edited_message', async (ctx) => {
         if (ctx.editedMessage.location) {
             const userId = `telegram_${ctx.from.id}`;
-            await handleLivreurTracking(ctx, userId, ctx.editedMessage.location);
+            const loc = ctx.editedMessage.location;
+            const { saveUserLocation } = require('../services/database');
+            await saveUserLocation(userId, loc.latitude, loc.longitude).catch(() => { });
+            await handleLivreurTracking(bot, userId, loc);
         }
     });
 }

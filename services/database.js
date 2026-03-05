@@ -127,6 +127,19 @@ async function getActiveLivreursCount() {
     return snap.size;
 }
 
+async function addMessageToTrack(docId, messageId) {
+    const ref = db.collection(COL_USERS).doc(docId);
+    await ref.update({
+        tracked_messages: admin.firestore.FieldValue.arrayUnion(messageId),
+        last_menu_id: messageId
+    }).catch(() => { });
+}
+
+async function getLastMenuId(docId) {
+    const doc = await db.collection(COL_USERS).doc(docId).get();
+    return doc.exists ? doc.data().last_menu_id : null;
+}
+
 // --- Orders ---
 async function createOrder(orderData) {
     const ref = await db.collection(COL_ORDERS).add({
@@ -194,6 +207,13 @@ async function getAvailableOrdersByCity(city) {
 }
 async function getAllOrders(limit = 50) {
     const snap = await db.collection(COL_ORDERS).orderBy('created_at', 'desc').limit(limit).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+async function getLivreurOrders(livreurId) {
+    const snap = await db.collection(COL_ORDERS)
+        .where('livreur_id', '==', livreurId)
+        .where('status', '==', 'taken')
+        .get();
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 async function getUser(docId) {
@@ -492,5 +512,5 @@ module.exports = {
     saveBroadcast, updateBroadcast, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
-    getAvailableLivreurs, getOrderAnalytics, saveUserLocation
+    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders
 };

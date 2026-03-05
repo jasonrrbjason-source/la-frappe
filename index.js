@@ -22,6 +22,18 @@ async function main() {
     setBotInstance(bot);
     setBroadcastBot(bot);
 
+    // Ultimate Clean UI: Supprime les messages de l'utilisateur après traitement pour un flux "App"
+    bot.use(async (ctx, next) => {
+        if (ctx.message && !ctx.message.from?.is_bot) {
+            await next();
+            if (ctx.chat.type === 'private') {
+                await ctx.deleteMessage().catch(() => { });
+            }
+        } else {
+            await next();
+        }
+    });
+
     // ERROR HANDLER — empêche le bot de crash sur une erreur
     bot.catch((err, ctx) => {
         console.error(`❌ Erreur bot [${ctx.updateType}]:`, err.message);
@@ -30,7 +42,7 @@ async function main() {
         } catch (e) { }
     });
 
-    // 2. Liaison des Handlers
+    // liaison des Handlers
     setupStartHandler(bot);
     setupAdminHandlers(bot);
     setupOrderSystem(bot);
@@ -101,10 +113,36 @@ function startAutomatedTimer(bot) {
     // Premier déclenchement dans 6h
     setInterval(async () => {
         try {
-            console.log('🕒 Exécution du timer automatique (6h)...');
-            const { getAppSettings } = require('./services/database');
+            console.log('🕒 Exécution du timer automatique et nettoyage (6h)...');
+            const { getAppSettings, getAllActiveUsers, db } = require('./services/database');
             const { broadcastMessage } = require('./services/broadcast');
 
+            // 1. Nettoyage du "flux" (suppression des messages traqués)
+            const users = await getAllActiveUsers();
+            for (const user of users) {
+                if (user.tracked_messages && user.tracked_messages.length > 0) {
+                    const chatId = user.platform_id;
+                    // Supprimer un par un (avec délai leger pour éviter rate limit)
+                    for (const msgId of user.tracked_messages) {
+                        try { await bot.telegram.deleteMessage(chatId, msgId); } catch (e) { }
+                    }
+
+                    // Notifier et forcer le /start
+                    await bot.telegram.sendMessage(chatId,
+                        "⏳ <b>Session expirée (6h)</b>\n\n" +
+                        "Par mesure de sécurité et pour garder le flux propre, votre session a été réinitialisée.\n\n" +
+                        "➡ Veuillez taper /start pour continuer.", { parse_mode: 'HTML' }
+                    ).catch(() => { });
+
+                    // Reset dans la DB
+                    await db.collection('bot_users').doc(user.doc_id).update({
+                        tracked_messages: [],
+                        last_session_reset: new Date()
+                    });
+                }
+            }
+
+            // 2. Broadcast Optionnel
             const settings = await getAppSettings();
             if (settings.msg_auto_timer && settings.msg_auto_timer.length > 5) {
                 await broadcastMessage('all', settings.msg_auto_timer);

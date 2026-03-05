@@ -159,14 +159,25 @@ function createServer() {
             const fs = require('fs');
             const ext = path.extname(file.name) || (file.mimetype.includes('video') ? '.mp4' : '.jpg');
             const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
-            const dir = path.join(__dirname, 'web', 'public', 'uploads');
+            const dir = path.resolve(__dirname, 'web', 'public', 'uploads');
             const uploadPath = path.join(dir, fileName);
 
             if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-            await file.mv(uploadPath);
-            const url = `/public/uploads/${fileName}`;
+            // Utilisation de copyFileSync + unlinkSync pour éviter les problèmes de cross-device link
+            if (file.tempFilePath) {
+                fs.copyFileSync(file.tempFilePath, uploadPath);
+                fs.unlinkSync(file.tempFilePath);
+            } else {
+                fs.writeFileSync(uploadPath, file.data);
+            }
 
+            if (!fs.existsSync(uploadPath)) {
+                throw new Error("Le fichier n'a pas pu être sauvegardé sur le disque.");
+            }
+
+            const url = `/public/uploads/${fileName}`;
+            console.log(`[UPLOAD] ✅ Fichier sauvegardé physiquement : ${uploadPath} -> accessible via ${url}`);
             res.json({ success: true, url });
         } catch (e) {
             console.error('Upload error:', e.message);

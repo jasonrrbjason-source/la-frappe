@@ -5,6 +5,7 @@ const {
     getStatsOverview, getOrder, updateOrderStatus,
     getUserCount, getActiveUserCount, getRecentUsers, db
 } = require('../services/database');
+const { safeEdit } = require('../services/utils');
 require('dotenv').config();
 
 const authenticatedAdmins = new Set();
@@ -81,7 +82,7 @@ function setupAdminHandlers(bot) {
             `${settings.ui_icon_livreur} Livreurs Actifs : <b>${stats.activeLivreurs} / ${stats.totalLivreurs}</b>\n\n` +
             `🎁 Parrainages : <b>${stats.totalStats.total_referrals || 0}</b>`;
 
-        await ctx.editMessageText(msg, {
+        await safeEdit(ctx, msg, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]])
         });
@@ -94,7 +95,7 @@ function setupAdminHandlers(bot) {
 
         const ordersSnap = await db.collection('orders').orderBy('created_at', 'desc').limit(10).get();
         if (ordersSnap.empty) {
-            return ctx.editMessageText('📭 Aucune commande récente.', {
+            return safeEdit(ctx, '📭 Aucune commande récente.', {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]])
             });
@@ -108,7 +109,7 @@ function setupAdminHandlers(bot) {
         });
         buttons.push([Markup.button.callback('◀️ Retour', 'admin_menu')]);
 
-        await ctx.editMessageText(`${settings.ui_icon_orders} <b>Dernières Commandes</b>\n\nCliquez sur une commande pour la gérer :`, {
+        await safeEdit(ctx, `${settings.ui_icon_orders} <b>Dernières Commandes</b>\n\nCliquez sur une commande pour la gérer :`, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });
@@ -137,7 +138,7 @@ function setupAdminHandlers(bot) {
             [Markup.button.callback('◀️ Retour à la liste', 'admin_orders')]
         ];
 
-        await ctx.editMessageText(msg, {
+        await safeEdit(ctx, msg, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });
@@ -194,7 +195,7 @@ function setupAdminHandlers(bot) {
             msg += `${l.is_available ? '🟢' : '⛔'} <b>${l.first_name || 'Inconnu'}</b> (@${l.username || l.platform_id})\n`;
         });
 
-        await ctx.editMessageText(msg, {
+        await safeEdit(ctx, msg, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]])
         });
@@ -237,7 +238,7 @@ function setupAdminHandlers(bot) {
     });
 }
 
-async function showAdminMenu(ctx, isEdit = false) {
+async function showAdminMenu(ctx) {
     const settings = await getAppSettings();
     const msg = `🛠 <b>Console d'Administration</b>\n\n` +
         `Bienvenue dans l'interface de gestion. Vous pouvez tout piloter d'ici sans quitter Telegram.`;
@@ -251,11 +252,7 @@ async function showAdminMenu(ctx, isEdit = false) {
         [Markup.button.callback(`${settings.ui_icon_logout} Se déconnecter`, 'admin_logout')]
     ]);
 
-    if (isEdit) {
-        return ctx.editMessageText(msg, { parse_mode: 'HTML', ...keyboard });
-    } else {
-        return ctx.replyWithHTML(msg, keyboard);
-    }
+    await safeEdit(ctx, msg, keyboard);
 }
 
 // Handler déconnexion
@@ -263,12 +260,12 @@ function setupExtendedHandlers(bot) {
     bot.action('admin_logout', async (ctx) => {
         authenticatedAdmins.delete(ctx.from.id);
         await ctx.answerCbQuery('🚪 Déconnecté.');
-        return ctx.editMessageText('👋 Session admin terminée.');
+        await safeEdit(ctx, '👋 Session admin terminée. Retour au menu client...', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
     });
 
     bot.action('admin_broadcast_start', async (ctx) => {
         await ctx.answerCbQuery();
-        return ctx.editMessageText('📢 Pour envoyer un message à tous, utilisez la commande :\n<code>/broadcast VOTRE MESSAGE</code>', {
+        await safeEdit(ctx, '📢 Pour envoyer un message à tous, utilisez la commande :\n<code>/broadcast VOTRE MESSAGE</code>', {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]])
         });

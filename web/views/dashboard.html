@@ -408,6 +408,15 @@
                 overflow-x: hidden;
             }
 
+            .flex {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .col {
+                width: 100%;
+            }
+
             .hamburger {
                 display: flex;
             }
@@ -437,14 +446,19 @@
                 -webkit-overflow-scrolling: touch;
             }
 
+            h1 {
+                margin-top: 10px;
+                font-size: 20px;
+            }
+
             /* Responsive Table -> Cards */
             .responsive-table thead {
                 display: none;
             }
 
             .responsive-table tbody {
-                display: grid;
-                grid-template-columns: 1fr;
+                display: flex;
+                flex-direction: column;
                 gap: 15px;
             }
 
@@ -496,6 +510,34 @@
             .stats-grid {
                 grid-template-columns: repeat(2, 1fr) !important;
                 gap: 10px;
+            }
+
+            .section-insights .stats-grid {
+                grid-template-columns: 1fr !important;
+            }
+
+            /* Fix headers and multi-col inputs */
+            #section-insights>div:first-child,
+            #section-settings .flex[style*="display:flex; gap:10px;"],
+            #section-products .flex,
+            #section-broadcast .card>div[style*="display:flex; gap:10px;"],
+            .stats-grid>div[style*="grid-column: span 2"] {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 15px !important;
+            }
+
+            #section-insights>div:first-child>div {
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+
+            #section-insights h1 {
+                text-align: center;
+            }
+
+            .card {
+                padding: 16px;
             }
         }
 
@@ -703,8 +745,9 @@
                     onkeyup="filterInsights()">
             </div>
 
-            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));">
-                <div class="card" style="padding:20px; display:flex; align-items:center; gap:15px;">
+            <div class="stats-grid">
+                <div class="card"
+                    style="padding:20px; display:flex; align-items:center; gap:15px; grid-column: 1 / -1;">
                     <div style="font-size:32px;">⏱️</div>
                     <div>
                         <div style="color:var(--text-muted); font-size:13px;">Temps moyen de livraison</div>
@@ -714,8 +757,8 @@
                 </div>
             </div>
 
-            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));">
-                <div class="card" style="grid-column: span 2;">
+            <div class="stats-grid" id="insights_charts_grid">
+                <div class="card">
                     <h3 id="chart-title">📈 Évolution des Revenus (Macro)</h3>
                     <div style="height:350px; margin-top:20px;">
                         <canvas id="canvas-main-chart"></canvas>
@@ -876,7 +919,7 @@
             <div class="card" style="margin-bottom:20px">
                 <p style="color:var(--text-muted);margin-bottom:16px">Liste de tous les utilisateurs ayant le statut
                     livreur. Pour promouvoir un utilisateur en livreur, allez dans la section <b>Utilisateurs</b>.</p>
-                <table style="width:100%;border-collapse:collapse">
+                <table class="responsive-table" style="width:100%;border-collapse:collapse">
                     <thead>
                         <tr style="border-bottom:1px solid var(--border)">
                             <th style="padding:10px;text-align:left">Livreur</th>

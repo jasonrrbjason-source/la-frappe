@@ -677,6 +677,9 @@ async function saveBroadcast(data) {
 async function updateBroadcast(broadcastId, data) {
     await supabase.from(COL_BROADCASTS).update(data).eq('id', broadcastId);
 }
+async function deleteBroadcast(id) {
+    await supabase.from(COL_BROADCASTS).delete().eq('id', id);
+}
 
 async function getBroadcastHistory(limit = 50) {
     const { data } = await supabase.from(COL_BROADCASTS).select('*').order('created_at', { ascending: false }).limit(limit);
@@ -702,7 +705,7 @@ module.exports = {
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,
     createOrder, updateOrderStatus, assignOrderLivreur, getOrder, getAvailableOrdersByCity, getAllOrders,
-    saveBroadcast, updateBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
+    saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, nukeDatabase

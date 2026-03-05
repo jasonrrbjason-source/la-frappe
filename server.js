@@ -428,15 +428,17 @@ function createServer() {
                 }
             }
 
-            if (!message && mediaFiles.length === 0) {
+            const mediaUrls = req.body.media_urls ? JSON.parse(req.body.media_urls) : [];
+
+            if (!message && mediaFiles.length === 0 && mediaUrls.length === 0) {
                 return res.status(400).json({ error: 'Message ou média requis' });
             }
 
-            debugLog(`[API-BC-OK] Lancement: "${message.substring(0, 20)}..." Platform: ${platform}, Médias: ${mediaFiles.length}`);
-            res.json({ status: 'started', media_count: mediaFiles.length });
+            debugLog(`[API-BC-OK] Lancement: "${message.substring(0, 20)}..." Platform: ${platform}, Médias: ${mediaFiles.length}, URLs: ${mediaUrls.length}`);
+            res.json({ status: 'started', media_count: mediaFiles.length + mediaUrls.length });
 
             // Lancer la diffusion
-            broadcastMessage(platform, message, { mediaFiles }).catch(err => {
+            broadcastMessage(platform, message, { mediaFiles, mediaUrls }).catch(err => {
                 debugLog(`[API-BC-FATAL] ${err.message}`);
             });
         } catch (e) {
@@ -448,6 +450,13 @@ function createServer() {
     app.get('/api/broadcasts', authMiddleware, async (req, res) => {
         try { res.json(await getBroadcastHistory()); }
         catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.delete('/api/broadcasts/:id', authMiddleware, async (req, res) => {
+        try {
+            await deleteBroadcast(req.params.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
     app.use('/api/*', (req, res) => {

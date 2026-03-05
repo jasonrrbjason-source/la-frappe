@@ -882,7 +882,11 @@
 
         <!-- USERS -->
         <section class="section" id="section-users">
-            <h1>Utilisateurs</h1>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h1 style="margin:0;">Utilisateurs</h1>
+                <span id="usersTotalCounter"
+                    style="background:var(--accent); color:white; padding:4px 12px; border-radius:20px; font-size:14px; font-weight:700;">Chargement...</span>
+            </div>
             <div class="search-container">
                 <span class="search-icon">🔍</span>
                 <input type="text" class="search-input" id="user-search"
@@ -1028,10 +1032,11 @@
                     <thead>
                         <tr>
                             <th>Date</th>
+                            <th>Média</th>
                             <th>Message</th>
                             <th>Cibles</th>
                             <th>Succès</th>
-                            <th>Échecs</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1046,7 +1051,11 @@
 
         <!-- LIVREURS -->
         <section class="section" id="section-livreurs">
-            <h1>🚴 Gestion des Livreurs</h1>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h1 style="margin:0;">Livreurs</h1>
+                <span id="livreursTotalCounter"
+                    style="background:#0a84ff; color:white; padding:4px 12px; border-radius:20px; font-size:14px; font-weight:700;">Chargement...</span>
+            </div>
 
             <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:20px;">
                 <div class="flex" style="gap:15px; align-items:center;">
@@ -1392,8 +1401,14 @@
                     updateNavbarIcons();
                 }
                 // On ne touche plus à l'opacity pour éviter l'effet "noir"
+                if (!window.appStats) {
+                    window.appStats = await api('/stats');
+                }
+                if (document.getElementById('usersTotalCounter')) document.getElementById('usersTotalCounter').innerText = (window.appStats.totalUsers || 0) + ' clients';
+                if (document.getElementById('livreursTotalCounter')) document.getElementById('livreursTotalCounter').innerText = (window.appStats.totalLivreurs || 0) + ' livreurs';
+
                 if (id === 'overview') {
-                    const s = await api('/stats');
+                    const s = window.appStats;
                     document.getElementById('statUsers').innerText = s.totalUsers;
                     document.getElementById('statActive').innerText = s.activeUsers;
                     document.getElementById('statOrders').innerText = s.totalOrders || 0;
@@ -1545,17 +1560,29 @@
                 if (id === 'broadcast') {
                     try {
                         const history = await api('/broadcasts');
+                        window._lastBroadcasts = history;
                         const historyTbody = document.querySelector('#bcHistoryTable tbody');
                         if (historyTbody) {
-                            historyTbody.innerHTML = history.map(h => `
-                            <tr>
-                                <td data-label="Date"><small>${new Date(h.created_at).toLocaleString()}</small></td>
-                                <td data-label="Message"><div style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${h.message || '(Média uniquement)'}</div></td>
-                                <td data-label="Cibles">${h.total_target || 0}</td>
-                                <td data-label="Succès"><span style="color:#4caf50">${h.success || 0}</span></td>
-                                <td data-label="Échecs"><span style="color:#f44336">${h.failed || 0}</span></td>
-                            </tr>
-                        `).join('');
+                            historyTbody.innerHTML = history.map(h => {
+                                const dateStr = new Date(h.created_at).toLocaleString();
+                                const msgShort = h.message ? (h.message.length > 80 ? h.message.substring(0, 77) + '...' : h.message) : '(Média uniquement)';
+
+                                return `
+                                <tr>
+                                    <td data-label="Date"><small>${dateStr}</small></td>
+                                    <td data-label="Média">${h.media_urls && h.media_urls.length > 0 ? `<div style="color:var(--accent); font-size:12px; font-weight:bold;">📁 ${h.media_urls.length} média(s)</div>` : '—'}</td>
+                                    <td data-label="Message">
+                                        <div style="font-size:13px; max-width:400px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:80px; overflow-y:auto; padding-right:5px;">${h.message || '<i style="opacity:0.6">(Média uniquement)</i>'}</div>
+                                    </td>
+                                    <td data-label="Cibles"><b>${h.total_target || 0}</b></td>
+                                    <td data-label="Succès"><span style="color:#4caf50; font-weight:bold">${h.success || 0}</span></td>
+                                    <td data-label="Actions" class="action-btns">
+                                        <button class="btn btn-outline btn-sm" onclick="republishBC('${h.id}')" title="Republier">🔄</button>
+                                        <button class="btn btn-outline btn-sm text-danger" onclick="deleteBC('${h.id}')" title="Supprimer">🗑️</button>
+                                    </td>
+                                </tr>
+                                `;
+                            }).join('');
                         }
                     } catch (e) {
                         console.error("BC load error", e);
@@ -1681,25 +1708,61 @@
             input.value = '';
         }
 
-        function removeBcMedia(index) {
-            bcFiles.splice(index, 1);
+        let bcUrls = []; // For republished media
+
+        function removeBcMedia(index, isUrl = false) {
+            if (isUrl) bcUrls.splice(index, 1);
+            else bcFiles.splice(index, 1);
             renderBcGrid();
         }
 
         function renderBcGrid() {
             const grid = document.getElementById('bc_media_grid');
             if (!grid) return;
-            if (bcFiles.length === 0) { grid.innerHTML = ''; return; }
-            grid.innerHTML = bcFiles.map((file, i) => {
+            if (bcFiles.length === 0 && bcUrls.length === 0) { grid.innerHTML = ''; return; }
+
+            let html = bcUrls.map((m, i) => `
+                <div style="position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden; border:1px solid var(--accent); background:rgba(255,0,80,0.05);">
+                    ${m.type === 'video'
+                    ? `<video src="${m.url}" style="width:100%;height:100%;object-fit:cover;" muted></video>`
+                    : `<img src="${m.url}" style="width:100%;height:100%;object-fit:cover;">`}
+                    <button onclick="removeBcMedia(${i}, true)" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);color:white;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+                    <div style="position:absolute; bottom:0; width:100%; background:var(--accent); color:white; font-size:9px; text-align:center; padding:2px 0;">REPUBLIÉ</div>
+                </div>
+            `).join('');
+
+            html += bcFiles.map((file, i) => {
                 const url = URL.createObjectURL(file);
                 const isVideo = file.type.startsWith('video');
                 return `<div style="position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden; border:1px solid var(--border);">
                     ${isVideo
-                        ? `<video src="${url}" style="width:100%;height:100%;object-fit:cover;" muted controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;"></video>`
+                        ? `<video src="${url}" style="width:100%;height:100%;object-fit:cover;" muted></video>`
                         : `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`}
-                    <button onclick="removeBcMedia(${i})" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);color:white;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;">✕</button>
+                    <button onclick="removeBcMedia(${i}, false)" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);color:white;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
                 </div>`;
             }).join('');
+
+            grid.innerHTML = html;
+        }
+
+        async function republishBC(id) {
+            if (!window._lastBroadcasts) return;
+            const bc = window._lastBroadcasts.find(b => b.id === id);
+            if (!bc) return;
+
+            document.getElementById('bcMsg').value = bc.message || '';
+            bcUrls = bc.media_urls || [];
+            bcFiles = [];
+            renderBcGrid();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            showToast('Diffusion chargée dans l\'éditeur', 'success');
+        }
+
+        async function deleteBC(id) {
+            if (!await showModal('Suppression', 'Supprimer ce log de diffusion ?')) return;
+            await api('/broadcasts/' + id, { method: 'DELETE' });
+            showToast('Log supprimé', 'success');
+            loadData('broadcast');
         }
 
         async function sendBC() {
@@ -1712,6 +1775,9 @@
                 const formData = new FormData();
                 formData.append('message', message);
                 formData.append('platform', platform);
+                // Pre-uploaded URLs for republish
+                if (bcUrls.length > 0) formData.append('media_urls', JSON.stringify(bcUrls));
+
                 bcFiles.forEach((f, i) => formData.append('media_' + i, f));
                 formData.append('media_count', bcFiles.length);
                 const r = await fetch('/api/broadcast', {
@@ -1724,6 +1790,7 @@
                 showToast('🚀 Diffusion lancée !', 'success');
                 document.getElementById('bcMsg').value = '';
                 bcFiles = [];
+                bcUrls = [];
                 renderBcGrid();
             } catch (e) {
                 showToast('Erreur: ' + e.message, 'error');

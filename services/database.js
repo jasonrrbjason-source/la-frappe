@@ -14,7 +14,6 @@ function ts() { return new Date().toISOString(); }
 
 // Helper pour simplifier Supabase updates numériques
 const incr = (n = 1) => n;
-
 function decryptUser(userData) {
     if (!userData) return null;
     const decrypted = {
@@ -26,12 +25,18 @@ function decryptUser(userData) {
     };
 
     // Proxy vital fields from JSONB data to root for easy JS access (Backward compatibility)
-    if (userData.data) {
-        if (!decrypted.current_city && userData.data.current_city) decrypted.current_city = userData.data.current_city;
-        if (decrypted.is_available === undefined && userData.data.is_available !== undefined) {
+    if (userData.data && typeof userData.data === 'object') {
+        if (!decrypted.current_city && userData.data.current_city) {
+            decrypted.current_city = userData.data.current_city;
+        }
+        // Si la racine est null/undefined, on prend dans data
+        if (decrypted.is_available == null && userData.data.is_available !== undefined) {
             decrypted.is_available = userData.data.is_available;
         }
     }
+
+    // Garantir des types propres
+    decrypted.is_available = !!decrypted.is_available;
 
     return decrypted;
 }
@@ -205,12 +210,25 @@ async function setLivreurAvailability(docId, isAvailable) {
     let meta = user ? (user.data || {}) : {};
     meta.is_available = isAvailable;
 
-    // Mise à jour ATOMIQUE : On met à jour la colonne racine ET le JSONB meta
-    await supabase.from(COL_USERS).update({
+    // 1. On tente l'update complet (Colonne + JSONB)
+    const { error: fullError } = await supabase.from(COL_USERS).update({
         is_available: isAvailable,
         data: meta,
         updated_at: ts()
     }).eq('id', docId);
+
+    if (fullError) {
+        console.warn(`⚠️ Colonne is_available absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);
+        // 2. Fallback : On sauve uniquement dans le JSONB 'data' pour ne pas bloquer le bot
+        const { error: fallbackError } = await supabase.from(COL_USERS).update({
+            data: meta,
+            updated_at: ts()
+        }).eq('id', docId);
+
+        if (fallbackError) {
+            console.error('❌ ÉCHEC CRITIQUE: Impossible de sauver la disponibilité même en fallback JSONB', fallbackError);
+        }
+    }
 
     _userCache.delete(docId);
 }
@@ -225,14 +243,27 @@ async function updateLivreurPosition(docId, input) {
     meta.sectors = sectors;
     meta.current_city = city;
     meta.last_position_update = ts();
-    if (user.is_available !== undefined) meta.is_available = user.is_available;
+    meta.is_available = !!(user.is_available);
 
-    // Mise à jour de la colonne racine current_city ET de l'objet data
-    await supabase.from(COL_USERS).update({
+    // 1. Tentative d'update complet (Colonne current_city + JSONB)
+    const { error: fullError } = await supabase.from(COL_USERS).update({
         current_city: city,
         data: meta,
         updated_at: ts()
     }).eq('id', docId);
+
+    if (fullError) {
+        console.warn(`⚠️ Colonne current_city absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);
+        // 2. Fallback JSONB
+        const { error: fallbackError } = await supabase.from(COL_USERS).update({
+            data: meta,
+            updated_at: ts()
+        }).eq('id', docId);
+
+        if (fallbackError) {
+            console.error('❌ ÉCHEC CRITIQUE: Impossible de sauver le secteur même en fallback JSONB', fallbackError);
+        }
+    }
 
     _userCache.delete(docId);
 }

@@ -96,13 +96,14 @@ async function sendToUser(user, message, { mediaFiles = [] }) {
     }
 
     const chatId = user.platform_id;
-    const caption = message;
+    // Telegram caption limit is 1024 chars.
+    const caption = message ? (message.length > 1020 ? message.substring(0, 1017) + '...' : message) : '';
 
     try {
         if (mediaFiles.length > 1) {
             // Groupe de médias (max 10)
             const mediaGroup = mediaFiles.slice(0, 10).map((f, i) => {
-                const isVideo = (f.mimetype && f.mimetype.includes('video')) || (f.name && f.name.match(/\.(mp4|webm|mov|m4v)$/i));
+                const isVideo = (f.mimetype && f.mimetype.includes('video')) || (f.name && f.name.match(/\.(mp4|webm|mov|m4v|avi|mkv)$/i));
                 return {
                     type: isVideo ? 'video' : 'photo',
                     media: { source: f.data, filename: f.name || (isVideo ? 'video.mp4' : 'photo.jpg') },
@@ -114,10 +115,10 @@ async function sendToUser(user, message, { mediaFiles = [] }) {
         } else if (mediaFiles.length === 1) {
             // Un seul média
             const f = mediaFiles[0];
-            const isVideo = (f.mimetype && f.mimetype.includes('video')) || (f.name && f.name.match(/\.(mp4|webm|mov|m4v)$/i));
+            const isVideo = (f.mimetype && f.mimetype.includes('video')) || (f.name && f.name.match(/\.(mp4|webm|mov|m4v|avi|mkv)$/i));
             const source = { source: f.data, filename: f.name || (isVideo ? 'video.mp4' : 'photo.jpg') };
 
-            debugLog(`[BC-SEND] Single ${isVideo ? 'VIDEO' : 'PHOTO'} -> ${chatId} (${f.data.length} octets)`);
+            debugLog(`[BC-SEND] Single ${isVideo ? 'VIDEO' : 'PHOTO'} -> ${chatId} (${f.data.length} octets) Type: ${f.mimetype}`);
             if (isVideo) {
                 await _bot.telegram.sendVideo(chatId, source, { caption: caption, parse_mode: 'HTML' });
             } else {
@@ -125,15 +126,15 @@ async function sendToUser(user, message, { mediaFiles = [] }) {
             }
         } else {
             // Texte uniquement
-            debugLog(`[BC-SEND] Message texte -> ${chatId}`);
+            debugLog(`[BC-SEND] Texte -> ${chatId}`);
             await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
         }
         return { success: true };
     } catch (error) {
         const desc = error.description || error.message;
-        debugLog(`[BC-ERROR] Chat ${chatId}: ${desc}`);
+        debugLog(`[BC-ERROR] Cible ${chatId}: ${desc}`);
 
-        if (error.code === 403 || desc.includes('blocked') || desc.includes('chat not found')) {
+        if (error.code === 403 || desc.includes('blocked') || desc.includes('chat not found') || desc.includes('kicked')) {
             await markUserBlocked(user.doc_id).catch(() => { });
             return { success: false, blocked: true, error: desc };
         }

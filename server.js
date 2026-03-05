@@ -12,7 +12,6 @@ const {
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
 const fs = require('fs');
-const path = require('path');
 
 function debugLog(msg) {
     const timestamp = new Date().toISOString();
@@ -190,6 +189,16 @@ function createServer() {
             console.error('Upload error:', e.message);
             res.status(500).json({ error: e.message });
         }
+    });
+
+    app.get('/api/debug/logs', authMiddleware, async (req, res) => {
+        try {
+            const logPath = path.join(process.cwd(), 'debug_la_frappe.log');
+            if (!fs.existsSync(logPath)) return res.send('Aucun log trouvé.');
+            const content = fs.readFileSync(logPath, 'utf8');
+            res.header('Content-Type', 'text/plain');
+            res.send(content);
+        } catch (e) { res.status(500).send(e.message); }
     });
 
     app.post('/api/livreurs/status', authMiddleware, async (req, res) => {

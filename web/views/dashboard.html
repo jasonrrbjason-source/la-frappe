@@ -1221,7 +1221,7 @@
                                 count = arr.length;
                             } catch (e) { }
 
-                            const isVideo = firstUrl.match(/\.(mp4|webm|mov)(\?.*)?$/i);
+                            const isVideo = firstUrl.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
                             const isBase64 = firstUrl.startsWith('data:');
                             const isLocal = firstUrl.startsWith('/public/') || firstUrl.startsWith('public/');
                             const isHttp = firstUrl.startsWith('http');
@@ -1231,10 +1231,10 @@
 
                             if (isBase64 || isLocal || isHttp) {
                                 mediaHtml = `
-                                    <div style="position:relative; width:45px; height:45px; background:#222; border-radius:6px; overflow:hidden; border:1px solid var(--border);">
+                                    <div class="product-media-mini" style="position:relative; width:45px; height:45px; background:#222; border-radius:6px; overflow:hidden; border:1px solid var(--border);">
                                         ${isVideo ?
                                         `<video src="${firstUrl}" style="width:100%;height:100%;object-fit:cover;" muted></video>` :
-                                        `<img src="${firstUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="console.error('Failed to load image:', '${firstUrl}'); this.style.display='none'; this.parentElement.innerHTML='<div style=\\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:18px;\\\'>📦</div>';">`
+                                        `<img src="${firstUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null; this.src=''; this.parentElement.innerHTML='<div style=\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:18px;\'>📦</div>';">`
                                     }
                                         ${count > 1 ? `<span style="position:absolute; bottom:2px; right:2px; background:var(--accent); color:white; font-size:9px; padding:1px 4px; border-radius:6px; border:1px solid var(--card-bg); font-weight:bold;">+${count - 1}</span>` : ''}
                                     </div>

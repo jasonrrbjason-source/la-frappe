@@ -5,7 +5,7 @@ const {
     getOrder, getAppSettings, getAllOrders, setLivreurAvailability,
     incrementOrderCount, getAvailableLivreurs, getLastMenuId
 } = require('../services/database');
-const { safeEdit } = require('../services/utils');
+const { safeEdit, debugLog } = require('../services/utils');
 
 function setupOrderSystem(bot) {
     // ========== CATALOGUE & COMMANDE ==========
@@ -40,14 +40,22 @@ function setupOrderSystem(bot) {
             const products = await getProducts();
             const product = products.find(p => p.id === productId);
 
-            if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+            if (!product) {
+                debugLog(`[PRODUCT-ERR] ID ${productId} non trouvé.`);
+                return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+            }
+
+            debugLog(`[PRODUCT-VIEW] ${product.name} par ${ctx.from.id}`);
 
             const promoText = product.promo ? `🎁 Promo : <b>${product.promo}</b>\n` : '';
             const settings = ctx.state.settings;
-            const caption = `🛒 <b>${product.name}</b>\n` +
+            let caption = `🛒 <b>${product.name}</b>\n` +
                 `💰 Prix unité : <b>${product.price}€</b>\n` +
                 promoText + `\n` +
                 `<b>${settings.msg_choose_qty}</b>`;
+
+            // Telegram limit 1024
+            if (caption.length > 1020) caption = caption.substring(0, 1017) + '...';
 
             const keyboard = Markup.inlineKeyboard([
                 [1, 2, 3].map(q => Markup.button.callback(String(q), `qty_${productId}_${q}`)),
@@ -57,7 +65,7 @@ function setupOrderSystem(bot) {
 
             // Préparation des médias
             let productMedia = null;
-            const hasImage = product.image_url && typeof product.image_url === 'string' && product.image_url.length > 10;
+            const hasImage = product.image_url && typeof product.image_url === 'string' && product.image_url.length > 5;
 
             if (hasImage) {
                 let mediaList = [];
@@ -65,12 +73,12 @@ function setupOrderSystem(bot) {
                     if (product.image_url.startsWith('[') && product.image_url.endsWith(']')) {
                         mediaList = JSON.parse(product.image_url);
                     } else {
-                        const type = product.image_url.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
-                        mediaList = [{ url: product.image_url, type }];
+                        const isVideo = product.image_url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
+                        mediaList = [{ url: product.image_url, type: isVideo ? 'video' : 'photo' }];
                     }
                 } catch (e) {
-                    const type = product.image_url.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
-                    mediaList = [{ url: product.image_url, type }];
+                    const isVideo = product.image_url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
+                    mediaList = [{ url: product.image_url, type: isVideo ? 'video' : 'photo' }];
                 }
 
                 mediaList = mediaList.filter(m => m.url && m.url.length > 5);
@@ -85,6 +93,7 @@ function setupOrderSystem(bot) {
                         productMedia = m.url;
                     }
 
+                    debugLog(`[PRODUCT-MEDIA] Envoi ${m.type} pour ${product.name}: ${m.url.substring(0, 50)}...`);
                     if (m.type === 'video') {
                         keyboard.video = productMedia;
                     } else {
@@ -94,7 +103,10 @@ function setupOrderSystem(bot) {
             }
 
             await safeEdit(ctx, caption, keyboard);
-        } catch (e) { console.error('Error buy_', e); }
+        } catch (e) {
+            debugLog(`[PRODUCT-FATAL] ${e.message}`);
+            console.error('Error buy_', e);
+        }
     });
 
     // Map temporaire pour stocker les infos en attente de saisie

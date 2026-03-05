@@ -101,4 +101,15 @@ async function safeEdit(ctx, text, opts = {}) {
     }
 }
 
-module.exports = { safeEdit };
+function debugLog(msg) {
+    const fs = require('fs');
+    const path = require('path');
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${msg}\n`;
+    try {
+        fs.appendFileSync(path.join(process.cwd(), 'debug_la_frappe.log'), line);
+    } catch (e) { }
+    console.log(msg);
+}
+
+module.exports = { safeEdit, debugLog };

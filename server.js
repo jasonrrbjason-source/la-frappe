@@ -11,6 +11,7 @@ const {
     deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
+const { db, admin } = require('./config/firebase');
 const fs = require('fs');
 
 function debugLog(msg) {
@@ -167,26 +168,39 @@ function createServer() {
             }
 
             const file = req.files.file;
-            const fs = require('fs');
             const ext = path.extname(file.name) || (file.mimetype.includes('video') ? '.mp4' : '.jpg');
             const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+
+            // 1. Sauvegarde locale (temporaire/fallback)
             const dir = path.resolve(__dirname, 'web', 'public', 'uploads');
             const uploadPath = path.join(dir, fileName);
-
             if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-            // Robust move
             await file.mv(uploadPath);
 
-            if (!fs.existsSync(uploadPath)) {
-                throw new Error("Le fichier n'a pas pu être sauvegardé sur le disque.");
+            let finalUrl = `/public/uploads/${fileName}`;
+
+            // 2. Tentative d'upload sur Firebase Storage (Persistance sur Railway)
+            try {
+                const bucket = admin.storage().bucket();
+                const firebaseFile = bucket.file(`uploads/${fileName}`);
+
+                debugLog(`[UPLOAD] Tentative Firebase Storage: ${fileName}`);
+
+                await firebaseFile.save(file.data, {
+                    metadata: { contentType: file.mimetype },
+                    public: true
+                });
+
+                // URL publique standard Firebase Storage
+                finalUrl = `https://storage.googleapis.com/${bucket.name}/uploads/${fileName}`;
+                debugLog(`[UPLOAD-OK] Firebase: ${finalUrl}`);
+            } catch (storageErr) {
+                debugLog(`[UPLOAD-WARN] Échec Firebase Storage: ${storageErr.message}. Utilisation fallback local.`);
             }
 
-            const url = `/public/uploads/${fileName}`;
-            console.log(`[UPLOAD] ✅ Fichier sauvegardé physiquement : ${uploadPath} -> accessible via ${url}`);
-            res.json({ success: true, url });
+            res.json({ success: true, url: finalUrl });
         } catch (e) {
-            console.error('Upload error:', e.message);
+            debugLog(`[UPLOAD-FATAL] ${e.message}`);
             res.status(500).json({ error: e.message });
         }
     });

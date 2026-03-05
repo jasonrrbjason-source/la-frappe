@@ -11,6 +11,18 @@ const {
     deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
+const fs = require('fs');
+const path = require('path');
+
+function debugLog(msg) {
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${msg}\n`;
+    try {
+        fs.appendFileSync(path.join(process.cwd(), 'debug_la_frappe.log'), line);
+    } catch (e) { }
+    console.log(msg);
+}
+
 require('dotenv').config();
 
 // Référence partagée au bot Telegram (définie par index.js)
@@ -285,7 +297,7 @@ function createServer() {
             const mediaFiles = [];
             if (req.files) {
                 const fs = require('fs');
-                console.log(`[BROADCAST] Réception de ${mediaCount} fichiers attendus.`);
+                debugLog(`[API-BC] Reçu de ${mediaCount} fichiers attendus.`);
                 for (let i = 0; i < mediaCount; i++) {
                     const f = req.files[`media_${i}`];
                     if (f) {
@@ -293,13 +305,13 @@ function createServer() {
                             const fileData = f.tempFilePath ? fs.readFileSync(f.tempFilePath) : f.data;
                             if (fileData && fileData.length > 0) {
                                 mediaFiles.push({ data: fileData, mimetype: f.mimetype, name: f.name });
-                                console.log(`[BROADCAST] Fichier ${i} chargé: ${f.name} (${f.mimetype}, ${fileData.length} bytes)`);
+                                debugLog(`[API-BC] Fichier ${i} prêt: ${f.name} (${f.mimetype}, ${fileData.length} octets)`);
                             }
                         } catch (err) {
-                            console.error(`[BROADCAST] Erreur lecture fichier ${i}:`, err.message);
+                            debugLog(`[API-BC-ERR] Lecture fichier ${i}: ${err.message}`);
                         }
                     } else {
-                        console.warn(`[BROADCAST] Fichier media_${i} manquant dans req.files`);
+                        debugLog(`[API-BC-WARN] media_${i} manquant dans req.files`);
                     }
                 }
             }
@@ -308,15 +320,15 @@ function createServer() {
                 return res.status(400).json({ error: 'Message ou média requis' });
             }
 
-            console.log(`[BROADCAST] Lancement diffusion: "${message.substring(0, 20)}..." Platform: ${platform}, Medias: ${mediaFiles.length}`);
+            debugLog(`[API-BC-OK] Lancement: "${message.substring(0, 20)}..." Platform: ${platform}, Médias: ${mediaFiles.length}`);
             res.json({ status: 'started', media_count: mediaFiles.length });
 
             // Lancer la diffusion
             broadcastMessage(platform, message, { mediaFiles }).catch(err => {
-                console.error('[BROADCAST] Erreur fatale diffusion:', err);
+                debugLog(`[API-BC-FATAL] ${err.message}`);
             });
         } catch (e) {
-            console.error('API Broadcast error:', e);
+            debugLog(`[API-BC-CRITICAL] ${e.message}`);
             res.status(500).json({ error: 'Erreur broadcast' });
         }
     });

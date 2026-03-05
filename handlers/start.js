@@ -15,8 +15,10 @@ function setupStartHandler(bot) {
             const settings = ctx.state.settings;
 
             // Nettoyage : supprimer le /start de l'utilisateur ET l'ancien menu bot
+            const { makeDocId } = require('../services/database');
+            const docId = makeDocId('telegram', user.id);
             await ctx.deleteMessage().catch(() => { });
-            const lastId = await getLastMenuId(userId);
+            const lastId = await getLastMenuId(docId);
             if (lastId) await ctx.telegram.deleteMessage(ctx.chat.id, lastId).catch(() => { });
 
             // Vérifier si un code de parrainage

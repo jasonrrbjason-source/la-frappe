@@ -1083,6 +1083,19 @@
 
                     <button class="btn btn-accent" style="margin-top:15px;"
                         onclick="saveSettings()">Sauvegarder</button>
+
+                    <div
+                        style="margin-top: 40px; border: 1px solid #ff4444; border-radius: 12px; padding: 20px; background: rgba(255,0,0,0.05);">
+                        <h3 style="color: #ff4444; margin-top: 0;">⚠️ ZONE DE DANGER (IRRÉVERSIBLE)</h3>
+                        <p style="color: #ffaaaa; margin-bottom: 15px; font-size: 14px;">
+                            <strong>Attention :</strong> Ce bouton va supprimer DÉFINITIVEMENT tous les utilisateurs
+                            (clients et livreurs), toutes les commandes, tous les produits, toutes les statistiques et
+                            l'historique des diffusions. Vous allez <strong>TOUT PERDRE</strong>. À utiliser uniquement
+                            pour remettre le bot complètement à zéro.
+                        </p>
+                        <button class="btn btn-danger" onclick="nukeEntireDatabase()">🗑️ SUPPRIMER TOUTE LA BASE DE
+                            DONNÉES</button>
+                    </div>
                 </div>
             </div>
         </section>
@@ -1844,6 +1857,21 @@
         }
 
         function logout() { localStorage.removeItem('admin_token'); window.location.href = '/'; }
+
+        async function nukeEntireDatabase() {
+            const confirm1 = await showModal('☢️ ZONE DE DANGER', 'Êtes-vous absolument sûr de vouloir supprimer TOUTE LA BASE DE DONNÉES ? Cette action est irréversible.');
+            if (!confirm1) return;
+            const confirm2 = await showModal('☢️ CONFIRMATION FINALE', 'Vous êtes sur le point de TOUT PERDRE (Produits, Commandes, Clients, Livreurs). Confirmez-vous ?');
+            if (!confirm2) return;
+
+            try {
+                await api('/admin/nuke', 'POST');
+                showToast('✅ Base de données réinitialisée avec succès.', 'success');
+                setTimeout(() => location.reload(), 2000);
+            } catch (e) {
+                showToast('❌ Erreur lors de la suppression.', 'error');
+            }
+        }
 
         // Init
         loadData('overview');

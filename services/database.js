@@ -507,8 +507,23 @@ async function updateBroadcast(broadcastId, data) {
     await db.collection(COL_BROADCASTS).doc(broadcastId).update(data);
 }
 
+async function nukeDatabase() {
+    const collections = [COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS];
+    for (const col of collections) {
+        const snap = await db.collection(col).get();
+        const batch = db.batch();
+        snap.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+    }
+    // Specifique pour les stats journalières qui sont dans une sous-collection ou doc
+    const dailyStats = await db.collection('bot_daily_stats').get();
+    const batch2 = db.batch();
+    dailyStats.forEach(doc => batch2.delete(doc.ref));
+    await batch2.commit();
+}
+
 module.exports = {
-    db, incr, ts, makeDocId, decryptUser,
+    db, admin, incr, ts, makeDocId, decryptUser,
     registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser,
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers,
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
@@ -517,5 +532,5 @@ module.exports = {
     saveBroadcast, updateBroadcast, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
-    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders
+    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, nukeDatabase
 };

@@ -88,16 +88,24 @@ function setupOrderSystem(bot) {
                     const isLocal = m.url.startsWith('/public/');
                     if (isLocal) {
                         const relativePath = m.url.replace(/^\/public\//, 'web/public/');
-                        productMedia = { source: require('path').resolve(process.cwd(), relativePath) };
+                        const fullPath = require('path').resolve(process.cwd(), relativePath);
+                        if (require('fs').existsSync(fullPath)) {
+                            productMedia = { source: fullPath };
+                        } else {
+                            debugLog(`[PRODUCT-MEDIA-WARN] Fichier local introuvable: ${fullPath} - Affichage texte uniquement.`);
+                        }
                     } else {
+                        // Remote URL (like Firebase Storage)
                         productMedia = m.url;
                     }
 
-                    debugLog(`[PRODUCT-MEDIA] Envoi ${m.type} pour ${product.name}: ${m.url.substring(0, 50)}...`);
-                    if (m.type === 'video') {
-                        keyboard.video = productMedia;
-                    } else {
-                        keyboard.photo = productMedia;
+                    if (productMedia) {
+                        debugLog(`[PRODUCT-MEDIA] Envoi ${m.type} pour ${product.name}: ${m.url.substring(0, 50)}...`);
+                        if (m.type === 'video') {
+                            keyboard.video = productMedia;
+                        } else {
+                            keyboard.photo = productMedia;
+                        }
                     }
                 }
             }

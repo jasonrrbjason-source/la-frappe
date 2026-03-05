@@ -8,10 +8,10 @@ const {
     getProducts, saveProduct, deleteProduct,
     getAllOrders, updateOrderStatus, setLivreurStatus, getOrder,
     setLivreurAvailability, getAppSettings, updateAppSettings,
-    deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics
+    deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics,
+    db, admin, nukeDatabase
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
-const { db, admin } = require('./config/firebase');
 const fs = require('fs');
 
 function debugLog(msg) {
@@ -238,6 +238,17 @@ function createServer() {
             await setLivreurAvailability(makeDocId(platform, userId), isAvailable);
             res.json({ success: true });
         } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/admin/nuke', authMiddleware, async (req, res) => {
+        try {
+            debugLog(`[ADMIN] NUKE DATABASE REQUESTED BY ${req.user?.platform_id || 'unidentified'}`);
+            await nukeDatabase();
+            res.json({ success: true, message: 'Base de données réinitialisée.' });
+        } catch (e) {
+            debugLog(`[ADMIN-FATAL] Nuke failed: ${e.message}`);
+            res.status(500).json({ error: e.message });
+        }
     });
 
     app.get('/api/livreurs', authMiddleware, async (req, res) => {

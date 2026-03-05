@@ -513,21 +513,26 @@ function setupOrderSystem(bot) {
                 const user = await getUser(userId);
                 let totalPrice = product.price * qty;
                 let discountText = "";
+                let appliedDiscountAmount = 0;
 
                 if (user && user.wallet_balance > 0) {
-                    const discount = Math.min(totalPrice, user.wallet_balance);
-                    totalPrice -= discount;
-                    discountText = `\n🎁 Réduction : -${discount.toFixed(2)}€`;
+                    appliedDiscountAmount = Math.min(totalPrice, user.wallet_balance);
+                    totalPrice -= appliedDiscountAmount;
+                    discountText = `\n🎁 Réduction : -${appliedDiscountAmount.toFixed(2)}€`;
                     const { supabase, COL_USERS } = require('../services/database');
-                    await supabase.from(COL_USERS).update({ wallet_balance: user.wallet_balance - discount }).eq('id', userId);
+                    await supabase.from(COL_USERS).update({ wallet_balance: user.wallet_balance - appliedDiscountAmount }).eq('id', userId);
                 }
 
                 const orderId = await createOrder({
                     user_id: userId,
+                    username: ctx.from.username || null,
+                    first_name: ctx.from.first_name || 'Client',
                     product_name: product.name,
                     quantity: qty,
                     total_price: totalPrice,
-                    address: address,
+                    city: address,
+                    platform: 'telegram',
+                    discount_applied: appliedDiscountAmount,
                     status: 'pending'
                 });
 

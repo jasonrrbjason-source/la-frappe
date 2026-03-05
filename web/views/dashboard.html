@@ -625,9 +625,11 @@
                 gap: 5px;
             }
 
-            .card {
-                padding: 16px;
-                border-radius: 16px;
+            input,
+            select,
+            textarea,
+            .btn {
+                font-size: 16px !important;
             }
         }
 
@@ -2083,7 +2085,13 @@
             loadData('users');
         }
 
-        async function searchUsersUI() {
+        // Debounce pour éviter la latence réseau
+        function debounce(f, ms) {
+            let t;
+            return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms); };
+        }
+
+        const searchUsersUI = debounce(async () => {
             const q = document.getElementById('user-search').value;
             if (q.length < 2) {
                 if (window._cachedUsers) renderUsersTable(window._cachedUsers);
@@ -2093,9 +2101,9 @@
                 const results = await api('/users/search?q=' + encodeURIComponent(q));
                 renderUsersTable(results);
             } catch (e) { }
-        }
+        }, 300);
 
-        async function searchLivreursUI() {
+        const searchLivreursUI = debounce(async () => {
             const q = document.getElementById('livreur-search').value;
             if (q.length < 2) {
                 loadData('livreurs');
@@ -2105,7 +2113,7 @@
                 const results = await api('/livreurs/search?q=' + encodeURIComponent(q));
                 renderLivreursTable(results);
             } catch (e) { }
-        }
+        }, 300);
 
         function renderUsersTable(users) {
             document.getElementById('userTable').innerHTML = users.map(u => `

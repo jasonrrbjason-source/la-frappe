@@ -433,14 +433,16 @@ async function getStatsOverview() {
     const active = await getActiveUserCount();
     const stats = await getGlobalStats();
 
-    const { data: bcSnap } = await supabase.from(COL_BROADCASTS).select('*').order('created_at', { ascending: false }).limit(5);
-    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('*');
-    const { data: livreursSnap } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
+    const { data: bcSnap } = await supabase.from(COL_BROADCASTS).select('id, created_at, success, failed, message').order('created_at', { ascending: false }).limit(5);
+    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('status, total_price');
+    const { data: livreursSnap } = await supabase.from(COL_USERS).select('is_available').eq('is_livreur', true);
 
     let totalCA = 0;
+    let deliveredCount = 0;
     (ordersSnap || []).forEach(order => {
         if (order.status === 'delivered') {
             totalCA += (parseFloat(order.total_price) || 0);
+            deliveredCount++;
         }
     });
 
@@ -459,7 +461,7 @@ async function getStatsOverview() {
 }
 
 async function getOrderAnalytics() {
-    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('*');
+    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('id, status, total_price, created_at, delivered_at, user_id, first_name, username, city, livreur_name, product_name, quantity');
     const analytics = {
         totalCA: 0,
         totalOrders: 0,

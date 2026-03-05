@@ -1324,10 +1324,10 @@
                 }
                 return await r.json();
             } catch (e) {
-                console.error(e);
+                console.error('[API Error]:', e);
                 throw e;
             } finally {
-                // On n'enlève la classe loading que si on l'avait ajoutée explicitement (voir loadData)
+                document.body.classList.remove('loading');
             }
         }
 
@@ -1362,30 +1362,36 @@
         }
 
         function switchSection(id) {
+            // Changement IMMÉDIAT de section pour éviter l'impression de latence
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            document.getElementById('section-' + id).classList.add('active');
-            event.currentTarget.classList.add('active');
-            loadData(id);
-            // Fermer la sidebar sur mobile
-            if (window.innerWidth <= 768) {
-                const sidebar = document.getElementById('sidebar');
-                const backdrop = document.getElementById('sidebarBackdrop');
-                sidebar.classList.remove('open');
-                backdrop.classList.remove('active');
+
+            const target = document.getElementById('section-' + id);
+            if (target) {
+                target.classList.add('active');
+                target.style.opacity = '1';
             }
+
+            // On cherche l'item du menu correspondant
+            const navItems = document.querySelectorAll('.nav-item');
+            navItems.forEach(item => {
+                if (item.getAttribute('onclick') && item.getAttribute('onclick').includes(`'${id}'`)) {
+                    item.classList.add('active');
+                }
+            });
+
+            loadData(id);
+            if (window.innerWidth <= 768) toggleSidebar();
         }
 
         async function loadData(id) {
-            if (!window.appSettings) {
-                window.appSettings = await api('/settings');
-                updateNavbarIcons();
-            }
-            // On n'ajoute la classe loading que pour le chargement initial d'une section
-            // pour éviter le blocage total lors des refreshes en arrière-plan
             const section = document.getElementById('section-' + id);
-            if (section) section.style.opacity = '0.6';
             try {
+                if (!window.appSettings) {
+                    window.appSettings = await api('/settings');
+                    updateNavbarIcons();
+                }
+                // On ne touche plus à l'opacity pour éviter l'effet "noir"
                 if (id === 'overview') {
                     const s = await api('/stats');
                     document.getElementById('statUsers').innerText = s.totalUsers;
@@ -1837,8 +1843,8 @@
                 item.onclick = (e) => e.stopPropagation();
 
                 const url = typeof m === 'string' ? m : m.url;
-                const type = typeof m === 'object' ? m.type : null;
-                const isVideo = type === 'video' || (url && url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i));
+                const mType = typeof m === 'object' ? m.type : null;
+                const isVideo = mType === 'video' || (url && url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i));
 
                 if (isVideo) {
                     item.innerHTML = `

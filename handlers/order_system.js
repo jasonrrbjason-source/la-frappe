@@ -250,6 +250,9 @@ function setupOrderSystem(bot) {
             {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard([
+                    [Markup.button.callback('⏰ Arrivée -1h', `notify_${orderId}_1h`)],
+                    [Markup.button.callback('⏳ 30 min', `notify_${orderId}_30m`), Markup.button.callback('⏳ 10 min', `notify_${orderId}_10m`)],
+                    [Markup.button.callback('⚡ 5 min', `notify_${orderId}_5m`), Markup.button.callback('📍 Arrivé', `notify_${orderId}_here`)],
                     [Markup.button.callback(`${settings.ui_icon_success} MARQUER COMME LIVRÉE`, `finish_${orderId}`)],
                     [Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]
                 ])
@@ -262,6 +265,28 @@ function setupOrderSystem(bot) {
             `Votre commande #${orderId.substring(0, 5)} est prise en charge par <b>${ctx.from.first_name}</b>.\n` +
             `⏳ Arrivée estimée : <b>${min} minutes</b>.\n\n` +
             `<i>Préparez l'appoint pour le paiement en liquide.</i>`,
+            { parse_mode: 'HTML' }
+        ).catch(() => { });
+    });
+
+    bot.action(/^notify_(.+)_(.+)$/, async (ctx) => {
+        await ctx.answerCbQuery('Notification envoyée ✅');
+        const orderId = ctx.match[1];
+        const timeCode = ctx.match[2];
+        const order = await getOrder(orderId);
+        if (!order) return;
+
+        let timeText = "";
+        if (timeCode === '1h') timeText = "⏰ dans - d'1h";
+        else if (timeCode === '30m') timeText = "⏳ dans 30 min";
+        else if (timeCode === '10m') timeText = "⏳ dans 10 min";
+        else if (timeCode === '5m') timeText = "⚡ dans 5 min";
+        else if (timeCode === 'here') timeText = "📍 Suis arrivé, descends";
+
+        bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
+            `🔔 <b>Mise à jour Livraison #${orderId.substring(0, 5)}</b>\n\n` +
+            `Votre livreur vous informe qu'il arrive : <b>${timeText}</b>\n\n` +
+            `<i>Restez joignable !</i>`,
             { parse_mode: 'HTML' }
         ).catch(() => { });
     });

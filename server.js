@@ -323,6 +323,15 @@ function createServer() {
                         case 'taken':
                             text = `${statusIcon} <b>Commande #${shortId} ${statusLabel} !</b>\n\nUn livreur a pris en charge votre commande et arrive vers vous. 💨`;
                             break;
+                        case 'arrival_10min':
+                            text = `⏳ <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>10 min</b> ! Préparez-vous. 🛵`;
+                            break;
+                        case 'arrival_5min':
+                            text = `⚡ <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>5 min</b> ! Soyez prêt(e). 🔥`;
+                            break;
+                        case 'arrived':
+                            text = `📍 <b>Commande #${shortId}</b>\n\n<b>Votre livreur est arrivé !</b> Il vous attend sur place. ✅`;
+                            break;
                         case 'cancelled':
                             text = `${settings.ui_icon_error} <b>${statusLabel} de commande</b>\n\nVotre commande #${shortId} a été annulée par l'administration.`;
                             break;

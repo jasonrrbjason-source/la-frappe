@@ -223,6 +223,13 @@
             color: #ff453a;
         }
 
+        .badge-arrival_10min,
+        .badge-arrival_5min,
+        .badge-arrived {
+            background: rgba(10, 132, 255, 0.1);
+            color: #0a84ff;
+        }
+
         /* FORMS */
         .card {
             background: var(--card-bg);
@@ -1337,6 +1344,9 @@
                         if (o.status === 'taken') label = s.status_taken_label || 'PRIS EN CHARGE';
                         if (o.status === 'delivered') label = s.status_delivered_label || 'LIVRÉE';
                         if (o.status === 'cancelled') label = s.status_cancelled_label || 'ANNULÉE';
+                        if (o.status === 'arrival_10min') label = '10 MIN';
+                        if (o.status === 'arrival_5min') label = '5 MIN';
+                        if (o.status === 'arrived') label = 'ARRIVÉ';
 
                         // Formatage dates
                         let createdTime = '—';
@@ -1363,6 +1373,9 @@
                                 <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
                                     <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>${s.status_pending_label || 'EN ATTENTE'}</option>
                                     <option value="taken" ${o.status === 'taken' ? 'selected' : ''}>${s.status_taken_label || 'PRIS EN CHARGE'}</option>
+                                    <option value="arrival_10min" ${o.status === 'arrival_10min' ? 'selected' : ''}>⏳ ARRIVE DANS 10 min</option>
+                                    <option value="arrival_5min" ${o.status === 'arrival_5min' ? 'selected' : ''}>⏳ ARRIVE DANS 5 min</option>
+                                    <option value="arrived" ${o.status === 'arrived' ? 'selected' : ''}>📍 ARRIVÉ</option>
                                     <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>${s.status_delivered_label || 'LIVRÉE'}</option>
                                     <option value="cancelled" ${o.status === 'cancelled' ? 'selected' : ''}>${s.status_cancelled_label || 'ANNULÉE'}</option>
                                 </select>

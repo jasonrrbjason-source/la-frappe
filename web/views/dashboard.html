@@ -401,6 +401,29 @@
             display: block;
         }
 
+        /* ========== MOBILE HEADER ========== */
+        .mobile-header {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            z-index: 1000;
+            align-items: center;
+            padding: 0 16px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        @media (max-width: 768px) {
+            .mobile-header {
+                display: flex;
+            }
+        }
+
         /* ========== RESPONSIVE MOBILE ========== */
         @media (max-width: 768px) {
             body {
@@ -419,6 +442,12 @@
 
             .hamburger {
                 display: flex;
+                position: static;
+                margin-right: 15px;
+                background: transparent;
+                border: none;
+                width: auto;
+                height: auto;
             }
 
             .sidebar {
@@ -427,10 +456,10 @@
                 left: -280px;
                 width: 260px;
                 height: 100%;
-                z-index: 1000;
+                z-index: 2001;
                 background: var(--bg);
                 transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                padding-top: 70px;
+                padding-top: 20px;
                 border-right: 1px solid var(--border);
             }
 
@@ -439,7 +468,7 @@
             }
 
             .main {
-                padding: 70px 15px 100px;
+                padding: 80px 12px 100px;
                 width: 100%;
                 height: 100vh;
                 overflow-y: auto;
@@ -448,7 +477,8 @@
 
             h1 {
                 margin-top: 10px;
-                font-size: 20px;
+                font-size: 22px;
+                text-align: center;
             }
 
             /* Responsive Table -> Cards */
@@ -456,55 +486,40 @@
                 display: none;
             }
 
-            .responsive-table tbody {
-                display: flex;
-                flex-direction: column;
-                gap: 15px;
-            }
-
             .responsive-table tr {
                 display: block;
-                background: #111;
+                background: #0a0a0a;
                 border: 1px solid var(--border);
-                border-radius: 12px;
-                padding: 15px;
-                margin-bottom: 0;
+                border-radius: 16px;
+                padding: 20px;
+                margin-bottom: 15px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
             }
 
             .responsive-table td {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 8px 0;
-                border: none;
+                padding: 10px 0;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
                 font-size: 14px;
             }
 
-            .responsive-table td::before {
-                content: attr(data-label);
-                font-size: 11px;
-                font-weight: 600;
-                color: var(--text-muted);
-                text-transform: uppercase;
-                margin-right: 15px;
-            }
-
             .responsive-table td:last-child {
-                border-top: 1px solid var(--border);
-                margin-top: 10px;
+                border-bottom: none;
+                margin-top: 15px;
                 padding-top: 15px;
                 justify-content: center;
                 width: 100%;
             }
 
-            .responsive-table td:last-child::before {
-                display: none;
-            }
-
-            .action-btns {
-                width: 100%;
-                flex-direction: row !important;
-                justify-content: center;
+            .responsive-table td::before {
+                content: attr(data-label);
+                font-size: 10px;
+                font-weight: 700;
+                color: var(--text-muted);
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
             }
 
             .stats-grid {
@@ -512,56 +527,47 @@
                 gap: 15px;
             }
 
-            /* Fix headers and multi-col inputs */
+            /* Fix layout for settings and insight grids */
             #section-insights>div:first-child,
             #section-settings .flex[style*="display:flex; gap:10px;"],
             #section-products .flex,
-            #section-broadcast .card>div[style*="display:flex; gap:10px;"] {
+            #section-broadcast .card>div[style*="display:flex; gap:10px;"],
+            #section-settings .card div[style*="display:grid"] {
                 flex-direction: column !important;
+                grid-template-columns: 1fr !important;
                 align-items: stretch !important;
                 gap: 15px !important;
             }
 
-            #section-insights>div:first-child>div {
-                justify-content: center;
+            #section-insights .btn-group {
+                display: flex;
                 flex-wrap: wrap;
-            }
-
-            #section-insights h1 {
-                text-align: center;
+                justify-content: center;
+                gap: 5px;
             }
 
             .card {
                 padding: 16px;
+                border-radius: 16px;
             }
         }
 
         /* ========== SMALL PHONES ========== */
         @media (max-width: 480px) {
-            .stats-grid {
-                grid-template-columns: 1fr !important;
-            }
-
             .stat-value {
-                font-size: 22px;
+                font-size: 24px;
             }
 
             .main {
-                padding: 70px 10px 100px;
+                padding: 75px 10px 80px;
             }
 
-            h1 {
-                font-size: 18px;
-                text-align: center;
+            .responsive-table tr {
+                padding: 15px;
             }
 
             #section-insights h1 {
-                font-size: 22px;
-            }
-
-            .btn-accent[onclick="exportAnalyticsCSV()"] {
-                width: 100% !important;
-                margin-top: 10px;
+                font-size: 20px;
             }
         }
 
@@ -679,8 +685,10 @@
             </div>
         </div>
     </div>
-    <!-- Mobile Hamburger -->
-    <button class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()">☰</button>
+    <div class="mobile-header">
+        <button class="hamburger" onclick="toggleSidebar()">☰</button>
+        <div style="font-weight:800; font-size:18px; color:var(--accent);">LA FRAPPE</div>
+    </div>
     <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
 
     <aside class="sidebar" id="sidebar">
@@ -726,17 +734,18 @@
 
         <!-- INSIGHTS -->
         <section class="section" id="section-insights">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:25px; gap:20px;">
                 <h1 style="margin:0;">Rapport de Caisse</h1>
-                <div
-                    style="display:flex; gap:10px; background:var(--sidebar-bg); padding:5px; border-radius:10px; border:1px solid var(--border);">
+                <div class="btn-group"
+                    style="display:flex; gap:8px; background:var(--sidebar-bg); padding:5px; border-radius:12px; border:1px solid var(--border);">
                     <button class="btn btn-sm btn-outline active" onclick="setTimeframe('hour', this)">Heure</button>
                     <button class="btn btn-sm btn-outline" onclick="setTimeframe('day', this)">Jour</button>
                     <button class="btn btn-sm btn-outline" onclick="setTimeframe('week', this)">Semaine</button>
                     <button class="btn btn-sm btn-outline" onclick="setTimeframe('month', this)">Mois</button>
                     <button class="btn btn-sm btn-outline" onclick="setTimeframe('year', this)">Année</button>
                 </div>
-                <button class="btn btn-accent" onclick="exportAnalyticsCSV()">📥 Exporter CSV</button>
+                <button class="btn btn-accent" style="white-space:nowrap;" onclick="exportAnalyticsCSV()">📥 Exporter
+                    CSV</button>
             </div>
 
             <div style="margin-bottom:25px;">

@@ -35,11 +35,19 @@ async function activeUsersQuery(platform, type = null) {
     return data || [];
 }
 
+let _userCache = new Map();
+
 async function registerUser(platformUser, platform = 'telegram', referrerId = null) {
     if (!platform) platform = 'telegram';
     const docId = makeDocId(platform, platformUser.id);
-    const { data: existingArray } = await supabase.from(COL_USERS).select('*').eq('id', docId).limit(1);
-    const existing = existingArray && existingArray.length > 0 ? existingArray[0] : null;
+
+    let existing = null;
+    if (_userCache.has(docId)) {
+        existing = _userCache.get(docId).data;
+    } else {
+        const { data: existingArray } = await supabase.from(COL_USERS).select('*').eq('id', docId).limit(1);
+        existing = existingArray && existingArray.length > 0 ? existingArray[0] : null;
+    }
 
     const isGroup = platformUser.type === 'group' || platformUser.type === 'supergroup';
     const coreData = {
@@ -57,8 +65,23 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
     };
 
     if (existing) {
-        await supabase.from(COL_USERS).update(coreData).eq('id', docId);
-        return { isNew: false, user: decryptUser({ ...existing, ...coreData }) };
+        // Optimisation: Si l'utilisateur a été actif il y a moins de 5 minutes, on skip l'UPDATE Supabase
+        const nowMs = Date.now();
+        const lastActiveMs = existing.last_active ? new Date(existing.last_active).getTime() : 0;
+
+        let finalUser;
+        if (nowMs - lastActiveMs > 300000) { // 5 minutes
+            await supabase.from(COL_USERS).update(coreData).eq('id', docId);
+    _userCache.delete(docId);
+            finalUser = { ...existing, ...coreData };
+        } else {
+            // Pas de DB call
+            finalUser = { ...existing };
+        }
+
+        const decrypted = decryptUser(finalUser);
+        _userCache.set(docId, { data: finalUser, expire: nowMs + 300000 });
+        return { isNew: false, user: decrypted };
     }
 
     const newUser = {
@@ -79,12 +102,15 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
     await incrementStat('total_users');
     await incrementDailyStat('new_users');
 
+    _userCache.set(docId, { data: newUser, expire: Date.now() + 300000 });
+
     if (referrerId) {
         try {
             const { data: refDocs } = await supabase.from(COL_USERS).select('*').eq('referral_code', referrerId).limit(1);
             if (refDocs && refDocs.length > 0) {
                 const referrerDoc = refDocs[0];
                 await supabase.from(COL_USERS).update({ referral_count: referrerDoc.referral_count + 1 }).eq('id', referrerDoc.id);
+    _userCache.delete(referrerDoc.id);
                 await supabase.from(COL_REFERRALS).insert([{ id: `${Date.now()}-${Math.random()}`, referrer_id: referrerDoc.id, referred_id: docId, created_at: ts() }]);
                 await incrementStat('total_referrals');
             }
@@ -100,6 +126,7 @@ async function getAllActiveUsers(platform = null, type = null) {
 }
 async function markUserBlocked(docId) {
     await supabase.from(COL_USERS).update({ is_blocked: true, blocked_at: ts() }).eq('id', docId);
+    _userCache.delete(docId);
 }
 async function deleteUser(docId) {
     await supabase.from(COL_USERS).delete().eq('id', docId);
@@ -107,6 +134,7 @@ async function deleteUser(docId) {
 async function incrementOrderCount(docId) {
     const user = await getUser(docId);
     if (user) await supabase.from(COL_USERS).update({ order_count: (user.order_count || 0) + 1 }).eq('id', docId);
+    _userCache.delete(docId);
 }
 
 // --- Livreurs ---
@@ -134,6 +162,7 @@ async function updateLivreurPosition(docId, input) {
     tracked.current_city = input.toLowerCase();
     tracked.last_position_update = ts();
     await supabase.from(COL_USERS).update({ data: tracked }).eq('id', docId);
+    _userCache.delete(docId);
 }
 
 async function saveUserLocation(docId, lat, lon, city = null) {
@@ -145,6 +174,7 @@ async function saveUserLocation(docId, lat, lon, city = null) {
     tracked.last_gps_update = ts();
     if (city) tracked.current_city = city.toLowerCase();
     await supabase.from(COL_USERS).update({ data: tracked }).eq('id', docId);
+    _userCache.delete(docId);
 }
 
 async function getActiveLivreursCount() {
@@ -159,6 +189,7 @@ async function addMessageToTrack(docId, messageId) {
     let tracked = user.tracked_messages || [];
     if (!tracked.includes(messageId)) tracked.push(messageId);
     await supabase.from(COL_USERS).update({ tracked_messages: tracked, last_menu_id: messageId }).eq('id', docId);
+    _userCache.delete(docId);
 }
 
 async function getLastMenuId(docId) {
@@ -205,9 +236,11 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
                     const referrer = await getUser(user.referred_by);
                     if (referrer) {
                         await supabase.from(COL_USERS).update({ wallet_balance: (referrer.wallet_balance || 0) + refBonus }).eq('id', referrer.id);
+    _userCache.delete(referrer.id);
                     }
                 }
                 await supabase.from(COL_USERS).update(updates).eq('id', user.id);
+    _userCache.delete(user.id);
                 extraData.points_awarded = true;
             }
         }
@@ -243,8 +276,21 @@ async function getLivreurOrders(livreurId) {
 }
 
 async function getUser(docId) {
+    if (_userCache.has(docId)) {
+        const cached = _userCache.get(docId);
+        if (Date.now() < cached.expire) {
+            return decryptUser(cached.data);
+        }
+    }
+
     const { data } = await supabase.from(COL_USERS).select('*').eq('id', docId).limit(1);
-    return data && data.length > 0 ? decryptUser(data[0]) : null;
+    const rawData = data && data.length > 0 ? data[0] : null;
+
+    if (rawData) {
+        _userCache.set(docId, { data: rawData, expire: Date.now() + 300000 }); // 5 minutes cache
+        return decryptUser(rawData);
+    }
+    return null;
 }
 
 async function getUserCount(platform = null) {
@@ -484,33 +530,59 @@ const SETTINGS_DEFAULTS = {
     msg_order_success: '✅ <b>Commande enregistrée !</b>'
 };
 
+let _settingsCache = null;
+let _settingsExpire = 0;
+
 async function getAppSettings() {
+    if (_settingsCache && Date.now() < _settingsExpire) {
+        return _settingsCache;
+    }
+
     const { data } = await supabase.from(COL_SETTINGS).select('*').eq('id', 'config').limit(1);
+    let settings = SETTINGS_DEFAULTS;
+
     if (!data || data.length === 0) {
         await supabase.from(COL_SETTINGS).insert([{ id: 'config', ...SETTINGS_DEFAULTS }]);
-        return SETTINGS_DEFAULTS;
+    } else {
+        settings = { ...SETTINGS_DEFAULTS, ...data[0] };
     }
-    return { ...SETTINGS_DEFAULTS, ...data[0] };
+
+    _settingsCache = settings;
+    _settingsExpire = Date.now() + 10000; // Cache valid for 10 seconds
+    return settings;
 }
 
 async function updateAppSettings(settings) {
     await supabase.from(COL_SETTINGS).update(settings).eq('id', 'config');
+    _settingsCache = null; // Invalidate cache
 }
 
 // --- Products ---
+let _productsCache = null;
+let _productsExpire = 0;
+
 async function getProducts() {
+    if (_productsCache && Date.now() < _productsExpire) {
+        return _productsCache;
+    }
     const { data } = await supabase.from(COL_PRODUCTS).select('*');
-    return data || [];
+    _productsCache = data || [];
+    _productsExpire = Date.now() + 15000; // Cache valid for 15 seconds
+    return _productsCache;
 }
+
 async function saveProduct(data) {
     const id = data.id || `${Date.now()}`;
     delete data.id;
     const { error } = await supabase.from(COL_PRODUCTS).upsert({ id, ...data, created_at: ts() });
     if (error) console.error("Error saveProduct", error);
+    _productsCache = null; // Invalidate cache
     return id;
 }
+
 async function deleteProduct(id) {
     await supabase.from(COL_PRODUCTS).delete().eq('id', id);
+    _productsCache = null; // Invalidate cache
 }
 
 // --- Broadcasts ---

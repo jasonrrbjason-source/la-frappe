@@ -239,10 +239,19 @@ function createServer() {
     app.post('/api/users/wallet', authMiddleware, async (req, res) => {
         const { userId, amount } = req.body;
         try {
-            const { supabase, COL_USERS } = require('./services/database');
-            await supabase.from(COL_USERS).update({ wallet_balance: parseFloat(amount) }).eq('id', userId);
+            const { updateUserWallet } = require('./services/database');
+            await updateUserWallet(userId, amount);
             res.json({ success: true });
-        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.post('/api/users/points', authMiddleware, async (req, res) => {
+        const { userId, points } = req.body;
+        try {
+            const { updateUserPoints } = require('./services/database');
+            await updateUserPoints(userId, points);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
     app.post('/api/livreurs/status', authMiddleware, async (req, res) => {

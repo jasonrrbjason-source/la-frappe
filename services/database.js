@@ -137,6 +137,45 @@ async function incrementOrderCount(docId) {
     _userCache.delete(docId);
 }
 
+async function updateUserWallet(docId, amount) {
+    await supabase.from(COL_USERS).update({ wallet_balance: parseFloat(amount) }).eq('id', docId);
+    _userCache.delete(docId);
+}
+
+async function updateUserPoints(docId, points) {
+    points = parseFloat(points) || 0;
+    await supabase.from(COL_USERS).update({ points }).eq('id', docId);
+    _userCache.delete(docId);
+
+    // Trigger conversion if threshold reached
+    const settings = await getAppSettings();
+    const threshold = settings.points_exchange || 100;
+    const creditValue = settings.points_credit_value || 5;
+
+    if (points >= threshold) {
+        const conversions = Math.floor(points / threshold);
+        const pointsToDeduce = conversions * threshold;
+        const creditToAdd = conversions * creditValue;
+
+        const user = await getUser(docId);
+        if (user) {
+            await supabase.from(COL_USERS).update({
+                points: points - pointsToDeduce,
+                wallet_balance: (user.wallet_balance || 0) + creditToAdd
+            }).eq('id', docId);
+            _userCache.delete(docId);
+
+            try {
+                const { getBotInstance } = require('../server');
+                const bot = getBotInstance();
+                if (bot && user.platform_id) {
+                    bot.telegram.sendMessage(user.platform_id, `🎊 <b>Conversion Automatique !</b>\n\nVos ${pointsToDeduce} points ont été convertis en <b>${creditToAdd}€</b> de crédit.\nNouveau solde : <b>${((user.wallet_balance || 0) + creditToAdd).toFixed(2)}€</b> 🚀`, { parse_mode: 'HTML' }).catch(() => { });
+                }
+            } catch (e) { }
+        }
+    }
+}
+
 // --- Livreurs ---
 async function setLivreurStatus(userId, platform, isLivreur) {
     const docId = makeDocId(platform, userId);
@@ -226,49 +265,18 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
                 const pointsToAdd = Math.floor(price * pointsRatio);
                 const isFirstOrder = user.order_count === 0;
 
-                const updates = {
-                    points: (user.points || 0) + pointsToAdd,
-                    order_count: (user.order_count || 0) + 1
-                };
-
                 if (isFirstOrder && user.referred_by) {
-                    updates.wallet_balance = (user.wallet_balance || 0) + refBonus;
+                    await updateUserWallet(user.id, (user.wallet_balance || 0) + refBonus);
                     const referrer = await getUser(user.referred_by);
                     if (referrer) {
-                        await supabase.from(COL_USERS).update({ wallet_balance: (referrer.wallet_balance || 0) + refBonus }).eq('id', referrer.id);
-                        _userCache.delete(referrer.id);
+                        await updateUserWallet(referrer.id, (referrer.wallet_balance || 0) + refBonus);
                     }
                 }
-                await supabase.from(COL_USERS).update(updates).eq('id', user.id);
+
+                await updateUserPoints(user.id, (user.points || 0) + pointsToAdd);
+                await supabase.from(COL_USERS).update({ order_count: (user.order_count || 0) + 1 }).eq('id', user.id);
                 _userCache.delete(user.id);
                 extraData.points_awarded = true;
-
-                // --- AUTO CONVERSION POINTS -> CREDIT ---
-                const updatedUser = await getUser(user.id);
-                if (updatedUser) {
-                    const threshold = settings.points_exchange || 100;
-                    const creditValue = settings.points_credit_value || 5;
-                    if (updatedUser.points >= threshold) {
-                        const conversions = Math.floor(updatedUser.points / threshold);
-                        const pointsToDeduced = conversions * threshold;
-                        const creditToAdd = conversions * creditValue;
-
-                        await supabase.from(COL_USERS).update({
-                            points: updatedUser.points - pointsToDeduced,
-                            wallet_balance: (updatedUser.wallet_balance || 0) + creditToAdd
-                        }).eq('id', updatedUser.id);
-                        _userCache.delete(updatedUser.id);
-
-                        // Notify user if possible
-                        try {
-                            const { getBotInstance } = require('../server');
-                            const bot = getBotInstance();
-                            if (bot) {
-                                bot.telegram.sendMessage(updatedUser.platform_id, `🎊 <b>Félicitations !</b>\n\nVos ${pointsToDeduced} points de fidélité ont été convertis en <b>${creditToAdd}€ de crédit</b> sur votre compte.\nCe crédit sera déduit automatiquement de votre prochaine commande ! 🚀`, { parse_mode: 'HTML' }).catch(() => { });
-                            }
-                        } catch (e) { }
-                    }
-                }
             }
         }
     }
@@ -687,7 +695,7 @@ const admin = {};
 module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
     db, admin, incr, ts, makeDocId, decryptUser,
-    registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser,
+    registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers, searchLivreurs,
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,

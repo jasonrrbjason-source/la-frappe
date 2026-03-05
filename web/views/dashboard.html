@@ -1021,6 +1021,27 @@
                         Logs Diagnostic</button>
                 </div>
             </div>
+
+            <h2 style="margin:40px 0 20px; font-size:20px;">📜 Historique des Diffusions</h2>
+            <div class="card">
+                <table class="responsive-table" id="bcHistoryTable">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Message</th>
+                            <th>Cibles</th>
+                            <th>Succès</th>
+                            <th>Échecs</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="5" style="padding:20px; text-align:center; color:var(--text-muted)">Chargement
+                                de l'historique...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </section>
 
         <!-- LIVREURS -->
@@ -1102,16 +1123,20 @@
                     <input id="set_channel_url" placeholder="https://t.me/votre_canal">
 
                     <h3 style="margin-top:20px;">Fidélité & Parrainage</h3>
-                    <div style="display:flex; gap:10px;">
-                        <div style="flex:1;">
+                    <div style="display:flex; flex-wrap:wrap; gap:10px;">
+                        <div style="flex:1; min-width:140px;">
                             <label>Points par € (/commande)</label>
                             <input type="number" id="set_pts_ratio" placeholder="ex: 1">
                         </div>
-                        <div style="flex:1;">
-                            <label>Ratio échange (Pts -> 1€)</label>
-                            <input type="number" id="set_pts_exchange" placeholder="ex: 10">
+                        <div style="flex:1; min-width:140px;">
+                            <label>Seuil Conversion (Pts -> Crédit)</label>
+                            <input type="number" id="set_pts_exchange" placeholder="ex: 100">
                         </div>
-                        <div style="flex:1;">
+                        <div style="flex:1; min-width:140px;">
+                            <label>Valeur Crédit (€)</label>
+                            <input type="number" id="set_pts_credit_val" placeholder="ex: 5">
+                        </div>
+                        <div style="flex:1; min-width:140px;">
                             <label>Bonus Parrainage (€)</label>
                             <input type="number" id="set_ref_bonus" placeholder="ex: 5">
                         </div>
@@ -1278,7 +1303,8 @@
         if (!TOKEN) window.location.href = '/';
 
         async function api(path, method = 'GET', body = null) {
-            document.body.classList.add('loading');
+            // On ne bloque l'UI que pour les écritures (POST/DELETE)
+            if (method !== 'GET') document.body.classList.add('loading');
             try {
                 const opt = {
                     method,
@@ -1301,7 +1327,7 @@
                 console.error(e);
                 throw e;
             } finally {
-                document.body.classList.remove('loading');
+                // On n'enlève la classe loading que si on l'avait ajoutée explicitement (voir loadData)
             }
         }
 
@@ -1355,6 +1381,10 @@
                 window.appSettings = await api('/settings');
                 updateNavbarIcons();
             }
+            // On n'ajoute la classe loading que pour le chargement initial d'une section
+            // pour éviter le blocage total lors des refreshes en arrière-plan
+            const section = document.getElementById('section-' + id);
+            if (section) section.style.opacity = '0.6';
             try {
                 if (id === 'overview') {
                     const s = await api('/stats');
@@ -1507,16 +1537,23 @@
                     }
                 }
                 if (id === 'broadcast') {
-                    const history = await api('/broadcasts');
-                    document.getElementById('bcHistoryTable').querySelector('tbody').innerHTML = history.map(h => `
-                        <tr>
-                            <td data-label="Date"><small>${new Date(h.created_at).toLocaleString()}</small></td>
-                            <td data-label="Message"><div style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${h.message || '(Média uniquement)'}</div></td>
-                            <td data-label="Cibles">${h.target_count || 0}</td>
-                            <td data-label="Succès"><span style="color:#4caf50">${h.success_count || 0}</span></td>
-                            <td data-label="Échecs"><span style="color:#f44336">${h.failed_count || 0}</span></td>
-                        </tr>
-                    `).join('');
+                    try {
+                        const history = await api('/broadcasts');
+                        const historyTbody = document.querySelector('#bcHistoryTable tbody');
+                        if (historyTbody) {
+                            historyTbody.innerHTML = history.map(h => `
+                            <tr>
+                                <td data-label="Date"><small>${new Date(h.created_at).toLocaleString()}</small></td>
+                                <td data-label="Message"><div style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${h.message || '(Média uniquement)'}</div></td>
+                                <td data-label="Cibles">${h.total_target || 0}</td>
+                                <td data-label="Succès"><span style="color:#4caf50">${h.success || 0}</span></td>
+                                <td data-label="Échecs"><span style="color:#f44336">${h.failed || 0}</span></td>
+                            </tr>
+                        `).join('');
+                        }
+                    } catch (e) {
+                        console.error("BC load error", e);
+                    }
                 }
                 if (id === 'insights') {
                     const data = await api('/analytics');
@@ -1570,7 +1607,8 @@
                     document.getElementById('set_private_contact_url').value = s.private_contact_url || '';
                     document.getElementById('set_channel_url').value = s.channel_url || '';
                     document.getElementById('set_pts_ratio').value = s.points_ratio || 1;
-                    document.getElementById('set_pts_exchange').value = s.points_exchange || 10;
+                    document.getElementById('set_pts_exchange').value = s.points_exchange || 100;
+                    document.getElementById('set_pts_credit_val').value = s.points_credit_value || 5;
                     document.getElementById('set_ref_bonus').value = s.ref_bonus || 5;
                     document.getElementById('set_lang').value = s.languages || 'fr';
 
@@ -1617,7 +1655,13 @@
                     document.getElementById('set_ui_icon_error').value = s.ui_icon_error || '❌';
                     document.getElementById('set_status_cancelled_label').value = s.status_cancelled_label || 'ANNULÉE';
                 }
-            } catch (err) { showToast(err.message, 'error'); }
+            } catch (err) {
+                console.error('[LOAD DATA] Error:', err);
+                showToast(err.message, 'error');
+            } finally {
+                if (section) section.style.opacity = '1';
+                document.body.classList.remove('loading');
+            }
         }
 
         /* FILE UPLOAD & DRAG & DROP */
@@ -2023,7 +2067,8 @@
                 private_contact_url: document.getElementById('set_private_contact_url').value,
                 admin_password: document.getElementById('set_current_password').value,
                 points_ratio: parseFloat(document.getElementById('set_pts_ratio').value) || 1,
-                points_exchange: parseFloat(document.getElementById('set_pts_exchange').value) || 10,
+                points_exchange: parseFloat(document.getElementById('set_pts_exchange').value) || 100,
+                points_credit_value: parseFloat(document.getElementById('set_pts_credit_val').value) || 5,
                 ref_bonus: parseFloat(document.getElementById('set_ref_bonus').value) || 5,
                 languages: document.getElementById('set_lang').value || 'fr',
 
@@ -2128,7 +2173,7 @@
                         </div>
                     </td>
                     <td data-label="Fidélité">
-                        <div style="font-size:12px;">⭐ <b>${u.points || 0} pts</b></div>
+                        <div style="font-size:12px; cursor:pointer;" onclick="editPointsUI('${u.doc_id}', ${u.points || 0})">⭐ <b>${u.points || 0} pts</b> ✏️</div>
                         <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:var(--success); cursor:pointer;" onclick="editWalletUI('${u.doc_id}', ${u.wallet_balance || 0})">
                             💰 <b>${(u.wallet_balance || 0).toFixed(2)}€</b> ✏️
                         </div>
@@ -2152,7 +2197,19 @@
             if (isNaN(amount)) return showToast('Montant invalide', 'error');
             try {
                 await api('/users/wallet', 'POST', { userId, amount });
-                showToast('Portefeuille mis à jour !');
+                showToast('Crédit mis à jour !');
+                loadData('users');
+            } catch (e) { showToast(e.message, 'error'); }
+        }
+
+        async function editPointsUI(userId, current) {
+            const val = prompt('Nouveau solde de points :', current);
+            if (val === null) return;
+            const points = parseInt(val);
+            if (isNaN(points)) return showToast('Nombre de points invalide', 'error');
+            try {
+                await api('/users/points', 'POST', { userId, points });
+                showToast('Points mis à jour !');
                 loadData('users');
             } catch (e) { showToast(e.message, 'error'); }
         }

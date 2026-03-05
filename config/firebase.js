@@ -49,8 +49,10 @@ if (process.env.FIREBASE_SA_BASE64) {
     }
 }
 
+const projectId = serviceAccount.project_id || serviceAccount.projectId;
 const app = admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
+    storageBucket: `${projectId}.appspot.com`,
 });
 
 const db = getFirestore(app, 'default');

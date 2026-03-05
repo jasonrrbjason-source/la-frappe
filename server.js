@@ -24,8 +24,8 @@ function createServer() {
     const app = express();
 
     app.use(cors());
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
+    app.use(express.json({ limit: '10mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '10mb' }));
     app.use(fileUpload({
         limits: { fileSize: 50 * 1024 * 1024 },
         useTempFiles: true,
@@ -123,7 +123,10 @@ function createServer() {
         try {
             const id = await saveProduct(req.body);
             res.json({ success: true, id });
-        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+        } catch (e) {
+            console.error('Product save error:', e.message);
+            res.status(500).json({ error: e.message });
+        }
     });
 
     app.delete('/api/products/:id', authMiddleware, async (req, res) => {
@@ -153,15 +156,21 @@ function createServer() {
             }
 
             const file = req.files.file;
-            const ext = path.extname(file.name);
-            const fileName = Date.now() + '-' + Math.round(Math.random() * 1E9) + ext;
-            const uploadPath = path.join(__dirname, 'web', 'public', 'uploads', fileName);
 
-            file.mv(uploadPath, (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                res.json({ success: true, url: `/public/uploads/${fileName}` });
-            });
-        } catch (e) { res.status(500).json({ error: e.message }); }
+            // Limiter la taille à 5MB
+            if (file.size > 5 * 1024 * 1024) {
+                return res.status(400).json({ error: 'Fichier trop volumineux (max 5MB)' });
+            }
+
+            // Convertir en Data URL (base64)
+            const base64 = file.data.toString('base64');
+            const url = `data:${file.mimetype};base64,${base64}`;
+
+            res.json({ success: true, url });
+        } catch (e) {
+            console.error('Upload error:', e.message);
+            res.status(500).json({ error: e.message });
+        }
     });
 
     app.post('/api/livreurs/status', authMiddleware, async (req, res) => {

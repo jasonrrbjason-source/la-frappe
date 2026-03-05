@@ -28,6 +28,7 @@ function decryptUser(userData) {
     // Proxy vital fields from JSONB data to root for easy JS access
     if (userData.data) {
         if (userData.data.current_city) decrypted.current_city = userData.data.current_city;
+        if (userData.data.is_available !== undefined) decrypted.is_available = userData.data.is_available;
     }
 
     return decrypted;
@@ -225,7 +226,15 @@ async function updateLivreurPosition(docId, input) {
     tracked.sectors = sectors;
     tracked.current_city = input.toLowerCase();
     tracked.last_position_update = ts();
-    await supabase.from(COL_USERS).update({ data: tracked }).eq('id', docId);
+
+    // Sync root is_available to data if missing
+    if (user.is_available !== undefined) tracked.is_available = user.is_available;
+
+    await supabase.from(COL_USERS).update({
+        data: tracked,
+        is_available: tracked.is_available || false,
+        updated_at: ts()
+    }).eq('id', docId);
     _userCache.delete(docId);
 }
 
@@ -749,6 +758,6 @@ module.exports = {
     saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
-    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, nukeDatabase,
+    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, nukeDatabase,
     _userCache
 };

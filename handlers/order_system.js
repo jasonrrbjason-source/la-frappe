@@ -522,7 +522,9 @@ function setupOrderSystem(bot) {
         const { getLivreurHistory } = require('../services/database');
 
         try {
+            console.log(`[LIVREUR] Historique pour: ${userId}`);
             const deliveries = await getLivreurHistory(userId);
+            console.log(`[LIVREUR] ${deliveries.length} livraisons trouvées.`);
 
             if (deliveries.length === 0) {
                 return safeEdit(ctx, `📭 Votre historique de livraison est vide.`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
@@ -552,7 +554,7 @@ function setupOrderSystem(bot) {
         if (ctx.state.awaiting_city) {
             const city = ctx.message.text.trim().toLowerCase();
             const docId = `telegram_${ctx.from.id}`;
-            const { updateLivreurPosition, getLivreurMenuKeyboard } = require('../services/database');
+            const { updateLivreurPosition } = require('../services/database');
 
             await updateLivreurPosition(docId, city);
 
@@ -565,8 +567,8 @@ function setupOrderSystem(bot) {
 
             const text = `✅ <b>Secteur validé : ${city.toUpperCase()}</b>\n\n` +
                 `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
-                `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
-                `🔘 Statut : <b>${user.is_available ? 'DISPONIBLE' : 'INDISPONIBLE'}</b>`;
+                `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : city.toUpperCase()}</b>\n` +
+                `🔘 Statut : <b>${user.is_available ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>`;
 
             await safeEdit(ctx, text, getKB(settings, user));
             delete ctx.state.awaiting_city;

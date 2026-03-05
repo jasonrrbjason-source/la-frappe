@@ -1721,6 +1721,7 @@
 
         function renderPreview(type) {
             const previewId = type + '_preview';
+            const urlInputId = type === 'bc' ? 'bc_media_url' : type + '_image_url';
             const val = document.getElementById(urlInputId).value;
             const container = document.getElementById(previewId);
             container.innerHTML = '';
@@ -1767,7 +1768,7 @@
             const val = document.getElementById(urlInputId).value;
             let list = [];
             try { list = JSON.parse(val); } catch (e) {
-                const fType = val.match(/\.(mp4|webm|mov)(\?.*)?$/i) ? 'video' : 'photo';
+                const fType = val.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i) ? 'video' : 'photo';
                 list = [{ url: val, type: fType }];
             }
             if (!Array.isArray(list)) list = [list];

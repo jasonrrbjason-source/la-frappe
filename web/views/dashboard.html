@@ -973,7 +973,24 @@
 
         <!-- ORDERS -->
         <section class="section" id="section-orders">
-            <h1>Commandes</h1>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h1>Commandes</h1>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <span id="orderTotalSum"
+                        style="background:var(--accent); color:white; padding:6px 15px; border-radius:30px; font-weight:bold; font-size:15px;">—
+                        €</span>
+                    <div style="background:rgba(255,255,255,0.05); padding:5px; border-radius:10px; display:flex; gap:5px;"
+                        id="orderFilterContainer">
+                        <button class="btn btn-sm btn-outline active"
+                            onclick="filterData('orders', 'today', this)">Aujourd'hui</button>
+                        <button class="btn btn-sm btn-outline"
+                            onclick="filterData('orders', 'week', this)">Semaine</button>
+                        <button class="btn btn-sm btn-outline"
+                            onclick="filterData('orders', 'month', this)">Mois</button>
+                        <button class="btn btn-sm btn-outline" onclick="filterData('orders', 'all', this)">Tout</button>
+                    </div>
+                </div>
+            </div>
             <div class="card">
                 <table id="orderTable" class="responsive-table">
                     <thead>
@@ -1393,6 +1410,115 @@
             if (window.innerWidth <= 768) toggleSidebar();
         }
 
+        function renderOrdersTable(ordersToRender) {
+            const s = window.appSettings || {};
+            const livreurOptions = (window._cachedLivreurs || []).map(l => `<option value="${l.id || l.doc_id}">${l.first_name || 'Livreur'}</option>`).join('');
+
+            document.querySelector('#orderTable tbody').innerHTML = ordersToRender.map(o => {
+                let label = o.status.toUpperCase();
+                if (o.status === 'pending') label = s.status_pending_label || 'EN ATTENTE';
+                if (o.status === 'taken') label = s.status_taken_label || 'PRIS EN CHARGE';
+                if (o.status === 'delivered') label = s.status_delivered_label || 'LIVRÉE';
+                if (o.status === 'cancelled') label = s.status_cancelled_label || 'ANNULÉE';
+                if (o.status === 'arrival_1h') label = "ARRIVE -1H";
+                if (o.status === 'arrival_30min') label = "30 MIN";
+                if (o.status === 'arrival_10min') label = '10 MIN';
+                if (o.status === 'arrival_5min') label = '5 MIN';
+                if (o.status === 'arrived') label = 'ARRIVÉ';
+
+                let createdTime = '—';
+                if (o.created_at) {
+                    const d = o.created_at._seconds ? new Date(o.created_at._seconds * 1000) : new Date(o.created_at);
+                    createdTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                }
+                let deliveredTime = '—';
+                if (o.delivered_at) {
+                    const d = o.delivered_at._seconds ? new Date(o.delivered_at._seconds * 1000) : new Date(o.delivered_at);
+                    deliveredTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                }
+
+                return `
+                <tr>
+                    <td data-label="Client"><b>${o.first_name}</b></td>
+                    <td data-label="Détails">${o.product_name} (x${o.quantity})</td>
+                    <td data-label="Total"><b>${o.total_price}€</b></td>
+                    <td data-label="Ville"><small>${o.city || '—'}</small></td>
+                    <td data-label="Date"><small>🕐 ${createdTime}</small></td>
+                    <td data-label="Livré à"><small>${o.status === 'delivered' ? '✅ ' + deliveredTime : '—'}</small></td>
+                    <td data-label="Statut"><span class="badge badge-${o.status}">${label}</span></td>
+                    <td data-label="Action">
+                        <div style="display:flex; flex-direction:column; gap:4px;">
+                            <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
+                                <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>${s.status_pending_label || 'EN ATTENTE'}</option>
+                                <option value="taken" ${o.status === 'taken' ? 'selected' : ''}>${s.status_taken_label || 'PRIS EN CHARGE'}</option>
+                                <option value="arrival_1h" ${o.status === 'arrival_1h' ? 'selected' : ''}>🚚 Arrivée -1h</option>
+                                <option value="arrival_30min" ${o.status === 'arrival_30min' ? 'selected' : ''}>⏳ 30 min</option>
+                                <option value="arrival_10min" ${o.status === 'arrival_10min' ? 'selected' : ''}>⏳ 10 min</option>
+                                <option value="arrival_5min" ${o.status === 'arrival_5min' ? 'selected' : ''}>⚡ 5 min</option>
+                                <option value="arrived" ${o.status === 'arrived' ? 'selected' : ''}>📍 Arrivé</option>
+                                <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>${s.status_delivered_label || 'LIVRÉE'}</option>
+                                <option value="cancelled" ${o.status === 'cancelled' ? 'selected' : ''}>${s.status_cancelled_label || 'ANNULÉE'}</option>
+                            </select>
+                            ${o.status === 'pending' ? `
+                                <select onchange="assignDriver('${o.id}', this.value, this.options[this.selectedIndex].text)" style="margin:0; padding:4px; font-size:10px; background:rgba(255,255,255,0.05);">
+                                    <option value="">👤 Assigner...</option>
+                                    ${livreurOptions}
+                                </select>
+                            ` : `
+                                <small style="font-size:9px; color:var(--text-muted)">${o.livreur_name ? '👤 ' + o.livreur_name : ''}</small>
+                            `}
+                        </div>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        function filterData(type, period, btn = null) {
+            if (type === 'orders') {
+                if (btn) {
+                    const container = document.getElementById('orderFilterContainer');
+                    if (container) {
+                        container.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                    }
+                }
+
+                if (!window._cachedOrders) return;
+                let filtered = [...window._cachedOrders];
+                const now = new Date();
+
+                if (period !== 'all') {
+                    filtered = filtered.filter(o => {
+                        if (!o.created_at) return false;
+                        const d = o.created_at._seconds ? new Date(o.created_at._seconds * 1000) : new Date(o.created_at);
+                        if (period === 'today') {
+                            return d.toDateString() === now.toDateString();
+                        } else if (period === 'week') {
+                            const diffInMs = now.getTime() - d.getTime();
+                            const diffInDays = diffInMs / (1000 * 3600 * 24);
+                            return diffInDays <= 7;
+                        } else if (period === 'month') {
+                            return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+                        }
+                        return true;
+                    });
+                }
+
+                let total = 0;
+                filtered.forEach(o => {
+                    if (o.status !== 'cancelled') {
+                        total += parseFloat(o.total_price) || 0;
+                    }
+                });
+
+                const totalEl = document.getElementById('orderTotalSum');
+                if (totalEl) totalEl.innerText = total.toFixed(2) + ' €';
+
+                renderOrdersTable(filtered);
+            }
+        }
+
         async function loadData(id) {
             const section = document.getElementById('section-' + id);
             try {
@@ -1480,70 +1606,9 @@
                     }).join('');
                 }
                 if (id === 'orders') {
-                    const orders = await api('/orders');
-                    const livreurs = await api('/livreurs');
-                    const livreurOptions = livreurs.map(l => `<option value="${l.id || l.doc_id}">${l.first_name || 'Livreur'}</option>`).join('');
-
-                    document.querySelector('#orderTable tbody').innerHTML = orders.map(o => {
-                        let label = o.status.toUpperCase();
-                        const s = window.appSettings || {};
-                        if (o.status === 'pending') label = s.status_pending_label || 'EN ATTENTE';
-                        if (o.status === 'taken') label = s.status_taken_label || 'PRIS EN CHARGE';
-                        if (o.status === 'delivered') label = s.status_delivered_label || 'LIVRÉE';
-                        if (o.status === 'cancelled') label = s.status_cancelled_label || 'ANNULÉE';
-                        if (o.status === 'arrival_1h') label = "ARRIVE -1H";
-                        if (o.status === 'arrival_30min') label = "30 MIN";
-                        if (o.status === 'arrival_10min') label = '10 MIN';
-                        if (o.status === 'arrival_5min') label = '5 MIN';
-                        if (o.status === 'arrived') label = 'ARRIVÉ';
-
-                        // Formatage dates
-                        let createdTime = '—';
-                        if (o.created_at) {
-                            const d = o.created_at._seconds ? new Date(o.created_at._seconds * 1000) : new Date(o.created_at);
-                            createdTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-                        }
-                        let deliveredTime = '—';
-                        if (o.delivered_at) {
-                            const d = o.delivered_at._seconds ? new Date(o.delivered_at._seconds * 1000) : new Date(o.delivered_at);
-                            deliveredTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-                        }
-
-                        return `
-                        <tr>
-                            <td data-label="Client"><b>${o.first_name}</b></td>
-                            <td data-label="Détails">${o.product_name} (x${o.quantity})</td>
-                            <td data-label="Total"><b>${o.total_price}€</b></td>
-                            <td data-label="Ville"><small>${o.city || '—'}</small></td>
-                            <td data-label="Date"><small>🕐 ${createdTime}</small></td>
-                            <td data-label="Livré à"><small>${o.status === 'delivered' ? '✅ ' + deliveredTime : '—'}</small></td>
-                            <td data-label="Statut"><span class="badge badge-${o.status}">${label}</span></td>
-                            <td data-label="Action">
-                                <div style="display:flex; flex-direction:column; gap:4px;">
-                                    <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
-                                        <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>${s.status_pending_label || 'EN ATTENTE'}</option>
-                                        <option value="taken" ${o.status === 'taken' ? 'selected' : ''}>${s.status_taken_label || 'PRIS EN CHARGE'}</option>
-                                        <option value="arrival_1h" ${o.status === 'arrival_1h' ? 'selected' : ''}>🚚 Arrivée -1h</option>
-                                        <option value="arrival_30min" ${o.status === 'arrival_30min' ? 'selected' : ''}>⏳ 30 min</option>
-                                        <option value="arrival_10min" ${o.status === 'arrival_10min' ? 'selected' : ''}>⏳ 10 min</option>
-                                        <option value="arrival_5min" ${o.status === 'arrival_5min' ? 'selected' : ''}>⚡ 5 min</option>
-                                        <option value="arrived" ${o.status === 'arrived' ? 'selected' : ''}>📍 Arrivé</option>
-                                        <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>${s.status_delivered_label || 'LIVRÉE'}</option>
-                                        <option value="cancelled" ${o.status === 'cancelled' ? 'selected' : ''}>${s.status_cancelled_label || 'ANNULÉE'}</option>
-                                    </select>
-                                    ${o.status === 'pending' ? `
-                                        <select onchange="assignDriver('${o.id}', this.value, this.options[this.selectedIndex].text)" style="margin:0; padding:4px; font-size:10px; background:rgba(255,255,255,0.05);">
-                                            <option value="">👤 Assigner livreur...</option>
-                                            ${livreurOptions}
-                                        </select>
-                                    ` : `
-                                        <small style="font-size:9px; color:var(--text-muted)">${o.livreur_name ? '👤 ' + o.livreur_name : ''}</small>
-                                    `}
-                                </div>
-                            </td>
-                        </tr>
-                    `
-                    }).join('');
+                    window._cachedOrders = await api('/orders');
+                    window._cachedLivreurs = await api('/livreurs');
+                    filterData('orders', 'today'); // Default to today
                 }
                 if (id === 'livreurs') {
                     try {

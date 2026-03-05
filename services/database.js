@@ -461,7 +461,7 @@ async function getStatsOverview() {
 }
 
 async function getOrderAnalytics() {
-    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('id, status, total_price, created_at, delivered_at, user_id, first_name, username, city, livreur_name, product_name, quantity');
+    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('id, status, total_price, created_at, delivered_at, user_id, first_name, username, city, livreur_id, product_name, quantity');
     const analytics = {
         totalCA: 0,
         totalOrders: 0,
@@ -523,8 +523,8 @@ async function getOrderAnalytics() {
         const city = (order.city || 'Inconnue').split(',')[0].trim().toUpperCase();
         analytics.byCity[city] = (analytics.byCity[city] || 0) + price;
 
-        if (order.livreur_name) {
-            analytics.byLivreur[order.livreur_name] = (analytics.byLivreur[order.livreur_name] || 0) + price;
+        if (order.livreur_id) {
+            analytics.byLivreur[order.livreur_id] = (analytics.byLivreur[order.livreur_id] || 0) + price;
         }
 
         const prodName = order.product_name || 'Inconnu';

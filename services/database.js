@@ -77,7 +77,9 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
 
 async function getAllActiveUsers(platform = null, type = 'user') {
     const snapshot = await activeUsersQuery(platform, type).get();
-    return snapshot.docs.map((d) => decryptUser(d.data()));
+    const list = snapshot.docs.map((d) => decryptUser(d.data()));
+    console.log(`[DB] getAllActiveUsers(platform=${platform}, type=${type}) -> ${list.length} trouvés`);
+    return list;
 }
 async function markUserBlocked(docId) {
     await db.collection(COL_USERS).doc(docId).update({ is_blocked: true, blocked_at: ts() });

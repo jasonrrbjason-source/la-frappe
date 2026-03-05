@@ -42,19 +42,26 @@ async function broadcastMessage(platform, message, options = {}) {
 
     for (let i = 0; i < targets.length; i += currentBatchSize) {
         const batch = targets.slice(i, i + currentBatchSize);
+        console.log(`[BROADCAST] Batch ${Math.floor(i / currentBatchSize) + 1} - Envoi à ${batch.length} cibles...`);
 
         const results = await Promise.allSettled(
             batch.map((user) => sendToUser(user, message, options))
         );
 
-        for (const result of results) {
+        for (const [idx, result] of results.entries()) {
+            const target = batch[idx];
             if (result.status === 'fulfilled') {
-                const { success, blocked } = result.value;
-                if (success) successCount++;
-                else if (blocked) blockedCount++;
-                else failedCount++;
+                const { success, blocked, error } = result.value;
+                if (success) {
+                    successCount++;
+                } else {
+                    if (blocked) blockedCount++;
+                    else failedCount++;
+                    console.error(`[BROADCAST] ❌ Échec pour ${target.platform_id} (${target.first_name}): ${error}`);
+                }
             } else {
                 failedCount++;
+                console.error(`[BROADCAST] ❌ Erreur fatale batch pour ${target.platform_id}:`, result.reason);
             }
         }
 
@@ -90,34 +97,41 @@ async function sendToUser(user, message, options = {}) {
         if (mediaFiles.length > 1) {
             // Envoi en groupe de médias (max 10)
             const mediaGroup = mediaFiles.slice(0, 10).map((f, i) => {
-                const isVideo = f.mimetype.startsWith('video') || f.name?.match(/\.(mp4|webm|mov)$/i);
+                const isVideo = f.mimetype?.startsWith('video') || f.name?.match(/\.(mp4|webm|mov)$/i);
                 return {
                     type: isVideo ? 'video' : 'photo',
                     media: { source: f.data, filename: f.name || (isVideo ? 'video.mp4' : 'photo.jpg') },
                     ...(i === 0 && caption ? { caption: caption, parse_mode: 'HTML' } : {})
                 };
             });
+            console.log(`[BROADCAST] Envoi MediaGroup (${mediaGroup.length} fichiers) à ${chatId}`);
             await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
         } else if (mediaFiles.length === 1) {
             const f = mediaFiles[0];
-            const isVideo = f.mimetype.startsWith('video') || f.name?.match(/\.(mp4|webm|mov)$/i);
+            const isVideo = f.mimetype?.startsWith('video') || f.name?.match(/\.(mp4|webm|mov)$/i);
             const source = { source: f.data, filename: f.name || (isVideo ? 'video.mp4' : 'photo.jpg') };
+            console.log(`[BROADCAST] Envoi ${isVideo ? 'VIDEO' : 'PHOTO'} à ${chatId} (${f.data.length} bytes)`);
             if (isVideo) {
                 await _bot.telegram.sendVideo(chatId, source, { caption: caption, parse_mode: 'HTML' });
             } else {
                 await _bot.telegram.sendPhoto(chatId, source, { caption: caption, parse_mode: 'HTML' });
             }
         } else {
+            console.log(`[BROADCAST] Envoi MESSAGE TEXTE à ${chatId}`);
             await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
         }
         return { success: true };
     } catch (error) {
-        if (error.code === 403 || error.description?.includes('blocked')) {
+        console.error(`[BROADCAST] 🚨 Erreur Telegram pour ${chatId}:`, {
+            code: error.code,
+            description: error.description,
+            message: error.message
+        });
+        if (error.code === 403 || error.description?.includes('blocked') || error.description?.includes('chat not found')) {
             await markUserBlocked(user.doc_id);
-            return { success: false, blocked: true, error: error.message };
+            return { success: false, blocked: true, error: error.description || error.message };
         }
-        console.error(`Broadcast to ${chatId} error:`, error.message);
-        return { success: false, error: error.message };
+        return { success: false, error: error.description || error.message };
     }
 }
 

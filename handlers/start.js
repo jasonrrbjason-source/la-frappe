@@ -12,8 +12,7 @@ function setupStartHandler(bot) {
     bot.command('start', async (ctx) => {
         try {
             const user = ctx.from;
-            const userId = `telegram_${user.id}`;
-            const settings = await getAppSettings();
+            const settings = ctx.state.settings;
 
             // Nettoyage : supprimer le /start de l'utilisateur ET l'ancien menu bot
             await ctx.deleteMessage().catch(() => { });
@@ -29,6 +28,7 @@ function setupStartHandler(bot) {
             }
 
             const { isNew, user: registeredUser } = await registerUser(user, 'telegram', referrerId);
+            ctx.state.user = registeredUser; // Update state with registered user info
             await incrementDailyStat('start_commands');
 
             let welcomeText = "";
@@ -56,7 +56,7 @@ function setupStartHandler(bot) {
 
     bot.action('private_contact', async (ctx) => {
         await ctx.answerCbQuery();
-        const settings = await getAppSettings();
+        const settings = ctx.state.settings;
         const buttons = [];
         if (settings.private_contact_url) {
             buttons.push([Markup.button.url('💬 Ouvrir le contact', settings.private_contact_url)]);
@@ -72,7 +72,7 @@ function setupStartHandler(bot) {
 
     bot.action('channel_link', async (ctx) => {
         await ctx.answerCbQuery();
-        const settings = await getAppSettings();
+        const settings = ctx.state.settings;
         const buttons = [];
         if (settings.channel_url) {
             buttons.push([Markup.button.url('📢 Rejoindre le canal', settings.channel_url)]);
@@ -278,7 +278,7 @@ function getMainMenuKeyboard(settings, user = null) {
     ];
 
     if (user && user.is_livreur) {
-        buttons.push([Markup.button.callback(`${settings.ui_icon_livreur} ${settings.label_livreur_space}`, 'livreur_menu')]);
+        buttons.push([Markup.button.callback(`${settings.ui_icon_livreur} ${settings.label_livreur}`, 'livreur_menu')]);
     }
 
     // Boutons Admin

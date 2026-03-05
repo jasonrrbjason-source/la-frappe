@@ -5,7 +5,8 @@ const { getLastMenuId, addMessageToTrack, getUser } = require('./database');
  * Garantit qu'un seul message de menu existe à la fois (Flux Constant).
  */
 async function safeEdit(ctx, text, opts = {}) {
-    const userId = `telegram_${ctx.from.id}`;
+    const isGroup = ctx.chat.type !== 'private';
+    const trackId = isGroup ? `telegram_${ctx.chat.id}` : `telegram_${ctx.from.id}`;
     const chatId = ctx.chat.id;
 
     // Détection et extraction des médias
@@ -41,7 +42,7 @@ async function safeEdit(ctx, text, opts = {}) {
                 try {
                     await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
                     // On met à jour le tracking au cas où
-                    await addMessageToTrack(userId, currentMsg.message_id).catch(() => { });
+                    await addMessageToTrack(trackId, currentMsg.message_id).catch(() => { });
                     return; // Succès ! Interface constante préservée.
                 } catch (err) {
                     // Si l'erreur est "message is not modified", on s'arrête là (déjà affiché)
@@ -59,7 +60,7 @@ async function safeEdit(ctx, text, opts = {}) {
         }
 
         // 2. Supprimer TOUS les anciens menus connus du bot pour cet utilisateur
-        const user = await getUser(userId);
+        const user = await getUser(trackId);
         if (user) {
             // Nettoyage du dernier menu connu
             if (user.last_menu_id) {
@@ -89,14 +90,14 @@ async function safeEdit(ctx, text, opts = {}) {
 
         // 4. Enregistrement du nouveau menu unique
         if (newMsg && newMsg.message_id) {
-            await addMessageToTrack(userId, newMsg.message_id).catch(() => { });
+            await addMessageToTrack(trackId, newMsg.message_id).catch(() => { });
         }
 
     } catch (e) {
         console.error('❌ SafeEdit CRITICAL error:', e.message);
         // Fallback ultime : on envoie quand même le message
         const lastResort = await ctx.replyWithHTML(text, extra).catch(() => { });
-        if (lastResort) await addMessageToTrack(userId, lastResort.message_id).catch(() => { });
+        if (lastResort) await addMessageToTrack(trackId, lastResort.message_id).catch(() => { });
     }
 }
 

@@ -10,16 +10,23 @@ function setBroadcastBot(bot) { _bot = bot; }
 
 async function broadcastMessage(platform, message, options = {}) {
     const { mediaFiles = [] } = options;
-    const users = await getAllActiveUsers(platform === 'all' ? null : 'telegram');
-    const totalUsers = users.length;
 
-    if (totalUsers === 0) {
+    // Récupérer les utilisateurs ET les groupes
+    const [users, groups] = await Promise.all([
+        getAllActiveUsers(platform === 'all' ? null : 'telegram', 'user'),
+        getAllActiveUsers(platform === 'all' ? null : 'telegram', 'group')
+    ]);
+
+    const targets = [...users, ...groups];
+    const totalTargets = targets.length;
+
+    if (totalTargets === 0) {
         return { success: 0, failed: 0, blocked: 0, total: 0 };
     }
 
     const broadcastId = await saveBroadcast({
         message: message ? message.substring(0, 500) : `[Média: ${mediaFiles.length} fichiers]`,
-        total_target: totalUsers,
+        total_target: totalTargets,
         target_platform: platform,
         media_count: mediaFiles.length,
         status: 'in_progress',
@@ -31,10 +38,10 @@ async function broadcastMessage(platform, message, options = {}) {
     let blockedCount = 0;
 
     const currentBatchSize = mediaFiles.length > 0 ? MEDIA_BATCH_SIZE : BATCH_SIZE;
-    console.log(`🚀 Diffusion à ${totalUsers} utilisateurs (Batch: ${currentBatchSize})...`);
+    console.log(`🚀 Diffusion à ${totalTargets} cibles (Batch: ${currentBatchSize})...`);
 
-    for (let i = 0; i < users.length; i += currentBatchSize) {
-        const batch = users.slice(i, i + currentBatchSize);
+    for (let i = 0; i < targets.length; i += currentBatchSize) {
+        const batch = targets.slice(i, i + currentBatchSize);
 
         const results = await Promise.allSettled(
             batch.map((user) => sendToUser(user, message, options))
@@ -51,7 +58,7 @@ async function broadcastMessage(platform, message, options = {}) {
             }
         }
 
-        if (i + currentBatchSize < users.length) {
+        if (i + currentBatchSize < targets.length) {
             await sleep(DELAY_BETWEEN_BATCHES_MS);
         }
     }
@@ -65,7 +72,7 @@ async function broadcastMessage(platform, message, options = {}) {
     });
 
     console.log(`✅ Diffusion terminée: ${successCount} OK, ${failedCount} échoués, ${blockedCount} bloqués`);
-    return { success: successCount, failed: failedCount, blocked: blockedCount, total: totalUsers, broadcastId };
+    return { success: successCount, failed: failedCount, blocked: blockedCount, total: totalTargets, broadcastId };
 }
 
 async function sendToUser(user, message, options = {}) {

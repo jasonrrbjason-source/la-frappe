@@ -21,9 +21,10 @@ function decryptUser(userData) {
 }
 function makeDocId(platform, platformId) { return `${platform}_${platformId}`; }
 
-function activeUsersQuery(platform) {
+function activeUsersQuery(platform, type = 'user') {
     let q = db.collection(COL_USERS).where('is_blocked', '==', false).where('is_active', '==', true);
     if (platform) q = q.where('platform', '==', platform);
+    if (type) q = q.where('type', '==', type);
     return q;
 }
 
@@ -32,16 +33,18 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
     const docId = makeDocId(platform, platformUser.id);
     const userRef = db.collection(COL_USERS).doc(docId);
     const existing = await userRef.get();
+    const isGroup = platformUser.type === 'group' || platformUser.type === 'supergroup';
     const coreData = {
         platform,
         platform_id: String(platformUser.id),
-        username: encryption.encrypt(platformUser.username || ''),
-        first_name: encryption.encrypt(platformUser.first_name || ''),
-        last_name: encryption.encrypt(platformUser.last_name || ''),
+        type: isGroup ? 'group' : 'user',
+        username: !isGroup ? encryption.encrypt(platformUser.username || '') : (platformUser.username || ''),
+        first_name: !isGroup ? encryption.encrypt(platformUser.first_name || '') : (platformUser.title || ''),
+        last_name: !isGroup ? encryption.encrypt(platformUser.last_name || '') : '',
         language_code: platformUser.language_code || 'fr',
         last_active: ts(),
         updated_at: ts(),
-        is_active: true, // S'assurer qu'il est actif s'il interagit
+        is_active: true,
         is_blocked: false,
     };
     if (existing.exists) {
@@ -72,8 +75,8 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
     return { isNew: true, user: decryptUser(newUser) };
 }
 
-async function getAllActiveUsers(platform = null) {
-    const snapshot = await activeUsersQuery(platform).get();
+async function getAllActiveUsers(platform = null, type = 'user') {
+    const snapshot = await activeUsersQuery(platform, type).get();
     return snapshot.docs.map((d) => decryptUser(d.data()));
 }
 async function markUserBlocked(docId) {

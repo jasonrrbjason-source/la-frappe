@@ -164,13 +164,8 @@ function createServer() {
 
             if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-            // Utilisation de copyFileSync + unlinkSync pour éviter les problèmes de cross-device link
-            if (file.tempFilePath) {
-                fs.copyFileSync(file.tempFilePath, uploadPath);
-                fs.unlinkSync(file.tempFilePath);
-            } else {
-                fs.writeFileSync(uploadPath, file.data);
-            }
+            // Robust move
+            await file.mv(uploadPath);
 
             if (!fs.existsSync(uploadPath)) {
                 throw new Error("Le fichier n'a pas pu être sauvegardé sur le disque.");
@@ -289,9 +284,13 @@ function createServer() {
             // Extraire les fichiers médias
             const mediaFiles = [];
             if (req.files) {
+                const fs = require('fs');
                 for (let i = 0; i < mediaCount; i++) {
                     const f = req.files[`media_${i}`];
-                    if (f) mediaFiles.push({ data: f.data, mimetype: f.mimetype, name: f.name });
+                    if (f) {
+                        const fileData = f.tempFilePath ? fs.readFileSync(f.tempFilePath) : f.data;
+                        mediaFiles.push({ data: fileData, mimetype: f.mimetype, name: f.name });
+                    }
                 }
             }
 

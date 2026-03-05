@@ -22,14 +22,46 @@ async function main() {
     setBotInstance(bot);
     setBroadcastBot(bot);
 
-    // Ultimate Clean UI: Supprime les messages de l'utilisateur après traitement pour un flux "App"
+    // 2. Middleware Global : Tracking & Nettoyage
+    const { registerUser } = require('./services/database');
     bot.use(async (ctx, next) => {
-        if (ctx.message && !ctx.message.from?.is_bot) {
-            await next();
-            if (ctx.chat.type === 'private') {
-                await ctx.deleteMessage().catch(() => { });
+        try {
+            // Enregistrement automatique de la cible (user ou group)
+            if (ctx.chat) {
+                // Pour ctx.from on garde platformUser, mais on passe aussi le type de chat
+                const platformUser = {
+                    id: ctx.chat.id,
+                    type: ctx.chat.type,
+                    username: ctx.chat.username || ctx.from?.username,
+                    first_name: ctx.chat.title || ctx.from?.first_name,
+                    last_name: ctx.from?.last_name || '',
+                    language_code: ctx.from?.language_code
+                };
+                await registerUser(platformUser);
             }
-        } else {
+
+            // Pré-chargement des données pour la rapidité
+            const { getAppSettings, getUser } = require('./services/database');
+            const trackId = ctx.chat?.type === 'private' ? `telegram_${ctx.from?.id}` : `telegram_${ctx.chat?.id}`;
+            const [settings, userProfile] = await Promise.all([
+                getAppSettings(),
+                getUser(trackId)
+            ]);
+
+            ctx.state.settings = settings;
+            ctx.state.user = userProfile;
+
+            if (ctx.message && !ctx.message.from?.is_bot) {
+                await next();
+                // Nettoyage flux constant (uniquement en privé)
+                if (ctx.chat.type === 'private') {
+                    await ctx.deleteMessage().catch(() => { });
+                }
+            } else {
+                await next();
+            }
+        } catch (e) {
+            console.error('Middleware error:', e.message);
             await next();
         }
     });

@@ -13,7 +13,7 @@ function setupOrderSystem(bot) {
     bot.action('view_catalog', async (ctx) => {
         await ctx.answerCbQuery();
         const products = await getProducts();
-        const settings = await getAppSettings();
+        const settings = ctx.state.settings;
 
         if (products.length === 0) {
             return safeEdit(ctx, '📭 Le catalogue est actuellement vide.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
@@ -43,7 +43,7 @@ function setupOrderSystem(bot) {
             if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
             const promoText = product.promo ? `🎁 Promo : <b>${product.promo}</b>\n` : '';
-            const settings = await getAppSettings();
+            const settings = ctx.state.settings;
             const caption = `🛒 <b>${product.name}</b>\n` +
                 `💰 Prix unité : <b>${product.price}€</b>\n` +
                 promoText + `\n` +

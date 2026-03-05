@@ -420,7 +420,7 @@
                 height: 100%;
                 z-index: 1000;
                 background: var(--bg);
-                transition: left 0.3s ease;
+                transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                 padding-top: 70px;
                 border-right: 1px solid var(--border);
             }
@@ -430,141 +430,72 @@
             }
 
             .main {
-                padding: 70px 12px 24px;
+                padding: 70px 15px 100px;
                 width: 100%;
                 height: 100vh;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
             }
 
-            h1 {
-                font-size: 20px;
-                margin-bottom: 16px;
+            /* Responsive Table -> Cards */
+            .responsive-table thead {
+                display: none;
             }
 
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-                gap: 8px;
-                margin-bottom: 20px;
+            .responsive-table tbody {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 15px;
             }
 
-            .stat-card {
-                padding: 12px 10px;
-                border-radius: 10px;
-            }
-
-            .stat-value {
-                font-size: 20px;
-            }
-
-            .stat-label {
-                font-size: 10px;
-            }
-
-            /* Tables en mode cartes sur mobile */
-            table {
+            .responsive-table tr {
                 display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-                white-space: nowrap;
+                background: #111;
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 15px;
+                margin-bottom: 0;
             }
 
-            th,
-            td {
-                padding: 10px 8px;
-                font-size: 12px;
-            }
-
-            .user-info {
-                gap: 6px;
-            }
-
-            .avatar {
-                width: 26px;
-                height: 26px;
-                font-size: 10px;
-            }
-
-            /* Cards et formulaires */
-            .card {
-                padding: 14px;
-                margin-bottom: 12px;
-                border-radius: 10px;
-            }
-
-            .flex {
-                flex-direction: column;
-                gap: 10px;
-            }
-
-            /* Touch targets min 44px */
-            .btn {
-                padding: 14px 16px;
+            .responsive-table td {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px 0;
+                border: none;
                 font-size: 14px;
-                width: 100%;
-                min-height: 44px;
             }
 
-            .btn-sm {
-                width: auto;
-                padding: 10px 14px;
-                font-size: 12px;
-                min-height: 36px;
+            .responsive-table td::before {
+                content: attr(data-label);
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--text-muted);
+                text-transform: uppercase;
+                margin-right: 15px;
+            }
+
+            .responsive-table td:last-child {
+                border-top: 1px solid var(--border);
+                margin-top: 10px;
+                padding-top: 15px;
+                justify-content: center;
+                width: 100%;
+            }
+
+            .responsive-table td:last-child::before {
+                display: none;
             }
 
             .action-btns {
-                flex-wrap: wrap;
-                gap: 6px;
+                width: 100%;
+                flex-direction: row !important;
+                justify-content: center;
             }
 
-            .action-btns .btn {
-                width: auto;
-            }
-
-            .drop-zone {
-                padding: 20px;
-            }
-
-            input,
-            select,
-            textarea {
-                padding: 14px 12px;
-                font-size: 16px;
-                /* empêche zoom iOS */
-                border-radius: 8px;
-            }
-
-            label {
-                font-size: 12px;
-                margin-bottom: 4px;
-            }
-
-            .section {
-                max-width: 100%;
-            }
-
-            /* Media grid mobile */
-            #bc_media_grid {
-                grid-template-columns: repeat(3, 1fr) !important;
-                gap: 6px !important;
-            }
-
-            /* Chart */
-            canvas {
-                max-height: 220px !important;
-            }
-
-            /* Nav items touch */
-            .nav-item {
-                padding: 14px 20px;
-                font-size: 14px;
-                min-height: 44px;
-            }
-
-            /* Smaller heading */
-            h3 {
-                font-size: 15px;
-                margin-bottom: 12px;
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 10px;
             }
         }
 
@@ -814,7 +745,7 @@
         <section class="section" id="section-users">
             <h1>Utilisateurs</h1>
             <div class="card">
-                <table>
+                <table class="responsive-table">
                     <thead>
                         <tr>
                             <th>Membre</th>
@@ -864,12 +795,12 @@
                     <button class="btn btn-outline" onclick="clearProdForm()">Annuler</button>
                 </div>
                 <div class="col">
-                    <div class="card">
-                        <h3>Inventaire</h3>
-                        <table id="productTable">
+                    <div class="col card" style="flex:2">
+                        <h3>Liste des produits</h3>
+                        <table id="productTable" class="responsive-table">
                             <thead>
                                 <tr>
-                                    <th>Aperçus</th>
+                                    <th>Photo</th>
                                     <th>Nom</th>
                                     <th>Prix</th>
                                     <th>Promo</th>
@@ -887,15 +818,15 @@
         <section class="section" id="section-orders">
             <h1>Commandes</h1>
             <div class="card">
-                <table id="orderTable">
+                <table id="orderTable" class="responsive-table">
                     <thead>
                         <tr>
                             <th>Client</th>
-                            <th>Produit</th>
+                            <th>Détails</th>
                             <th>Total</th>
-                            <th>Adresse</th>
-                            <th>Commandé le</th>
-                            <th>Livré le</th>
+                            <th>Ville</th>
+                            <th>Date</th>
+                            <th>Livré à</th>
                             <th>Statut</th>
                             <th>Action</th>
                         </tr>
@@ -991,6 +922,12 @@
                     <label>URL du Dashboard (pour le bot)</label>
                     <input id="set_dashboard_url" placeholder="https://votre-domaine.com/dashboard">
 
+                    <label style="margin-top:15px; color:var(--success)">Lien Contact Privé (Telegram)</label>
+                    <input id="set_private_contact_url" placeholder="https://t.me/votre_profil">
+
+                    <label style="color:var(--success)">Lien Canal Telegram</label>
+                    <input id="set_channel_url" placeholder="https://t.me/votre_canal">
+
                     <h3 style="margin-top:20px;">Fidélité & Parrainage</h3>
                     <div style="display:flex; gap:10px;">
                         <div style="flex:1;">
@@ -1011,9 +948,16 @@
                     <label>Langues du bot (séparées par des virgules)</label>
                     <input id="set_lang" placeholder="ex: fr, en, es">
 
-                    <h3 style="margin-top:20px;">🎨 Composants UI (Interface du Bot)</h3>
+                    <h3 style="margin-top:20px;">💬 Message de Bienvenue</h3>
+                    <label>Texte de Bienvenue (/start)</label>
+                    <textarea id="set_welcome_msg" style="height:100px;"></textarea>
+
+                    <label>Message de sélection quantité</label>
+                    <input id="set_msg_qty" placeholder="Choisissez la quantité souhaitée :">
+
+                    <h3 style="margin-top:20px;">🎨 Interface du Bot (Boutons & Icônes)</h3>
                     <div
-                        style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                        style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
                         <div>
                             <label>Icône Catalogue</label>
                             <input id="set_ui_icon_catalog" placeholder="🍔">
@@ -1039,6 +983,22 @@
                             <input id="set_label_contact" placeholder="Mon contact privé">
                         </div>
                         <div>
+                            <label>Icône Canal</label>
+                            <input id="set_ui_icon_channel" placeholder="📢">
+                        </div>
+                        <div>
+                            <label>Libellé Canal</label>
+                            <input id="set_label_channel" placeholder="Rejoindre le Canal">
+                        </div>
+                        <div>
+                            <label>Icône Info/Bienvenue</label>
+                            <input id="set_ui_icon_welcome" placeholder="✨">
+                        </div>
+                        <div>
+                            <label>Libellé Info/Bienvenue</label>
+                            <input id="set_label_welcome" placeholder="Infos & Bienvenue">
+                        </div>
+                        <div>
                             <label>Icône Profil</label>
                             <input id="set_ui_icon_profile" placeholder="🎁">
                         </div>
@@ -1046,11 +1006,43 @@
                             <label>Libellé Profil</label>
                             <input id="set_label_profile" placeholder="Mon Profil & Parrainage">
                         </div>
+                        <div>
+                            <label>Icône Espace Livreur</label>
+                            <input id="set_ui_icon_livreur" placeholder="🛵">
+                        </div>
+                        <div>
+                            <label>Libellé Espace Livreur</label>
+                            <input id="set_label_livreur" placeholder="Espace Livreur">
+                        </div>
+                        <div>
+                            <label>Icône Admin Bot</label>
+                            <input id="set_ui_icon_admin" placeholder="⚙️">
+                        </div>
+                        <div>
+                            <label>Libellé Admin Bot</label>
+                            <input id="set_label_admin_bot" placeholder="Gestion Bot">
+                        </div>
+                        <div>
+                            <label>Icône Admin Web</label>
+                            <input id="set_ui_icon_web" placeholder="🌐">
+                        </div>
+                        <div>
+                            <label>Libellé Admin Web</label>
+                            <input id="set_label_admin_web" placeholder="Dashboard Web">
+                        </div>
+                        <div>
+                            <label>Icône Portefeuille</label>
+                            <input id="set_ui_icon_wallet" placeholder="💳">
+                        </div>
+                        <div>
+                            <label>Icône Points</label>
+                            <input id="set_ui_icon_points" placeholder="⭐️">
+                        </div>
                     </div>
 
                     <h3 style="margin-top:20px;">🏷️ Statuts des Commandes</h3>
                     <div
-                        style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                        style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
                         <div>
                             <label>Libellé 'En Attente'</label>
                             <input id="set_status_pending_label" placeholder="EN ATTENTE">
@@ -1064,20 +1056,24 @@
                             <input id="set_status_taken_label" placeholder="PRIS EN CHARGE">
                         </div>
                         <div>
-                            <label>Icône 'Succès / Livré'</label>
-                            <input id="set_ui_icon_success" placeholder="✅">
+                            <label>Icône 'Pris en Charge'</label>
+                            <input id="set_ui_icon_taken" placeholder="🚚">
                         </div>
                         <div>
                             <label>Libellé 'Livrée'</label>
                             <input id="set_status_delivered_label" placeholder="LIVRÉE">
                         </div>
                         <div>
-                            <label>Icône 'Erreur / Annulée'</label>
-                            <input id="set_ui_icon_error" placeholder="❌">
+                            <label>Icône 'Succès / Livré'</label>
+                            <input id="set_ui_icon_success" placeholder="✅">
                         </div>
                         <div>
                             <label>Libellé 'Annulée'</label>
                             <input id="set_status_cancelled_label" placeholder="ANNULÉE">
+                        </div>
+                        <div>
+                            <label>Icône 'Erreur / Annulée'</label>
+                            <input id="set_ui_icon_error" placeholder="❌">
                         </div>
                     </div>
 
@@ -1186,7 +1182,7 @@
                     const users = await api('/users');
                     document.getElementById('userTable').innerHTML = users.map(u => `
                         <tr>
-                            <td>
+                            <td data-label="Membre">
                                 <div class="user-info">
                                     <div class="avatar">${u.first_name ? u.first_name[0] : '?'}</div>
                                     <div>
@@ -1195,9 +1191,9 @@
                                     </div>
                                 </div>
                             </td>
-                            <td><span class="badge" style="background:var(--hover)">${u.referral_count || 0}</span></td>
-                            <td><span class="badge" style="border:1px solid var(--border)">${u.order_count || 0}</span></td>
-                            <td class="action-btns">
+                            <td data-label="Parrainages"><span class="badge" style="background:var(--hover)">${u.referral_count || 0}</span></td>
+                            <td data-label="Commandes"><span class="badge" style="border:1px solid var(--border)">${u.order_count || 0}</span></td>
+                            <td data-label="Actions" class="action-btns">
                                 <button class="btn btn-outline btn-sm" onclick="delUser('${u.doc_id}')">Supprimer</button>
                                 ${u.is_livreur ?
                             `<button class="btn btn-outline btn-sm" onclick="toggleLivreur('${u.platform_id}', '${u.platform}', false)">Retirer Livreur</button>` :
@@ -1223,8 +1219,11 @@
 
                             const isVideo = firstUrl.match(/\.(mp4|webm|mov)(\?.*)?$/i);
                             const isBase64 = firstUrl.startsWith('data:');
-                            const isLocal = firstUrl.startsWith('/public/');
+                            const isLocal = firstUrl.startsWith('/public/') || firstUrl.startsWith('public/');
                             const isHttp = firstUrl.startsWith('http');
+
+                            // Normalisation
+                            if (firstUrl.startsWith('public/')) firstUrl = '/' + firstUrl;
 
                             if (isBase64 || isLocal || isHttp) {
                                 mediaHtml = `
@@ -1246,13 +1245,13 @@
                         const unitLabel = p.unit ? `/${p.unit}` : '';
                         return `
                         <tr data-prod-idx="${idx}" onclick="editProdByIndex(${idx})" style="cursor:pointer">
-                            <td>${mediaHtml}</td>
-                            <td><b>${p.name}</b></td>
-                            <td>${p.price}€${unitLabel}</td>
-                            <td>${p.promo || '-'}</td>
-                            <td class="action-btns">
-                                <button class="btn btn-outline" onclick="event.stopPropagation(); editProdByIndex(${idx})">Edit</button>
-                                <button class="btn btn-danger" onclick="event.stopPropagation(); delProd('${p.id}')">Delete</button>
+                            <td data-label="Photo">${mediaHtml}</td>
+                            <td data-label="Nom"><b>${p.name}</b></td>
+                            <td data-label="Prix">${p.price}€${unitLabel}</td>
+                            <td data-label="Promo">${p.promo || '-'}</td>
+                            <td data-label="Actions" class="action-btns">
+                                <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); editProdByIndex(${idx})">Edit</button>
+                                <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); delProd('${p.id}')">Delete</button>
                             </td>
                         </tr>
                     `;
@@ -1282,14 +1281,14 @@
 
                         return `
                         <tr>
-                            <td><b>${o.first_name}</b></td>
-                            <td>${o.product_name} (x${o.quantity})</td>
-                            <td><b>${o.total_price}€</b></td>
-                            <td><small>${o.city || '—'}</small></td>
-                            <td><small>🕐 ${createdTime}</small></td>
-                            <td><small>${o.status === 'delivered' ? '✅ ' + deliveredTime : '—'}</small></td>
-                            <td><span class="badge badge-${o.status}">${label}</span></td>
-                            <td>
+                            <td data-label="Client"><b>${o.first_name}</b></td>
+                            <td data-label="Détails">${o.product_name} (x${o.quantity})</td>
+                            <td data-label="Total"><b>${o.total_price}€</b></td>
+                            <td data-label="Ville"><small>${o.city || '—'}</small></td>
+                            <td data-label="Date"><small>🕐 ${createdTime}</small></td>
+                            <td data-label="Livré à"><small>${o.status === 'delivered' ? '✅ ' + deliveredTime : '—'}</small></td>
+                            <td data-label="Statut"><span class="badge badge-${o.status}">${label}</span></td>
+                            <td data-label="Action">
                                 <select onchange="updateOrderStatus('${o.id}', this.value)" style="margin:0; padding:4px; font-size:11px;">
                                     <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>${s.status_pending_label || 'EN ATTENTE'}</option>
                                     <option value="taken" ${o.status === 'taken' ? 'selected' : ''}>${s.status_taken_label || 'PRIS EN CHARGE'}</option>
@@ -1298,7 +1297,8 @@
                                 </select>
                             </td>
                         </tr>
-                    `}).join('');
+                    `
+                    }).join('');
                 }
                 if (id === 'livreurs') {
                     try {
@@ -1309,7 +1309,7 @@
                         } else {
                             tbody.innerHTML = livreurs.map(l => `
                                 <tr style="border-bottom:1px solid var(--border)">
-                                    <td style="padding:12px">
+                                    <td data-label="Livreur">
                                         <div style="display:flex;align-items:center;gap:10px">
                                             <div class="avatar">${l.first_name ? l.first_name[0].toUpperCase() : '?'}</div>
                                             <div>
@@ -1318,13 +1318,13 @@
                                             </div>
                                         </div>
                                     </td>
-                                    <td style="padding:12px">
+                                    <td data-label="Status">
                                         <span class="badge" style="background:${l.is_available ? '#1a3a1a' : '#3a1a1a'};color:${l.is_available ? '#4caf50' : '#f44336'}">
                                             ${l.is_available ? '✅ Disponible' : '⛔ Indisponible'}
                                         </span>
                                     </td>
-                                    <td style="padding:12px">${l.current_city ? l.current_city.toUpperCase() : '—'}</td>
-                                    <td style="padding:12px" class="action-btns">
+                                    <td data-label="Ville/Secteur">${l.current_city ? l.current_city.toUpperCase() : '—'}</td>
+                                    <td data-label="Actions" class="action-btns">
                                         <button class="btn btn-danger btn-sm" onclick="toggleLivreur('${l.platform_id}', '${l.platform}', false);loadData('livreurs')">Retirer</button>
                                     </td>
                                 </tr>
@@ -1374,6 +1374,8 @@
                     document.getElementById('set_admin_tg_id').value = s.admin_telegram_id || '';
                     document.getElementById('set_current_password').value = s.admin_password || '';
                     document.getElementById('set_dashboard_url').value = s.dashboard_url || '';
+                    document.getElementById('set_private_contact_url').value = s.private_contact_url || '';
+                    document.getElementById('set_channel_url').value = s.channel_url || '';
                     document.getElementById('set_pts_ratio').value = s.points_ratio || 1;
                     document.getElementById('set_pts_exchange').value = s.points_exchange || 10;
                     document.getElementById('set_ref_bonus').value = s.ref_bonus || 5;
@@ -1388,6 +1390,31 @@
                     document.getElementById('set_label_contact').value = s.label_contact || 'Mon contact privé';
                     document.getElementById('set_ui_icon_profile').value = s.ui_icon_profile || '🎁';
                     document.getElementById('set_label_profile').value = s.label_profile || 'Mon Profil & Parrainage';
+
+                    // Nouveaux champs
+                    document.getElementById('set_welcome_msg').value = s.welcome_message || '';
+                    document.getElementById('set_msg_qty').value = s.msg_choose_qty || 'Choisissez la quantité souhaitée :';
+                    document.getElementById('set_ui_icon_livreur').value = s.ui_icon_livreur || '🛵';
+                    document.getElementById('set_label_livreur').value = s.label_livreur || 'Espace Livreur';
+                    document.getElementById('set_ui_icon_admin').value = s.ui_icon_admin || '⚙️';
+                    document.getElementById('set_label_admin_bot').value = s.label_admin_bot || 'Gestion Bot';
+                    document.getElementById('set_ui_icon_web').value = s.ui_icon_web || '🌐';
+                    document.getElementById('set_label_admin_web').value = s.label_admin_web || 'Dashboard Web';
+                    document.getElementById('set_ui_icon_wallet').value = s.ui_icon_wallet || '💳';
+                    document.getElementById('set_ui_icon_points').value = s.ui_icon_points || '⭐️';
+                    document.getElementById('set_ui_icon_channel').value = s.ui_icon_channel || '📢';
+                    document.getElementById('set_label_channel').value = s.label_channel || 'Rejoindre le Canal';
+                    document.getElementById('set_ui_icon_welcome').value = s.ui_icon_welcome || '✨';
+                    document.getElementById('set_label_welcome').value = s.label_welcome || 'Infos & Bienvenue';
+
+                    document.getElementById('set_status_pending_label').value = s.status_pending_label || 'EN ATTENTE';
+                    document.getElementById('set_ui_icon_pending').value = s.ui_icon_pending || '⏳';
+                    document.getElementById('set_status_taken_label').value = s.status_taken_label || 'PRIS EN CHARGE';
+                    document.getElementById('set_ui_icon_taken').value = s.ui_icon_taken || '🚚';
+                    document.getElementById('set_status_delivered_label').value = s.status_delivered_label || 'LIVRÉE';
+                    document.getElementById('set_ui_icon_success').value = s.ui_icon_success || '✅';
+                    document.getElementById('set_status_cancelled_label').value = s.status_cancelled_label || 'ANNULÉE';
+                    document.getElementById('set_ui_icon_error').value = s.ui_icon_error || '❌';
 
                     document.getElementById('set_status_pending_label').value = s.status_pending_label || 'EN ATTENTE';
                     document.getElementById('set_ui_icon_pending').value = s.ui_icon_pending || '⏳';
@@ -1734,6 +1761,8 @@
                 accent_color: document.getElementById('set_color').value,
                 admin_telegram_id: document.getElementById('set_admin_tg_id').value,
                 dashboard_url: document.getElementById('set_dashboard_url').value,
+                channel_url: document.getElementById('set_channel_url').value,
+                private_contact_url: document.getElementById('set_private_contact_url').value,
                 admin_password: document.getElementById('set_current_password').value,
                 points_ratio: parseFloat(document.getElementById('set_pts_ratio').value) || 1,
                 points_exchange: parseFloat(document.getElementById('set_pts_exchange').value) || 10,
@@ -1750,13 +1779,29 @@
                 ui_icon_profile: document.getElementById('set_ui_icon_profile').value,
                 label_profile: document.getElementById('set_label_profile').value,
 
+                welcome_message: document.getElementById('set_welcome_msg').value,
+                msg_choose_qty: document.getElementById('set_msg_qty').value,
+                ui_icon_livreur: document.getElementById('set_ui_icon_livreur').value,
+                label_livreur: document.getElementById('set_label_livreur').value,
+                ui_icon_admin: document.getElementById('set_ui_icon_admin').value,
+                label_admin_bot: document.getElementById('set_label_admin_bot').value,
+                ui_icon_web: document.getElementById('set_ui_icon_web').value,
+                label_admin_web: document.getElementById('set_label_admin_web').value,
+                ui_icon_wallet: document.getElementById('set_ui_icon_wallet').value,
+                ui_icon_points: document.getElementById('set_ui_icon_points').value,
+                ui_icon_channel: document.getElementById('set_ui_icon_channel').value,
+                label_channel: document.getElementById('set_label_channel').value,
+                ui_icon_welcome: document.getElementById('set_ui_icon_welcome').value,
+                label_welcome: document.getElementById('set_label_welcome').value,
+
                 status_pending_label: document.getElementById('set_status_pending_label').value,
                 ui_icon_pending: document.getElementById('set_ui_icon_pending').value,
                 status_taken_label: document.getElementById('set_status_taken_label').value,
-                ui_icon_success: document.getElementById('set_ui_icon_success').value,
+                ui_icon_taken: document.getElementById('set_ui_icon_taken').value,
                 status_delivered_label: document.getElementById('set_status_delivered_label').value,
-                ui_icon_error: document.getElementById('set_ui_icon_error').value,
-                status_cancelled_label: document.getElementById('set_status_cancelled_label').value
+                ui_icon_success: document.getElementById('set_ui_icon_success').value,
+                status_cancelled_label: document.getElementById('set_status_cancelled_label').value,
+                ui_icon_error: document.getElementById('set_ui_icon_error').value
             });
             showToast('✅ Paramètres sauvegardés !', 'success');
             location.reload();

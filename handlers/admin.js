@@ -11,8 +11,8 @@ require('dotenv').config();
 const authenticatedAdmins = new Set();
 
 async function isAdmin(ctx) {
-    const settings = await getAppSettings();
-    if (!settings.admin_telegram_id) return false;
+    const settings = ctx.state.settings;
+    if (!settings || !settings.admin_telegram_id) return false;
     const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
     return adminIds.includes(String(ctx.from.id));
 }
@@ -20,7 +20,7 @@ async function isAdmin(ctx) {
 const pendingAdminLogins = new Set();
 
 async function handleAdminLogin(ctx, password) {
-    const settings = await getAppSettings();
+    const settings = ctx.state.settings;
     if (password === settings.admin_password) {
         authenticatedAdmins.add(ctx.from.id);
         return showAdminMenu(ctx);

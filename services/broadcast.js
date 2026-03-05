@@ -73,14 +73,28 @@ async function sendToUser(user, message, options = {}) {
     }
 
     const chatId = user.platform_id;
-    const { media_url, media_type } = options;
+    const { mediaFiles = [] } = options;
 
     try {
-        if (media_url) {
-            if (media_type === 'video') {
-                await _bot.telegram.sendVideo(chatId, media_url, { caption: message, parse_mode: 'HTML' });
+        if (mediaFiles.length > 1) {
+            // Envoi en groupe de médias (max 10)
+            const mediaGroup = mediaFiles.slice(0, 10).map((f, i) => {
+                const isVideo = f.mimetype.startsWith('video');
+                return {
+                    type: isVideo ? 'video' : 'photo',
+                    media: { source: Buffer.from(f.data) },
+                    ...(i === 0 && message ? { caption: message, parse_mode: 'HTML' } : {})
+                };
+            });
+            await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
+        } else if (mediaFiles.length === 1) {
+            const f = mediaFiles[0];
+            const isVideo = f.mimetype.startsWith('video');
+            const source = { source: Buffer.from(f.data) };
+            if (isVideo) {
+                await _bot.telegram.sendVideo(chatId, source, { caption: message, parse_mode: 'HTML' });
             } else {
-                await _bot.telegram.sendPhoto(chatId, media_url, { caption: message, parse_mode: 'HTML' });
+                await _bot.telegram.sendPhoto(chatId, source, { caption: message, parse_mode: 'HTML' });
             }
         } else {
             await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
@@ -91,6 +105,7 @@ async function sendToUser(user, message, options = {}) {
             await markUserBlocked(user.doc_id);
             return { success: false, blocked: true, error: error.message };
         }
+        console.error(`Broadcast to ${chatId} error:`, error.message);
         return { success: false, error: error.message };
     }
 }

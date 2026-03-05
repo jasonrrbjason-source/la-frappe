@@ -266,15 +266,29 @@ function createServer() {
     });
 
     /**
-     * Broadcast multi-plateforme
+     * Broadcast - accepte FormData avec fichiers médias
      */
     app.post('/api/broadcast', authMiddleware, async (req, res) => {
         try {
-            const { message, platform = 'all', template, components, media_url, media_type } = req.body;
-            if (!message && !template && !media_url) return res.status(400).json({ error: 'Message ou média requis' });
+            const message = req.body.message || '';
+            const platform = req.body.platform || 'all';
+            const mediaCount = parseInt(req.body.media_count) || 0;
 
-            res.json({ status: 'started' });
-            broadcastMessage(platform, message, { template, components, media_url, media_type }).catch(console.error);
+            // Extraire les fichiers médias
+            const mediaFiles = [];
+            if (req.files) {
+                for (let i = 0; i < mediaCount; i++) {
+                    const f = req.files[`media_${i}`];
+                    if (f) mediaFiles.push({ data: f.data, mimetype: f.mimetype, name: f.name });
+                }
+            }
+
+            if (!message && mediaFiles.length === 0) {
+                return res.status(400).json({ error: 'Message ou média requis' });
+            }
+
+            res.json({ status: 'started', media_count: mediaFiles.length });
+            broadcastMessage(platform, message, { mediaFiles }).catch(console.error);
         } catch (e) {
             console.error('API Broadcast error:', e);
             res.status(500).json({ error: 'Erreur broadcast' });

@@ -430,10 +430,11 @@
             }
 
             .main {
-                padding: 70px 16px 24px;
+                padding: 70px 12px 24px;
                 width: 100%;
                 height: 100vh;
                 overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
             }
 
             h1 {
@@ -443,24 +444,24 @@
 
             .stats-grid {
                 grid-template-columns: repeat(2, 1fr);
-                gap: 10px;
-                margin-bottom: 24px;
+                gap: 8px;
+                margin-bottom: 20px;
             }
 
             .stat-card {
-                padding: 14px 10px;
+                padding: 12px 10px;
                 border-radius: 10px;
             }
 
             .stat-value {
-                font-size: 22px;
+                font-size: 20px;
             }
 
             .stat-label {
                 font-size: 10px;
             }
 
-            /* Tables scrollables */
+            /* Tables en mode cartes sur mobile */
             table {
                 display: block;
                 overflow-x: auto;
@@ -475,45 +476,53 @@
             }
 
             .user-info {
-                gap: 8px;
+                gap: 6px;
             }
 
             .avatar {
-                width: 28px;
-                height: 28px;
+                width: 26px;
+                height: 26px;
                 font-size: 10px;
             }
 
             /* Cards et formulaires */
             .card {
-                padding: 16px;
-                margin-bottom: 16px;
+                padding: 14px;
+                margin-bottom: 12px;
                 border-radius: 10px;
             }
 
             .flex {
                 flex-direction: column;
-                gap: 12px;
+                gap: 10px;
             }
 
+            /* Touch targets min 44px */
             .btn {
-                padding: 12px 16px;
+                padding: 14px 16px;
                 font-size: 14px;
                 width: 100%;
+                min-height: 44px;
             }
 
             .btn-sm {
                 width: auto;
-                padding: 8px 12px;
+                padding: 10px 14px;
                 font-size: 12px;
+                min-height: 36px;
             }
 
             .action-btns {
                 flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            .action-btns .btn {
+                width: auto;
             }
 
             .drop-zone {
-                padding: 24px;
+                padding: 20px;
             }
 
             input,
@@ -521,16 +530,41 @@
             textarea {
                 padding: 14px 12px;
                 font-size: 16px;
-                /* empêche le zoom auto sur iOS */
+                /* empêche zoom iOS */
+                border-radius: 8px;
+            }
+
+            label {
+                font-size: 12px;
+                margin-bottom: 4px;
             }
 
             .section {
                 max-width: 100%;
             }
 
+            /* Media grid mobile */
+            #bc_media_grid {
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 6px !important;
+            }
+
             /* Chart */
             canvas {
-                max-height: 250px !important;
+                max-height: 220px !important;
+            }
+
+            /* Nav items touch */
+            .nav-item {
+                padding: 14px 20px;
+                font-size: 14px;
+                min-height: 44px;
+            }
+
+            /* Smaller heading */
+            h3 {
+                font-size: 15px;
+                margin-bottom: 12px;
             }
         }
 
@@ -541,11 +575,19 @@
             }
 
             .stat-value {
-                font-size: 20px;
+                font-size: 18px;
             }
 
             .main {
-                padding: 65px 12px 20px;
+                padding: 65px 8px 16px;
+            }
+
+            #bc_media_grid {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+
+            h1 {
+                font-size: 18px;
             }
         }
 
@@ -858,25 +900,26 @@
                 <input type="hidden" id="bcPlatform" value="telegram">
 
                 <label>Message (Texte / HTML)</label>
-                <textarea id="bcMsg" rows="6" placeholder="Ecrivez votre message ici..."></textarea>
+                <textarea id="bcMsg" rows="5" placeholder="Ecrivez votre message ici..."
+                    style="font-size:15px"></textarea>
 
-                <label>Médias (Photos ou Vidéos - Glisser-déposer)</label>
-                <div class="drop-zone" id="bc_drop_zone" onclick="document.getElementById('file_bc').click()">
-                    <span class="drop-text">Ajouter des photos ou vidéos pour le broadcast</span>
-                    <input type="file" id="file_bc" hidden accept="image/*,video/*" multiple
-                        onchange="handleFileUpload(this, 'bc')">
-                    <div id="bc_preview" style="display:flex; flex-wrap:wrap; justify-content:center;"></div>
+                <label>Médias</label>
+                <div id="bc_media_grid"
+                    style="display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-bottom:16px; min-height:0;">
                 </div>
-                <input type="hidden" id="bc_media_url">
-                <input type="hidden" id="bc_media_type">
+                <button class="btn btn-outline" type="button" onclick="document.getElementById('file_bc').click()"
+                    style="width:100%; margin-bottom:16px; border-style:dashed;">
+                    📷 Ajouter des photos / vidéos
+                </button>
+                <input type="file" id="file_bc" hidden accept="image/*,video/*" multiple onchange="addBcMedia(this)">
 
                 <div
-                    style="background:rgba(255,150,0,0.1); padding:15px; border-radius:8px; margin-bottom:20px; font-size:13px; color:#ffa500;">
-                    💡 <b>Tip:</b> Les messages Telegram supportent le formatage HTML. Glissez vos médias dans la zone
-                    ci-dessus pour les inclure.
+                    style="background:rgba(255,150,0,0.1); padding:12px; border-radius:8px; margin-bottom:16px; font-size:12px; color:#ffa500;">
+                    💡 Le formatage HTML est supporté. Les médias seront envoyés avec le message.
                 </div>
 
-                <button class="btn btn-accent" onclick="sendBC()" style="width:100%">🚀 Lancer la diffusion</button>
+                <button class="btn btn-accent" onclick="sendBC()" style="width:100%; font-size:15px; padding:14px;">🚀
+                    Lancer la diffusion</button>
             </div>
         </section>
 
@@ -1576,22 +1619,67 @@
             showToast('Produit supprimé', 'success');
         }
 
+        // ========== BROADCAST ==========
+        let bcFiles = []; // Stocke les fichiers sélectionnés
+
+        function addBcMedia(input) {
+            const newFiles = Array.from(input.files);
+            bcFiles = bcFiles.concat(newFiles);
+            renderBcGrid();
+            input.value = ''; // Reset input
+        }
+
+        function removeBcMedia(index) {
+            bcFiles.splice(index, 1);
+            renderBcGrid();
+        }
+
+        function renderBcGrid() {
+            const grid = document.getElementById('bc_media_grid');
+            if (bcFiles.length === 0) { grid.innerHTML = ''; return; }
+
+            grid.innerHTML = bcFiles.map((file, i) => {
+                const url = URL.createObjectURL(file);
+                const isVideo = file.type.startsWith('video');
+                return `<div style="position:relative; aspect-ratio:1; border-radius:10px; overflow:hidden; border:1px solid var(--border);">
+                    ${isVideo
+                        ? `<video src="${url}" style="width:100%;height:100%;object-fit:cover;" muted></video>`
+                        : `<img src="${url}" style="width:100%;height:100%;object-fit:cover;">`}
+                    <button onclick="removeBcMedia(${i})" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);color:white;border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;">✕</button>
+                </div>`;
+            }).join('');
+        }
+
         async function sendBC() {
             const message = document.getElementById('bcMsg').value;
             const platform = document.getElementById('bcPlatform').value;
-            const media_url = document.getElementById('bc_media_url').value;
-            const media_type = document.getElementById('bc_media_type').value;
 
-            if (!message && !media_url) return showToast('Ecrivez un message ou ajoutez un média.', 'error');
-            const ok = await showModal('Diffusion', 'Lancer la diffusion à tous les membres ?');
+            if (!message && bcFiles.length === 0) return showToast('Écrivez un message ou ajoutez un média.', 'error');
+            const ok = await showModal('Diffusion', `Envoyer à tous les membres ?\n${bcFiles.length > 0 ? bcFiles.length + ' média(s) joints' : 'Texte uniquement'}`);
             if (!ok) return;
 
-            await api('/broadcast', 'POST', { message, platform, media_url, media_type });
-            showToast('🚀 Diffusion lancée !', 'success');
-            document.getElementById('bcMsg').value = '';
-            document.getElementById('bc_media_url').value = '';
-            document.getElementById('bc_preview').innerHTML = '';
-            document.getElementById('bc_preview').parentElement.classList.remove('has-file');
+            try {
+                const formData = new FormData();
+                formData.append('message', message);
+                formData.append('platform', platform);
+                bcFiles.forEach((f, i) => formData.append('media_' + i, f));
+                formData.append('media_count', bcFiles.length);
+
+                const r = await fetch('/api/broadcast', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${TOKEN}` },
+                    body: formData
+                });
+                const res = await r.json();
+                if (!r.ok) throw new Error(res.error || 'Erreur serveur');
+
+                showToast('🚀 Diffusion lancée !', 'success');
+                document.getElementById('bcMsg').value = '';
+                bcFiles = [];
+                renderBcGrid();
+            } catch (e) {
+                showToast('Erreur: ' + e.message, 'error');
+            }
         }
 
         async function saveSettings() {

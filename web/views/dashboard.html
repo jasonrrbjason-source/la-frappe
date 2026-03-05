@@ -1223,7 +1223,10 @@
 
                             const isVideo = firstUrl.match(/\.(mp4|webm|mov)(\?.*)?$/i);
                             const isBase64 = firstUrl.startsWith('data:');
-                            if (isBase64 || firstUrl.startsWith('http')) {
+                            const isLocal = firstUrl.startsWith('/public/');
+                            const isHttp = firstUrl.startsWith('http');
+
+                            if (isBase64 || isLocal || isHttp) {
                                 mediaHtml = `
                                     <div style="position:relative; width:45px; height:45px;">
                                         ${isVideo ?

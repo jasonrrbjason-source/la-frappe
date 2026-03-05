@@ -1,14 +1,15 @@
 const { getAllActiveUsers, saveBroadcast, updateBroadcast, markUserBlocked } = require('./database');
 
 const BATCH_SIZE = 25;
-const DELAY_BETWEEN_BATCHES_MS = 1100;
+const MEDIA_BATCH_SIZE = 5;
+const DELAY_BETWEEN_BATCHES_MS = 1200;
 
 // Référence au bot Telegram (sera définie par server.js)
 let _bot = null;
 function setBroadcastBot(bot) { _bot = bot; }
 
 async function broadcastMessage(platform, message, options = {}) {
-    const { media_url, media_type } = options;
+    const { mediaFiles = [] } = options;
     const users = await getAllActiveUsers(platform === 'all' ? null : 'telegram');
     const totalUsers = users.length;
 
@@ -17,11 +18,10 @@ async function broadcastMessage(platform, message, options = {}) {
     }
 
     const broadcastId = await saveBroadcast({
-        message: message ? message.substring(0, 500) : `[Media: ${media_type || 'photo'}]`,
+        message: message ? message.substring(0, 500) : `[Média: ${mediaFiles.length} fichiers]`,
         total_target: totalUsers,
         target_platform: platform,
-        media_url: media_url || null,
-        media_type: media_type || null,
+        media_count: mediaFiles.length,
         status: 'in_progress',
         success: 0, failed: 0, blocked: 0,
     });
@@ -30,10 +30,11 @@ async function broadcastMessage(platform, message, options = {}) {
     let failedCount = 0;
     let blockedCount = 0;
 
-    console.log(`🚀 Diffusion à ${totalUsers} utilisateurs...`);
+    const currentBatchSize = mediaFiles.length > 0 ? MEDIA_BATCH_SIZE : BATCH_SIZE;
+    console.log(`🚀 Diffusion à ${totalUsers} utilisateurs (Batch: ${currentBatchSize})...`);
 
-    for (let i = 0; i < users.length; i += BATCH_SIZE) {
-        const batch = users.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < users.length; i += currentBatchSize) {
+        const batch = users.slice(i, i + currentBatchSize);
 
         const results = await Promise.allSettled(
             batch.map((user) => sendToUser(user, message, options))
@@ -50,7 +51,7 @@ async function broadcastMessage(platform, message, options = {}) {
             }
         }
 
-        if (i + BATCH_SIZE < users.length) {
+        if (i + currentBatchSize < users.length) {
             await sleep(DELAY_BETWEEN_BATCHES_MS);
         }
     }
@@ -75,6 +76,9 @@ async function sendToUser(user, message, options = {}) {
     const chatId = user.platform_id;
     const { mediaFiles = [] } = options;
 
+    // Telegram caption limit: 1024 chars. Truncate if needed to avoid error.
+    const caption = message ? (message.length > 1024 ? message.substring(0, 1021) + '...' : message) : '';
+
     try {
         if (mediaFiles.length > 1) {
             // Envoi en groupe de médias (max 10)
@@ -83,7 +87,7 @@ async function sendToUser(user, message, options = {}) {
                 return {
                     type: isVideo ? 'video' : 'photo',
                     media: { source: Buffer.from(f.data) },
-                    ...(i === 0 && message ? { caption: message, parse_mode: 'HTML' } : {})
+                    ...(i === 0 && caption ? { caption: caption, parse_mode: 'HTML' } : {})
                 };
             });
             await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
@@ -92,9 +96,9 @@ async function sendToUser(user, message, options = {}) {
             const isVideo = f.mimetype.startsWith('video');
             const source = { source: Buffer.from(f.data) };
             if (isVideo) {
-                await _bot.telegram.sendVideo(chatId, source, { caption: message, parse_mode: 'HTML' });
+                await _bot.telegram.sendVideo(chatId, source, { caption: caption, parse_mode: 'HTML' });
             } else {
-                await _bot.telegram.sendPhoto(chatId, source, { caption: message, parse_mode: 'HTML' });
+                await _bot.telegram.sendPhoto(chatId, source, { caption: caption, parse_mode: 'HTML' });
             }
         } else {
             await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });

@@ -24,8 +24,8 @@ function createServer() {
     const app = express();
 
     app.use(cors());
-    app.use(express.json({ limit: '10mb' }));
-    app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+    app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '50mb' }));
     app.use(fileUpload({
         limits: { fileSize: 50 * 1024 * 1024 },
         useTempFiles: true,
@@ -151,20 +151,21 @@ function createServer() {
     // ========== Upload Routes ==========
     app.post('/api/upload', authMiddleware, async (req, res) => {
         try {
-            if (!req.files || Object.keys(req.files).length === 0) {
+            if (!req.files || !req.files.file) {
                 return res.status(400).json({ error: 'Aucun fichier téléchargé' });
             }
 
             const file = req.files.file;
+            const fs = require('fs');
+            const ext = path.extname(file.name) || (file.mimetype.includes('video') ? '.mp4' : '.jpg');
+            const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+            const dir = path.join(__dirname, 'web', 'public', 'uploads');
+            const uploadPath = path.join(dir, fileName);
 
-            // Limiter la taille à 5MB
-            if (file.size > 5 * 1024 * 1024) {
-                return res.status(400).json({ error: 'Fichier trop volumineux (max 5MB)' });
-            }
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-            // Convertir en Data URL (base64)
-            const base64 = file.data.toString('base64');
-            const url = `data:${file.mimetype};base64,${base64}`;
+            await file.mv(uploadPath);
+            const url = `/public/uploads/${fileName}`;
 
             res.json({ success: true, url });
         } catch (e) {

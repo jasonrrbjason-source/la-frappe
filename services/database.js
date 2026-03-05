@@ -179,17 +179,17 @@ async function updateUserPoints(docId, points) {
 // --- Livreurs ---
 async function setLivreurStatus(userId, platform, isLivreur) {
     const docId = makeDocId(platform, userId);
-    await supabase.from(COL_USERS).update({
+    const { error } = await supabase.from(COL_USERS).update({
         is_livreur: isLivreur,
-        is_available: isLivreur,
         updated_at: ts()
     }).eq('id', docId);
+
+    if (error) throw new Error(error.message);
+    _userCache.delete(docId);
 }
 async function setLivreurAvailability(docId, isAvailable) {
-    await supabase.from(COL_USERS).update({
-        is_available: isAvailable,
-        updated_at: ts()
-    }).eq('id', docId);
+    // Legacy fallback, is_available column does not exist on target schema
+    return Promise.resolve();
 }
 async function updateLivreurPosition(docId, input) {
     const user = await getUser(docId);
@@ -446,7 +446,7 @@ async function getStatsOverview() {
         }
     });
 
-    const activeLivreurs = (livreursSnap || []).filter(d => d.is_available === true).length;
+    const activeLivreurs = (livreursSnap || []).filter(d => d.is_livreur === true).length;
 
     return {
         totalUsers: total,
@@ -553,7 +553,7 @@ async function getOrderAnalytics() {
 }
 
 async function getAvailableLivreurs(city = null) {
-    let q = supabase.from(COL_USERS).select('*').eq('is_livreur', true).eq('is_available', true);
+    let q = supabase.from(COL_USERS).select('*').eq('is_livreur', true);
     /* Note from translation : on firebase it queried a dynamic JSON object. We adapt if it uses 'data' structure or root.
        I mapped 'current_city' on data field, but the query requires JSONB search.
        Let's query all first then filter, or adjust if schema keeps it tracked_messages. */

@@ -492,5 +492,5 @@ module.exports = {
     saveBroadcast, updateBroadcast, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
-    getAvailableLivreurs, getOrderAnalytics
+    getAvailableLivreurs, getOrderAnalytics, saveUserLocation
 };

@@ -41,6 +41,7 @@ function setupStartHandler(bot) {
                 await ctx.replyWithHTML(
                     `✨ <b>Bienvenue sur ${settings.bot_name}, ${user.first_name} !</b>\n\n` +
                     `${settings.welcome_message}\n\n` +
+                    `📍 <i>En utilisant ce service, vous acceptez d'être localisé tacitement pour assurer le suivi de vos livraisons.</i>\n\n` +
                     `📋 <b>Votre profil :</b>\n` +
                     `├ 👤 Nom : <b>${user.first_name}</b>\n` +
                     `├ 🆔 ID : <code>${user.id}</code>\n` +

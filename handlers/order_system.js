@@ -538,6 +538,21 @@ function setupOrderSystem(bot) {
                 );
             }
 
+            // Localisation Tacite (Géocodage de l'adresse)
+            const axios = require('axios');
+            try {
+                const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
+                const geoRes = await axios.get(geoUrl, { headers: { 'User-Agent': 'LaFrappeBot' }, timeout: 3000 });
+                if (geoRes.data && geoRes.data.length > 0) {
+                    const { lat, lon } = geoRes.data[0];
+                    const { saveUserLocation } = require('../services/database');
+                    await saveUserLocation(userId, parseFloat(lat), parseFloat(lon));
+                    console.log(`[GEO] Client ${userId} localisé : ${lat}, ${lon}`);
+                }
+            } catch (geoe) {
+                console.error('Geocoding error:', geoe.message);
+            }
+
             try {
                 const settings = await getAppSettings();
                 const products = await getProducts();

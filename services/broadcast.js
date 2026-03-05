@@ -71,8 +71,31 @@ async function broadcastMessage(platform, message, options = {}) {
 
     const currentBatchSize = unifiedMediaList.length > 0 ? MEDIA_BATCH_SIZE : TEXT_BATCH_SIZE;
 
-    for (let i = 0; i < targets.length; i += currentBatchSize) {
-        const batch = targets.slice(i, i + currentBatchSize);
+    let targetsToProcess = [...targets];
+
+    // Seed Telegram file_ids by sending to the first user synchronously.
+    // This allows subsequent batch sends to use file_ids (CDN pointers) instead of uploading massive buffers, avoiding memory and network crashes.
+    if (unifiedMediaList.length > 0 && targetsToProcess.length > 0) {
+        debugLog("[BC-SEED] Initializing file_id caching with first user...");
+        let seederSuccess = false;
+        while (targetsToProcess.length > 0 && !seederSuccess) {
+            const seedUser = targetsToProcess.shift();
+            const res = await sendToUser(seedUser, message, unifiedMediaList);
+            if (res.success) {
+                successCount++;
+                seederSuccess = true;
+                debugLog("[BC-SEED] Cached Telegram file_ids successfully.");
+            } else {
+                if (res.blocked) blockedCount++;
+                else failedCount++;
+            }
+            await new Promise(r => setTimeout(r, 500));
+        }
+    }
+
+    // Now loop through remaining targets
+    for (let i = 0; i < targetsToProcess.length; i += currentBatchSize) {
+        const batch = targetsToProcess.slice(i, i + currentBatchSize);
         debugLog(`[BC-BATCH] Lot ${Math.floor(i / currentBatchSize) + 1} (${batch.length} cibles)`);
 
         const results = await Promise.allSettled(
@@ -120,25 +143,54 @@ async function sendToUser(user, message, unifiedMediaList = []) {
     }
 
     const chatId = user.platform_id;
-    // Telegram caption limit is 1024 chars.
     const caption = message ? (message.length > 1020 ? message.substring(0, 1017) + '...' : message) : '';
 
     try {
         if (unifiedMediaList.length > 1) {
-            const mediaGroup = unifiedMediaList.slice(0, 10).map((m, i) => ({
-                type: m.type,
-                media: m.url || m.source,
-                ...(i === 0 && caption ? { caption: caption, parse_mode: 'HTML' } : {})
-            }));
-            debugLog(`[BC-SEND] MediaGroup (${mediaGroup.length}) CDN Stream -> ${chatId}`);
-            await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
+            const mediaGroup = unifiedMediaList.slice(0, 10).map((m, i) => {
+                let mediaObj = m.file_id;
+                if (!mediaObj) {
+                    if (m.source) {
+                        // Pass buffer correctly to Telegraf
+                        mediaObj = { source: m.source, filename: m.filename || 'media.mp4' };
+                    } else if (m.url) {
+                        mediaObj = m.url;
+                    }
+                }
+                return {
+                    type: m.type,
+                    media: mediaObj,
+                    ...(i === 0 && caption ? { caption: caption, parse_mode: 'HTML' } : {})
+                };
+            });
+
+            debugLog(`[BC-SEND] MediaGroup (${mediaGroup.length}) -> ${chatId}`);
+            const msgs = await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
+
+            // Cache file_ids
+            msgs.forEach((msg, i) => {
+                if (!unifiedMediaList[i].file_id) {
+                    let fId = null;
+                    if (msg.photo && msg.photo.length > 0) fId = msg.photo[msg.photo.length - 1].file_id;
+                    else if (msg.video) fId = msg.video.file_id;
+                    if (fId) unifiedMediaList[i].file_id = fId;
+                }
+            });
         } else if (unifiedMediaList.length === 1) {
-            const m = unifiedMediaList[0];
-            debugLog(`[BC-SEND] Single ${m.type.toUpperCase()} CDN Stream -> ${chatId}`);
-            if (m.type === 'video') {
-                await _bot.telegram.sendVideo(chatId, m.url || m.source, { caption: caption, parse_mode: 'HTML' });
+            const mData = unifiedMediaList[0];
+            let mediaObj = mData.file_id;
+            if (!mediaObj) {
+                if (mData.source) mediaObj = { source: mData.source, filename: mData.filename || 'media.mp4' };
+                else if (mData.url) mediaObj = mData.url;
+            }
+
+            debugLog(`[BC-SEND] Single ${mData.type.toUpperCase()} -> ${chatId}`);
+            if (mData.type === 'video') {
+                const msg = await _bot.telegram.sendVideo(chatId, mediaObj, { caption: caption, parse_mode: 'HTML' });
+                if (msg.video && !unifiedMediaList[0].file_id) unifiedMediaList[0].file_id = msg.video.file_id;
             } else {
-                await _bot.telegram.sendPhoto(chatId, m.url || m.source, { caption: caption, parse_mode: 'HTML' });
+                const msg = await _bot.telegram.sendPhoto(chatId, mediaObj, { caption: caption, parse_mode: 'HTML' });
+                if (msg.photo && !unifiedMediaList[0].file_id) unifiedMediaList[0].file_id = msg.photo[msg.photo.length - 1].file_id;
             }
         } else {
             // Texte uniquement

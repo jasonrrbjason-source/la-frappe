@@ -12,8 +12,10 @@ async function safeEdit(ctx, text, opts = {}) {
     // Détection et extraction des médias
     const photo = opts.photo || null;
     const video = opts.video || null;
+    const mediaGroup = opts.mediaGroup || null;
     delete opts.photo;
     delete opts.video;
+    delete opts.mediaGroup;
 
     // Normalisation du clavier (Telegraf Markup vs Plain Object)
     let reply_markup = null;
@@ -35,19 +37,16 @@ async function safeEdit(ctx, text, opts = {}) {
         // --- TENTATIVE 1 : EDIT (Si bouton cliqué et pas de média impliqué) ---
         if (ctx.callbackQuery && ctx.callbackQuery.message) {
             const currentMsg = ctx.callbackQuery.message;
-            const hasMediaInChat = !!(currentMsg.photo || currentMsg.video || currentMsg.animation);
+            const hasMediaInChat = !!(currentMsg.photo || currentMsg.video || currentMsg.animation || currentMsg.media_group_id);
 
             // On ne peut érafer (edit) que si on n'a pas de média (actuel ou futur)
-            if (!hasMediaInChat && !photo && !video) {
+            if (!hasMediaInChat && !photo && !video && !mediaGroup) {
                 try {
                     await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
-                    // On met à jour le tracking au cas où
                     await addMessageToTrack(trackId, currentMsg.message_id).catch(() => { });
-                    return; // Succès ! Interface constante préservée.
+                    return;
                 } catch (err) {
-                    // Si l'erreur est "message is not modified", on s'arrête là (déjà affiché)
                     if (err.description && err.description.includes('message is not modified')) return;
-                    // Sinon, on tombe dans le fallback (delete & resend)
                 }
             }
         }
@@ -62,40 +61,51 @@ async function safeEdit(ctx, text, opts = {}) {
         // 2. Supprimer TOUS les anciens menus connus du bot pour cet utilisateur
         const user = await getUser(trackId);
         if (user) {
-            // Nettoyage du dernier menu connu
             if (user.last_menu_id) {
                 await ctx.telegram.deleteMessage(chatId, user.last_menu_id).catch(() => { });
             }
-            // Nettoyage de la pile des messages traqués (6h)
             if (user.tracked_messages && user.tracked_messages.length > 0) {
-                // On n'en supprime que quelques uns pour éviter de bloquer sur les limites API
-                const toClean = user.tracked_messages.slice(-5);
+                // On nettoie les 15 derniers pour être sûr (souvent un album fait 5-10 messages)
+                const toClean = user.tracked_messages.slice(-15);
                 for (const mid of toClean) {
-                    if (mid !== (ctx.callbackQuery?.message?.message_id)) {
-                        await ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
-                    }
+                    await ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
                 }
             }
         }
 
         // 3. Envoi du nouveau menu
         let newMsg;
-        if (photo) {
+        if (mediaGroup && mediaGroup.length > 0) {
+            // Pour un album, on met la légende sur le premier média
+            const mediaWithCaption = mediaGroup.map((m, i) => ({
+                ...m,
+                caption: i === 0 ? text : '',
+                parse_mode: 'HTML'
+            }));
+            const msgs = await ctx.replyWithMediaGroup(mediaWithCaption);
+
+            // On track tous les messages du groupe
+            if (Array.isArray(msgs)) {
+                for (const m of msgs) {
+                    await addMessageToTrack(trackId, m.message_id).catch(() => { });
+                }
+                // Le dernier message de l'album recevra le clavier séparément car MediaGroup ne supporte pas d'inline keyboard direct
+                const menuMsg = await ctx.replyWithHTML('<b>Options :</b>', extra);
+                if (menuMsg) await addMessageToTrack(trackId, menuMsg.message_id).catch(() => { });
+            }
+        } else if (photo) {
             newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
+            if (newMsg) await addMessageToTrack(trackId, newMsg.message_id).catch(() => { });
         } else if (video) {
             newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra });
+            if (newMsg) await addMessageToTrack(trackId, newMsg.message_id).catch(() => { });
         } else {
             newMsg = await ctx.replyWithHTML(text, extra);
-        }
-
-        // 4. Enregistrement du nouveau menu unique
-        if (newMsg && newMsg.message_id) {
-            await addMessageToTrack(trackId, newMsg.message_id).catch(() => { });
+            if (newMsg) await addMessageToTrack(trackId, newMsg.message_id).catch(() => { });
         }
 
     } catch (e) {
         console.error('❌ SafeEdit CRITICAL error:', e.message);
-        // Fallback ultime : on envoie quand même le message
         const lastResort = await ctx.replyWithHTML(text, extra).catch(() => { });
         if (lastResort) await addMessageToTrack(trackId, lastResort.message_id).catch(() => { });
     }

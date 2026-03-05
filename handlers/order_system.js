@@ -65,6 +65,7 @@ function setupOrderSystem(bot) {
 
             // Préparation des médias
             let productMedia = null;
+            let productMediaGroup = null;
             const hasImage = product.image_url && typeof product.image_url === 'string' && product.image_url.length > 5;
 
             if (hasImage) {
@@ -83,30 +84,26 @@ function setupOrderSystem(bot) {
 
                 mediaList = mediaList.filter(m => m.url && m.url.length > 5);
 
-                if (mediaList.length > 0) {
+                if (mediaList.length > 1) {
+                    productMediaGroup = mediaList.map(m => {
+                        const isVideo = m.type === 'video' || m.url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
+                        return {
+                            type: isVideo ? 'video' : 'photo',
+                            media: m.url
+                        };
+                    });
+                    keyboard.mediaGroup = productMediaGroup;
+                } else if (mediaList.length === 1) {
                     const m = mediaList[0];
-                    const isLocal = m.url.startsWith('/public/');
-                    if (isLocal) {
-                        const relativePath = m.url.replace(/^\/public\//, 'web/public/');
-                        const fullPath = require('path').resolve(process.cwd(), relativePath);
-                        if (require('fs').existsSync(fullPath)) {
-                            productMedia = { source: fullPath };
-                        } else {
-                            debugLog(`[PRODUCT-MEDIA-WARN] Fichier local introuvable: ${fullPath} - Affichage texte uniquement.`);
-                        }
-                    } else {
-                        // Remote URL (like Firebase Storage)
-                        productMedia = m.url;
-                    }
+                    const isVideo = m.type === 'video' || m.url.match(/\.(mp4|webm|mov|m4v|avi|mkv)(\?.*)?$/i);
+                    const productMedia = m.url;
 
-                    if (productMedia) {
-                        debugLog(`[PRODUCT-MEDIA] Envoi ${m.type} pour ${product.name}: ${m.url.substring(0, 50)}...`);
-                        if (m.type === 'video') {
-                            keyboard.video = productMedia;
-                        } else {
-                            keyboard.photo = productMedia;
-                        }
+                    if (isVideo) {
+                        keyboard.video = productMedia;
+                    } else {
+                        keyboard.photo = productMedia;
                     }
+                    debugLog(`[PRODUCT-MEDIA] Envoi ${isVideo ? 'video' : 'photo'} pour ${product.name}`);
                 }
             }
 

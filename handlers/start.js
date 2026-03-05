@@ -123,7 +123,7 @@ function setupStartHandler(bot) {
     bot.action('welcome_message', async (ctx) => {
         await ctx.answerCbQuery();
         const settings = await getAppSettings();
-        await safeEdit(ctx, 
+        await safeEdit(ctx,
             `${settings.ui_icon_welcome} <b>${settings.label_welcome}</b>\n\n${settings.welcome_message}`,
             {
                 parse_mode: 'HTML',
@@ -147,7 +147,7 @@ function setupStartHandler(bot) {
         const chunkCredit = 10;
         const chunkPts = ptsExchange * chunkCredit;
 
-        await safeEdit(ctx, 
+        await safeEdit(ctx,
             `${settings.ui_icon_profile} <b>${settings.label_profile}</b>\n\n` +
             `${settings.ui_icon_wallet} Solde Portefeuille : <b>${(user.wallet_balance || 0).toFixed(2)}€</b>\n` +
             `${settings.ui_icon_points} Points Fidélité : <b>${user.points || 0} pts</b>\n\n` +
@@ -216,7 +216,40 @@ function setupStartHandler(bot) {
         }
     });
 
+    // ========== GESTION GPS / LOCALISATION ==========
+    bot.on('location', async (ctx) => {
+        const userId = `telegram_${ctx.from.id}`;
+        const loc = ctx.message.location;
+        if (!loc) return;
+
+        try {
+            const { saveUserLocation } = require('../services/database');
+            // Sauvegarder les coordonnées
+            await saveUserLocation(userId, loc.latitude, loc.longitude);
+
+            await ctx.reply('✅ Position enregistrée. Merci !', Markup.removeKeyboard());
+
+            // On pourrait faire un reverse geocoding ici pour avoir la ville exacte si besoin
+            // Pour l'instant on garde les coordonnées pour le tracking livreur
+        } catch (e) {
+            console.error('Location error:', e);
+        }
+    });
+
     // ========== GESTION CODE PARRAIN MANUEL ==========
+    bot.action('tracking_info', async (ctx) => {
+        await ctx.answerCbQuery();
+        await ctx.replyWithHTML(
+            `📡 <b>Comment activer le tracking ?</b>\n\n` +
+            `Pour que le client puisse recevoir vos estimations d'arrivée :\n\n` +
+            `1. Cliquez sur le trombonne (📎) ou (+) en bas.\n` +
+            `2. Choisissez <b>Position</b> (ou Localisation).\n` +
+            `3. Sélectionnez <b>Partager ma position en direct</b>.\n` +
+            `4. Choisissez la durée (ex: 8 heures).\n\n` +
+            `✅ Une fois activé, le bot enverra automatiquement des alertes (10 min / 5 min) à vos clients en fonction de vos déplacements !`
+        );
+    });
+
     bot.on('text', async (ctx, next) => {
         const userId = `telegram_${ctx.from.id}`;
         const inputText = ctx.message.text.trim();
@@ -292,6 +325,7 @@ function getLivreurMenuKeyboard(settings, user) {
         [dispoBtn],
         [Markup.button.callback(`${settings.ui_icon_orders} Commandes disponibles`, 'show_city_orders')],
         [Markup.button.callback('📍 Changer de secteur', 'change_city')],
+        [Markup.button.callback('📡 Tracking Live (Aide)', 'tracking_info')],
         [Markup.button.callback(`${settings.ui_icon_stats} Mon historique livraisons`, 'my_deliveries')],
         [Markup.button.callback('🛒 Mode Client (commander)', 'client_menu')],
     ];

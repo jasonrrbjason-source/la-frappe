@@ -110,6 +110,15 @@ async function updateLivreurPosition(docId, input) {
         last_position_update: ts()
     });
 }
+async function saveUserLocation(docId, lat, lon, city = null) {
+    const updates = {
+        latitude: lat,
+        longitude: lon,
+        last_gps_update: ts()
+    };
+    if (city) updates.current_city = city.toLowerCase();
+    await db.collection(COL_USERS).doc(docId).update(updates);
+}
 async function getActiveLivreursCount() {
     const snap = await db.collection(COL_USERS)
         .where('is_livreur', '==', true)

@@ -253,6 +253,7 @@ function setupOrderSystem(bot) {
             `${settings.ui_icon_success} <b>Commande #${orderId.substring(0, 5)} acceptée !</b>\n\n` +
             `📍 Ville : ${order.city}\n` +
             `👤 Client : ${order.first_name} (@${order.username})\n\n` +
+            `💡 <i>Pensez à partager votre position en direct pour notifier le client de votre arrivée.</i>\n\n` +
             `Cliquez sur le bouton ci-dessous une fois livré :`,
             {
                 parse_mode: 'HTML',
@@ -625,6 +626,76 @@ function setupOrderSystem(bot) {
                 );
             }
             return;
+        }
+    });
+
+    // ========== TRACKING & PROXIMITÉ ==========
+    function getDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    async function handleLivreurTracking(ctx, userId, loc) {
+        const user = await getUser(userId);
+        if (!user || !user.is_livreur) return;
+
+        // Sauvegarder la position du livreur
+        const { saveUserLocation, db } = require('../services/database');
+        await saveUserLocation(userId, loc.latitude, loc.longitude);
+
+        // Trouver les commandes actives du livreur (status: taken)
+        const ordersSnap = await db.collection('orders')
+            .where('livreur_id', '==', userId)
+            .where('status', '==', 'taken')
+            .get();
+
+        if (ordersSnap.empty) return;
+
+        for (const orderDoc of ordersSnap.docs) {
+            const order = orderDoc.data();
+            const orderId = orderDoc.id;
+            const clientUserId = order.user_id;
+
+            // Chercher la position du client
+            const client = await getUser(clientUserId);
+            if (!client || !client.latitude) continue;
+
+            const dist = getDistance(loc.latitude, loc.longitude, client.latitude, client.longitude);
+            // Estimation : 1km = 3 min (vitesse moyenne ville)
+            const timeEst = Math.round(dist * 3);
+
+            // Notification 10 min
+            if (timeEst <= 10 && timeEst > 5 && !order.notified_10min) {
+                const text = `🚀 <b>Votre livreur arrive !</b>\n\nPréparez-vous, il est à environ <b>10 minutes</b> de chez vous.`;
+                await bot.telegram.sendMessage(clientUserId.replace('telegram_', ''), text, { parse_mode: 'HTML' }).catch(console.error);
+                await db.collection('orders').doc(orderId).update({ notified_10min: true });
+            }
+
+            // Notification 5 min
+            if (timeEst <= 5 && !order.notified_5min) {
+                const text = `💨 <b>Votre livreur est tout proche !</b>\n\nIl arrive dans moins de <b>5 minutes</b>. Merci de sortir pour le réceptionner.`;
+                await bot.telegram.sendMessage(clientUserId.replace('telegram_', ''), text, { parse_mode: 'HTML' }).catch(console.error);
+                await db.collection('orders').doc(orderId).update({ notified_5min: true });
+            }
+        }
+    }
+
+    // Écouter les mises à jour de position (normales et en temps réel)
+    bot.on('location', async (ctx) => {
+        const userId = `telegram_${ctx.from.id}`;
+        await handleLivreurTracking(ctx, userId, ctx.message.location);
+    });
+
+    bot.on('edited_message', async (ctx) => {
+        if (ctx.editedMessage.location) {
+            const userId = `telegram_${ctx.from.id}`;
+            await handleLivreurTracking(ctx, userId, ctx.editedMessage.location);
         }
     });
 }

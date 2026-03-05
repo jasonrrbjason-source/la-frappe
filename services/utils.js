@@ -104,17 +104,26 @@ async function safeEdit(ctx, text, opts = {}) {
             await ctx.telegram.deleteMessage(chatId, currentMsg.message_id).catch(() => { });
         }
 
-        // 4. Nettoyage profond des résidus
+        // 4. Nettoyage profond des résidus (Garantit le Flux Constant)
         const user = await getUser(trackId);
         if (user) {
-            if (user.last_menu_id && (!currentMsg || user.last_menu_id !== currentMsg.message_id)) {
-                await ctx.telegram.deleteMessage(chatId, user.last_menu_id).catch(() => { });
+            const newIdsStrings = newMsgs.map(m => String(m.message_id));
+            const currentMsgIdStr = currentMsg ? String(currentMsg.message_id) : null;
+
+            // Supprimer l'ancien last_menu_id s'il est différent des nouveaux messages
+            if (user.last_menu_id) {
+                const lastIdStr = String(user.last_menu_id);
+                if (!newIdsStrings.includes(lastIdStr) && lastIdStr !== currentMsgIdStr) {
+                    await ctx.telegram.deleteMessage(chatId, user.last_menu_id).catch(() => { });
+                }
             }
+
+            // Nettoyage des messages traqués
             if (user.tracked_messages && user.tracked_messages.length > 0) {
-                const toClean = user.tracked_messages.slice(-15);
-                const newIds = newMsgs.map(m => m.message_id);
+                const toClean = user.tracked_messages.slice(-20); // Prendre un peu plus large
                 for (const mid of toClean) {
-                    if (!newIds.includes(mid) && (!currentMsg || mid !== currentMsg.message_id)) {
+                    const midStr = String(mid);
+                    if (!newIdsStrings.includes(midStr) && midStr !== currentMsgIdStr) {
                         await ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
                     }
                 }

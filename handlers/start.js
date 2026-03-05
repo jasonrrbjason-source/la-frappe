@@ -13,13 +13,10 @@ function setupStartHandler(bot) {
         try {
             const user = ctx.from;
             const settings = ctx.state.settings;
+            const docId = `telegram_${user.id}`;
 
-            // Nettoyage : supprimer le /start de l'utilisateur ET l'ancien menu bot
-            const { makeDocId } = require('../services/database');
-            const docId = makeDocId('telegram', user.id);
-            await ctx.deleteMessage().catch(() => { });
-            const lastId = await getLastMenuId(docId);
-            if (lastId) await ctx.telegram.deleteMessage(ctx.chat.id, lastId).catch(() => { });
+            // L'envoi du menu est géré par safeEdit (transition douce)
+            // L'effacement du /start entrant est géré par le middleware global
 
             // Vérifier si un code de parrainage
             let referrerId = null;

@@ -1311,16 +1311,24 @@
                 </div>
 
                 <h3 style="margin-top:25px;">Bonus Paliers de Commandes</h3>
-                <div
-                    style="display:flex; flex-wrap:wrap; gap:10px; background:rgba(255,255,255,0.05); padding:15px; border-radius:8px;">
-                    <div style="flex:2; min-width:200px;">
-                        <label>Paliers (nb commandes)</label>
-                        <input id="set_fidelity_thresholds" placeholder="ex: 5,9,10">
-                        <small style="color:var(--text-muted)">Offre un bonus lors de ces commandes.</small>
+                <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:8px;">
+                    <label>Sélectionnez les numéros de commande offrant un bonus :</label>
+                    <div id="paliers_grid"
+                        style="display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; margin-bottom:15px;">
+                        <!-- JS will populate stars 1-20 -->
                     </div>
-                    <div style="flex:1; min-width:100px;">
-                        <label>Bonus (€)</label>
-                        <input type="number" id="set_fidelity_bonus_val" placeholder="ex: 10">
+                    <input type="hidden" id="set_fidelity_thresholds">
+
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;">
+                            <label>Bonus (€)</label>
+                            <input type="number" id="set_fidelity_bonus_val" placeholder="ex: 10">
+                        </div>
+                        <div style="flex:1;">
+                            <label>Minimum de commande (€)</label>
+                            <input type="number" id="set_fidelity_min_spend" placeholder="ex: 50">
+                            <small style="color:var(--text-muted)">Bloque la livraison sous ce montant.</small>
+                        </div>
                     </div>
                 </div>
 
@@ -1919,9 +1927,10 @@
                     document.getElementById('set_pts_exchange').value = s.points_exchange || 100;
                     document.getElementById('set_pts_credit_val').value = s.points_credit_value || 5;
                     document.getElementById('set_ref_bonus').value = s.ref_bonus || 5;
-                    document.getElementById('set_fidelity_thresholds').value = s.fidelity_bonus_thresholds || '5,9,10';
+                    document.getElementById('set_fidelity_thresholds').value = s.fidelity_bonus_thresholds || '5,10';
+                    renderPaliersGrid(s.fidelity_bonus_thresholds || '5,10');
                     document.getElementById('set_fidelity_bonus_val').value = s.fidelity_bonus_amount || 10;
-                    document.getElementById('set_lang').value = s.languages || 'fr';
+                    document.getElementById('set_fidelity_min_spend').value = s.fidelity_min_spend || 50;
 
                     // Composants UI
                     document.getElementById('set_ui_icon_catalog').value = s.ui_icon_catalog || '🍔';
@@ -2701,8 +2710,9 @@
                     points_exchange: parseInt(document.getElementById('set_pts_exchange').value) || 100,
                     points_credit_value: parseFloat(document.getElementById('set_pts_credit_val').value) || 5,
                     ref_bonus: parseFloat(document.getElementById('set_ref_bonus').value) || 5,
-                    fidelity_bonus_thresholds: document.getElementById('set_fidelity_thresholds').value || '5,9,10',
+                    fidelity_bonus_thresholds: document.getElementById('set_fidelity_thresholds').value || '5,10',
                     fidelity_bonus_amount: parseFloat(document.getElementById('set_fidelity_bonus_val').value) || 10,
+                    fidelity_min_spend: parseFloat(document.getElementById('set_fidelity_min_spend').value) || 50,
                     languages: document.getElementById('set_lang').value || 'fr',
 
                     welcome_message: document.getElementById('set_welcome_msg').value,
@@ -2764,6 +2774,33 @@
             } catch (e) {
                 showToast(e.message, 'error');
             }
+        }
+
+        function renderPaliersGrid(currentValue) {
+            const grid = document.getElementById('paliers_grid');
+            if (!grid) return;
+            const selected = currentValue ? currentValue.split(',').map(n => n.trim()) : [];
+            let html = '';
+            for (let i = 1; i <= 25; i++) {
+                const isSelected = selected.includes(i.toString());
+                const styles = isSelected ? 'background:var(--accent); color:white; border-color:var(--accent);' : 'background:rgba(255,255,255,0.05)';
+                html += `<div class="palier-chip" onclick="togglePalier(${i})" 
+                             style="padding:4px 8px; border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:11px; transition:0.2s; ${styles}">
+                            ${i}e
+                         </div>`;
+            }
+            grid.innerHTML = html;
+        }
+
+        function togglePalier(n) {
+            const hidden = document.getElementById('set_fidelity_thresholds');
+            let vals = hidden.value ? hidden.value.split(',').map(x => x.trim()).filter(x => x) : [];
+            const idx = vals.indexOf(n.toString());
+            if (idx > -1) vals.splice(idx, 1);
+            else vals.push(n.toString());
+            vals.sort((a, b) => parseInt(a) - parseInt(b));
+            hidden.value = vals.join(',');
+            renderPaliersGrid(hidden.value);
         }
 
         function logout() { localStorage.removeItem('admin_token'); window.location.href = '/'; }

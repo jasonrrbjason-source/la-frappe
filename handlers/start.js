@@ -334,6 +334,7 @@ function getLivreurMenuKeyboard(settings, user, hasActiveOrders = false) {
     }
 
     buttons.push([Markup.button.callback(`${settings.ui_icon_orders || '📦'} Commandes disponibles`, 'show_available_orders')]);
+    buttons.push([Markup.button.callback('🗓 Commandes planifiées', 'show_planned_orders')]);
     buttons.push([Markup.button.callback('📡 Tracking Live (Aide)', 'tracking_info')]);
     buttons.push([Markup.button.callback(`${settings.ui_icon_stats || '📈'} Mon historique livraisons`, 'my_deliveries')]);
     buttons.push([Markup.button.callback('🛒 Mode Client (commander)', 'client_menu')]);

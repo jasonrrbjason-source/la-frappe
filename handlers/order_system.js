@@ -140,19 +140,42 @@ function setupOrderSystem(bot) {
 
         let total = 0;
         let summary = `🛒 <b>Votre Panier</b>\n\n`;
+        const buttons = [];
+
         cart.forEach((item, idx) => {
             const price = parseFloat(item.totalPrice);
             total += price;
             summary += `${idx + 1}. ${item.productName} (x${item.qty})${item.chosen_unit_amount ? ` [${item.chosen_unit_amount}]` : ''} - <b>${price.toFixed(2)}€</b>\n`;
+            // Bouton de suppression individuelle
+            buttons.push([Markup.button.callback(`❌ Retirer ${item.productName.substring(0, 15)}...`, `remove_item_${idx}`)]);
         });
         summary += `\n💰 <b>TOTAL : ${total.toFixed(2)}€</b>`;
 
-        const buttons = [
-            [Markup.button.callback('💳 Commander', 'start_checkout')],
-            [Markup.button.callback('🛍️ Continuer mes achats', 'view_catalog')],
-            [Markup.button.callback('❌ Vider le panier', 'clear_cart')]
-        ];
+        buttons.push([Markup.button.callback('💳 Commander', 'start_checkout')]);
+        buttons.push([Markup.button.callback('🛍️ Continuer mes achats', 'view_catalog')]);
+        buttons.push([Markup.button.callback('❌ Vider le panier', 'clear_cart')]);
+
         await safeEdit(ctx, summary, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action(/^remove_item_(.+)$/, async (ctx) => {
+        const idx = parseInt(ctx.match[1]);
+        const userId = ctx.from.id;
+        let cart = userCarts.get(userId) || [];
+        if (cart[idx]) {
+            await ctx.answerCbQuery(`Retiré : ${cart[idx].productName}`);
+            cart.splice(idx, 1);
+            userCarts.set(userId, cart);
+        }
+        // Retour au panier
+        if (cart.length === 0) {
+            return safeEdit(ctx, 'Votre panier est maintenant vide. 📭', Markup.inlineKeyboard([[Markup.button.callback('🛍️ Retour au Catalogue', 'view_catalog')]]));
+        }
+        // On re-déclenche l'action view_cart (on simule)
+        return await ctx.handleUpdate({
+            ...ctx.update,
+            callback_query: { ...ctx.callbackQuery, data: 'view_cart' }
+        });
     });
 
     bot.action('clear_cart', async (ctx) => {
@@ -171,7 +194,23 @@ function setupOrderSystem(bot) {
         const cart = userCarts.get(userId) || [];
         if (cart.length === 0) return ctx.reply("Votre panier est vide.");
 
+        const settings = ctx.state.settings;
+        const minOrder = settings.fidelity_min_spend || 50;
         let total = cart.reduce((acc, item) => acc + parseFloat(item.totalPrice), 0);
+
+        if (total < minOrder) {
+            return safeEdit(ctx,
+                `⚠️ <b>Minimum de commande non atteint</b>\n\n` +
+                `Nous ne livrons pas en dessous de <b>${minOrder}€</b>.\n` +
+                `Votre total actuel : <b>${total.toFixed(2)}€</b>\n\n` +
+                `Veuillez ajouter d'autres produits à votre panier.`,
+                Markup.inlineKeyboard([
+                    [Markup.button.callback('🛍️ Ajouter des produits', 'view_catalog')],
+                    [Markup.button.callback('🛒 Retour au Panier', 'view_cart')]
+                ])
+            );
+        }
+
         await promptAddressEntry(ctx, total);
     }
 
@@ -335,11 +374,15 @@ function setupOrderSystem(bot) {
         // SI CRÉDIT DISPONIBLE → ON DEMANDE (Step Finale)
         if (user && user.wallet_balance > 0) {
             const maxPct = settings.fidelity_wallet_max_pct || 50;
-            const minSpend = settings.fidelity_min_spend || 0;
-            const maxAllowedCredit = (total * maxPct) / 100;
-            const possibleDiscount = Math.min(maxAllowedCredit, user.wallet_balance);
+            const minSpend = settings.fidelity_min_spend || 50;
 
-            if (total >= minSpend && possibleDiscount > 0) {
+            // On calcule combien on peut déduire sans descendre sous le minSpend
+            const maxAllowedByPct = (total * maxPct) / 100;
+            const maxToKeepMinSpend = Math.max(0, total - minSpend);
+
+            const possibleDiscount = Math.min(maxAllowedByPct, user.wallet_balance, maxToKeepMinSpend);
+
+            if (possibleDiscount > 0) {
                 pendingOrderConfirmation.set(userId, { ...checkoutData, possibleDiscount });
                 return safeEdit(ctx,
                     `💰 <b>Utiliser votre solde ?</b>\n\n` +
@@ -809,35 +852,46 @@ function setupOrderSystem(bot) {
         const orders = await getAvailableOrders();
         const settings = await getAppSettings();
 
-        // Séparer les commandes "Maintenant" des "Planifiées"
+        // Que les ASAP
         const asap = orders.filter(o => !o.scheduled_at);
-        const planned = orders.filter(o => o.scheduled_at);
 
-        let text = `📦 <b>Commandes disponibles (${orders.length})</b>\n\n`;
-
+        let text = `🚀 <b>Commandes disponibles (ASAP)</b>\n\n`;
         const buttons = [];
 
         if (asap.length > 0) {
-            text += `🚀 <b>Livraison immédiate :</b>\n`;
             asap.forEach(o => {
                 const addr = o.address ? o.address.substring(0, 15) : '?';
                 buttons.push([Markup.button.callback(`🚀 ${o.product_name} - ${o.total_price}€ (${addr})`, `take_order_${o.id}`)]);
             });
+        } else {
+            text = '📭 Aucune commande immédiate (ASAP) disponible.';
         }
 
+        buttons.push([Markup.button.callback('🔄 Rafraîchir', 'show_available_orders')]);
+        buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
+
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action('show_planned_orders', async (ctx) => {
+        await ctx.answerCbQuery();
+        const orders = await getAvailableOrders();
+
+        const planned = orders.filter(o => o.scheduled_at);
+
+        let text = `🗓 <b>Commandes Planifiées</b>\n\nVoici les créneaux réservés par les clients :\n`;
+        const buttons = [];
+
         if (planned.length > 0) {
-            text += `\n🗓 <b>Commandes Planifiées :</b>\n`;
             planned.forEach(o => {
                 const addr = o.address ? o.address.substring(0, 15) : '?';
                 buttons.push([Markup.button.callback(`🗓 ${o.scheduled_at} - ${o.product_name} (${addr})`, `take_order_${o.id}`)]);
             });
+        } else {
+            text = '📭 Aucune commande planifiée disponible pour le moment.';
         }
 
-        if (orders.length === 0) {
-            text = '📭 Aucune commande disponible pour le moment.';
-        }
-
-        buttons.push([Markup.button.callback('🔄 Rafraîchir', 'show_available_orders')]);
+        buttons.push([Markup.button.callback('🔄 Rafraîchir', 'show_planned_orders')]);
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
 
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));

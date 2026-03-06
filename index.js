@@ -71,10 +71,10 @@ async function main() {
     });
 
     // ERROR HANDLER — empêche le bot de crash sur une erreur
-    bot.catch((err, ctx) => {
+    bot.catch(async (err, ctx) => {
         console.error(`❌ Erreur bot [${ctx.updateType}]:`, err.message);
         try {
-            ctx.reply('⚠️ Une erreur est survenue, réessayez.').catch(() => { });
+            await safeEdit(ctx, '⚠️ Une erreur est survenue, réessayez.').catch(() => { });
         } catch (e) { }
     });
 

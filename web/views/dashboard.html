@@ -145,11 +145,15 @@
 
         @media (min-width: 1200px) {
             .stats-grid.stats-grid-large {
-                grid-template-columns: 2fr 1fr;
+                grid-template-columns: repeat(12, 1fr);
             }
 
-            .stats-grid.stats-grid-three {
-                grid-template-columns: repeat(3, 1fr);
+            .insights-main-card {
+                grid-column: span 8;
+            }
+
+            .insights-secondary-card {
+                grid-column: span 4;
             }
 
             .grid-span-full {
@@ -159,6 +163,32 @@
             .grid-span-2 {
                 grid-column: span 2;
             }
+        }
+
+        .premium-card {
+            background: rgba(26, 26, 26, 0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 24px;
+            margin-bottom: 24px;
+            transition: 0.3s;
+        }
+
+        .premium-card:hover {
+            border-color: rgba(255, 0, 80, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .stat-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 15px;
         }
 
         .stat-card {
@@ -450,8 +480,8 @@
         }
 
         .loading {
-            opacity: 0.5;
-            pointer-events: none;
+            opacity: 0.8;
+            cursor: wait;
         }
 
         /* SCROLLBAR */
@@ -849,81 +879,93 @@
 
         <!-- INSIGHTS -->
         <section class="section" id="section-insights">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:25px; gap:20px;">
-                <h1 style="margin:0;">Rapport de Caisse</h1>
-                <div class="btn-group"
-                    style="display:flex; gap:8px; background:var(--sidebar-bg); padding:5px; border-radius:12px; border:1px solid var(--border);">
-                    <button class="btn btn-sm btn-outline active" onclick="setTimeframe('hour', this)">Heure</button>
-                    <button class="btn btn-sm btn-outline" onclick="setTimeframe('day', this)">Jour</button>
-                    <button class="btn btn-sm btn-outline" onclick="setTimeframe('week', this)">Semaine</button>
-                    <button class="btn btn-sm btn-outline" onclick="setTimeframe('month', this)">Mois</button>
-                    <button class="btn btn-sm btn-outline" onclick="setTimeframe('year', this)">Année</button>
+            <div
+                style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:30px; gap:20px; flex-wrap:wrap;">
+                <div>
+                    <h1 style="margin:0; font-size:32px; font-weight:800;">Analytics</h1>
+                    <p style="color:var(--text-muted); margin-top:5px;">Performance globale de votre bot et logistique.
+                    </p>
                 </div>
-                <button class="btn btn-accent" style="white-space:nowrap;" onclick="exportAnalyticsCSV()">📥 Exporter
-                    CSV</button>
-            </div>
-
-            <div style="margin-bottom:25px;">
-                <input type="text" id="insight-search"
-                    placeholder="Filtrer un client, une ville ou un livreur dans les classements..."
-                    style="width:100%; padding:14px 20px; background:var(--sidebar-bg); border:1px solid var(--border); border-radius:12px; color:white; font-size:15px;"
-                    onkeyup="filterInsights()">
-            </div>
-
-            <div class="stats-grid">
-                <div class="card"
-                    style="padding:20px; display:flex; align-items:center; gap:15px; grid-column: 1 / -1;">
-                    <div style="font-size:32px;">⏱️</div>
-                    <div>
-                        <div style="color:var(--text-muted); font-size:13px;">Temps moyen de livraison</div>
-                        <div id="avg-delivery-time" style="font-size:28px; font-weight:700; color:var(--accent);">—
-                        </div>
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <div class="btn-group"
+                        style="display:flex; gap:5px; background:rgba(255,255,255,0.03); padding:4px; border-radius:14px; border:1px solid var(--border);">
+                        <button class="btn btn-sm btn-outline active" style="min-width:60px;"
+                            onclick="setTimeframe('hour', this)">Heure</button>
+                        <button class="btn btn-sm btn-outline" style="min-width:60px;"
+                            onclick="setTimeframe('day', this)">Jour</button>
+                        <button class="btn btn-sm btn-outline" style="min-width:60px;"
+                            onclick="setTimeframe('week', this)">Smn.</button>
+                        <button class="btn btn-sm btn-outline" style="min-width:60px;"
+                            onclick="setTimeframe('month', this)">Mois</button>
+                        <button class="btn btn-sm btn-outline" style="min-width:60px;"
+                            onclick="setTimeframe('year', this)">An</button>
                     </div>
+                    <button class="btn btn-accent" onclick="exportAnalyticsCSV()">📥 CSV</button>
                 </div>
             </div>
 
-            <div class="stats-grid stats-grid-large" id="insights_charts_grid">
-                <div class="card grid-span-full" style="min-height: 450px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3 id="chart-title" style="margin:0;">📈 Évolution des Revenus (Macro)</h3>
+            <div class="stats-grid"
+                style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important; gap:15px; margin-bottom:25px;">
+                <div class="stat-card premium-card">
+                    <div class="stat-label">Temps Moyen</div>
+                    <div class="stat-value" id="avg-delivery-time" style="color:var(--success);">—</div>
+                    <div style="font-size:10px; color:var(--text-muted);">Moyenne de livraison</div>
+                </div>
+                <div class="stat-card premium-card">
+                    <div class="stat-label">Commandes</div>
+                    <div class="stat-value" id="insights-total-orders">—</div>
+                    <div style="font-size:10px; color:var(--text-muted);">Volume total</div>
+                </div>
+                <div class="stat-card premium-card">
+                    <div class="stat-label">Secteurs</div>
+                    <div class="stat-value" id="insights-total-cities">—</div>
+                    <div style="font-size:10px; color:var(--text-muted);">Zones actives</div>
+                </div>
+            </div>
+
+            <div class="stats-grid stats-grid-large" id="insights_charts_grid" style="gap:25px; margin-bottom:30px;">
+                <!-- Main Chart -->
+                <div class="premium-card insights-main-card"
+                    style="min-height: 500px; display:flex; flex-direction:column;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:25px;">
+                        <h3 id="chart-title" style="margin:0; font-size:18px;">📈 Performance des Revenus</h3>
                     </div>
-                    <div style="height:380px;">
+                    <div style="flex-grow:1; position:relative; min-height:350px;">
                         <canvas id="canvas-main-chart"></canvas>
                     </div>
                 </div>
 
-                <div class="card">
-                    <h3>📍 CA par Secteur</h3>
-                    <div style="height:280px; margin-top:20px;">
+                <!-- City Chart -->
+                <div class="premium-card insights-secondary-card" style="display:flex; flex-direction:column;">
+                    <h3 style="margin-bottom:20px; font-size:18px;">📍 CA par Secteur</h3>
+                    <div style="flex-grow:1; position:relative; min-height:250px;">
                         <canvas id="canvas-cities"></canvas>
                     </div>
-                </div>
-
-                <div class="card">
-                    <h3>💎 Top Clients (Leaderboard)</h3>
-                    <div id="list-clients" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
+                    <div style="margin-top:20px; font-size:12px; opacity:0.6;">Répartition géographique du CA.</div>
                 </div>
             </div>
 
-            <div class="stats-grid stats-grid-three" style="margin-top:20px;">
-                <div class="card">
-                    <h3>🚴 Performance Livreurs</h3>
-                    <div id="list-livreurs" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
-                </div>
-
-                <div class="card">
-                    <h3>🔥 Top Produits (Ventes)</h3>
-                    <div id="list-top-products" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
-                </div>
-
-                <div class="card"
-                    style="display:flex; flex-direction:column; justify-content:center; align-items:center; background:linear-gradient(135deg, var(--card-bg) 0%, rgba(255,0,80,0.05) 100%);">
-                    <div style="font-size:48px; margin-bottom:10px;">📊</div>
-                    <div style="text-align:center">
-                        <div style="color:var(--text-muted); font-size:14px;">Total Commandes traitées</div>
-                        <div id="insights-total-orders" style="font-size:32px; font-weight:800; color:var(--accent);">—
+            <div class="stats-grid stats-grid-large" style="gap:25px;">
+                <div class="premium-card insights-main-card">
+                    <h3 style="margin-bottom:20px;">🎖️ Classements</h3>
+                    <div class="flex" style="gap:25px; align-items:flex-start;">
+                        <div class="col">
+                            <h4
+                                style="font-size:13px; color:var(--accent); margin-bottom:12px; text-transform:uppercase;">
+                                📦 Top Produits</h4>
+                            <div id="list-top-products"></div>
+                        </div>
+                        <div class="col">
+                            <h4
+                                style="font-size:13px; color:var(--success); margin-bottom:12px; text-transform:uppercase;">
+                                👤 Top Clients</h4>
+                            <div id="list-top-users"></div>
                         </div>
                     </div>
+                </div>
+                <div class="premium-card insights-secondary-card">
+                    <h3 style="margin-bottom:20px;">🚚 Top Livreurs</h3>
+                    <div id="list-top-drivers"></div>
                 </div>
             </div>
         </section>
@@ -1364,8 +1406,11 @@
         if (!TOKEN) window.location.href = '/';
 
         async function api(path, method = 'GET', body = null, silent = false) {
-            // On bloque l'UI pour les opérations manuelles (non-silent)
-            if (!silent) document.body.classList.add('loading');
+            // On bloque les visuels seulement si ce n'est pas un refresh silencieux
+            if (!silent) {
+                const activeSec = document.querySelector('.section.active');
+                if (activeSec) activeSec.classList.add('loading');
+            }
             try {
                 const opt = {
                     method,
@@ -1389,7 +1434,8 @@
                 console.error('[API Error]:', e);
                 throw e;
             } finally {
-                document.body.classList.remove('loading');
+                const activeSec = document.querySelector('.section.active');
+                if (activeSec) activeSec.classList.remove('loading');
             }
         }
 
@@ -1430,14 +1476,22 @@
             if (activeSection) {
                 const id = activeSection.id.replace('section-', '');
                 if (id === 'overview' || id === 'logistique' || id === 'livreurs' || id === 'orders' || id === 'users') {
-                    // Pour le rafraîchissement auto, on évite d'empiler si une requête est déjà en cours
                     if (!document.body.classList.contains('loading')) {
-                        console.log(`[Auto-Sync] Syncing ${id}...`);
-                        loadData(id, true); // true = silent refresh
+                        loadData(id, true);
                     }
                 }
             }
-        }, 15000);
+        }, 30000);
+
+        function safeDate(val) {
+            if (!val) return new Date();
+            if (val._seconds) return new Date(val._seconds * 1000);
+            if (typeof val === 'string') {
+                // Safari fix: replace space with T
+                return new Date(val.replace(' ', 'T'));
+            }
+            return new Date(val);
+        }
 
         async function switchSection(id) {
             // Changement IMMÉDIAT de section pour éviter l'impression de latence
@@ -1445,18 +1499,16 @@
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
             if (id === 'logistique') {
-                // Par défaut, quand on clique sur Logistique, on reste sur l'onglet actif ou orders
                 const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');
                 switchLogisticsTab(isLivreurs ? 'livreurs' : 'orders');
+                return; // switchLogisticsTab calls loadData
             }
 
             const target = document.getElementById('section-' + id);
             if (target) {
                 target.classList.add('active');
-                target.style.opacity = '1';
             }
 
-            // On cherche l'item du menu correspondant
             const navItems = document.querySelectorAll('.nav-item');
             navItems.forEach(item => {
                 const onClick = item.getAttribute('onclick');
@@ -1490,14 +1542,14 @@
 
                 let createdTime = '—';
                 if (o.created_at) {
-                    const d = o.created_at._seconds ? new Date(o.created_at._seconds * 1000) : new Date(o.created_at);
+                    const d = safeDate(o.created_at);
                     if (!isNaN(d.getTime())) {
                         createdTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
                     }
                 }
                 let deliveredTime = '—';
                 if (o.delivered_at) {
-                    const d = o.delivered_at._seconds ? new Date(o.delivered_at._seconds * 1000) : new Date(o.delivered_at);
+                    const d = safeDate(o.delivered_at);
                     if (!isNaN(d.getTime())) {
                         deliveredTime = d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
                     }
@@ -1510,7 +1562,10 @@
                     <td data-label="Total"><b>${o.total_price}€</b></td>
                     <td data-label="Ville"><small>${o.city || '—'}</small></td>
                     <td data-label="Date"><small>🕐 ${createdTime}</small></td>
-                    <td data-label="Livré à"><small>${o.status === 'delivered' ? '✅ ' + deliveredTime : '—'}</small></td>
+                    <td data-label="Livré à">
+                        <small>${o.status === 'delivered' ? '✅ ' + deliveredTime : '—'}</small>
+                        ${o.status === 'delivered' && o.livreur_name ? `<br><small style="color:var(--success); font-weight:700;">🚴 ${o.livreur_name}</small>` : ''}
+                    </td>
                     <td data-label="Statut"><span class="badge badge-${o.status}">${label}</span></td>
                     <td data-label="Action">
                         <div style="display:flex; flex-direction:column; gap:4px;">
@@ -1600,14 +1655,13 @@
             const section = document.getElementById('section-' + id) || document.getElementById('section-logistique');
             try {
                 if (!window.appSettings) {
-                    window.appSettings = await api('/settings');
+                    window.appSettings = await api('/settings', 'GET', null, silent);
                     updateNavbarIcons();
                 }
-                // On ne touche plus à l'opacity pour éviter l'effet "noir"
-                // Load stats only if needed or for header counters
+
                 if (id === 'overview' || id === 'insights' || !window.appStats) {
                     try {
-                        window.appStats = await api('/stats');
+                        window.appStats = await api('/stats', 'GET', null, silent);
                         if (document.getElementById('usersTotalCounter')) document.getElementById('usersTotalCounter').innerText = (window.appStats.totalUsers || 0) + ' clients';
                         if (document.getElementById('livreursTotalCounter')) document.getElementById('livreursTotalCounter').innerText = (window.appStats.totalLivreurs || 0) + ' livreurs';
                     } catch (e) {
@@ -1628,12 +1682,12 @@
                     setStat('statLivreurs', s.activeLivreurs || 0);
                 }
                 if (id === 'users') {
-                    const users = await api('/users');
+                    const users = await api('/users', 'GET', null, silent);
                     window._cachedUsers = users;
                     renderUsersTable(users);
                 }
                 if (id === 'products') {
-                    const products = await api('/products');
+                    const products = await api('/products', 'GET', null, silent);
                     window._cachedProducts = products;
                     document.querySelector('#productTable tbody').innerHTML = products.map((p, idx) => {
                         let mediaHtml = '';
@@ -1693,8 +1747,8 @@
                 }
                 if (id === 'orders') {
                     try {
-                        window._cachedOrders = await api('/orders');
-                        window._cachedLivreurs = await api('/livreurs');
+                        window._cachedOrders = await api('/orders', 'GET', null, silent);
+                        window._cachedLivreurs = await api('/livreurs', 'GET', null, silent);
                         filterData('orders', 'all'); // Default to all
                     } catch (e) {
                         console.error("Orders load failed", e);
@@ -1703,7 +1757,7 @@
                 }
                 if (id === 'livreurs') {
                     try {
-                        let livreurs = await api('/livreurs');
+                        let livreurs = await api('/livreurs', 'GET', null, silent);
                         const onlyOnline = document.getElementById('online-livreurs-only').checked;
                         if (onlyOnline) {
                             livreurs = livreurs.filter(l => l.is_available);
@@ -1715,7 +1769,7 @@
                 }
                 if (id === 'broadcast') {
                     try {
-                        const history = await api('/broadcasts');
+                        const history = await api('/broadcasts', 'GET', null, silent);
                         history.forEach(h => {
                             h.media_urls = [];
                             if (h.message && h.message.includes("|||MEDIA_URLS|||")) {
@@ -1733,7 +1787,8 @@
                         const historyTbody = document.querySelector('#bcHistoryTable tbody');
                         if (historyTbody) {
                             historyTbody.innerHTML = history.map(h => {
-                                const dateStr = new Date(h.created_at).toLocaleString();
+                                const d = safeDate(h.created_at);
+                                const dateStr = !isNaN(d.getTime()) ? d.toLocaleString('fr-FR') : '—';
                                 const msgShort = h.message ? (h.message.length > 80 ? h.message.substring(0, 77) + '...' : h.message) : '(Média uniquement)';
 
                                 return `
@@ -1758,20 +1813,15 @@
                     }
                 }
                 if (id === 'insights') {
-                    const data = await api('/analytics');
+                    const data = await api('/analytics', 'GET', null, silent);
                     window.lastAnalytics = data;
-                    window.currentAnalyticsRaw = data.rawDelivered;
 
-                    // Afficher le temps moyen de livraison
-                    const avgEl = document.getElementById('avg-delivery-time');
-                    if (avgEl) avgEl.innerText = (data.avgDeliveryTime || 0) + ' min';
+                    if (document.getElementById('avg-delivery-time')) document.getElementById('avg-delivery-time').innerText = (data.avgDeliveryTime || 0) + ' min';
+                    if (document.getElementById('insights-total-orders')) document.getElementById('insights-total-orders').innerText = data.totalOrders || 0;
+                    if (document.getElementById('insights-total-cities')) document.getElementById('insights-total-cities').innerText = Object.keys(data.byCity || {}).length;
 
-                    const totalOrdEl = document.getElementById('insights-total-orders');
-                    if (totalOrdEl) totalOrdEl.innerText = data.totalOrders || 0;
-
-                    // 1. Chart CA par Ville
                     if (chartInstances.cities) chartInstances.cities.destroy();
-                    const cityEntries = Object.entries(data.byCity).sort((a, b) => b[1] - a[1]).slice(0, 8);
+                    const cityEntries = Object.entries(data.byCity || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
                     chartInstances.cities = new Chart(document.getElementById('canvas-cities'), {
                         type: 'doughnut',
                         data: {
@@ -1782,23 +1832,33 @@
                                 borderWidth: 0
                             }]
                         },
-                        options: {
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { position: 'right', labels: { color: '#fff', usePointStyle: true, font: { size: 10 } } }
-                            }
-                        }
+                        options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#fff', boxWidth: 10, font: { size: 10 } } } } }
                     });
 
                     renderMainChart(window.currentTimeframe || 'hour');
-                    renderFilteredInsights(data);
 
-                    // Top Produits
-                    const topProds = Object.entries(data.byProduct || {}).sort((a, b) => b[1].qty - a[1].qty).slice(0, 10);
+                    // Leaderboards
+                    const topProds = Object.entries(data.byProduct || {}).sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
                     document.getElementById('list-top-products').innerHTML = topProds.map(e => `
-                        <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border)">
-                            <span>${e[0]}</span>
-                            <b>${e[1].qty} vendus (${e[1].ca.toFixed(2)}€)</b>
+                        <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                            <span style="font-size:13px;">${e[0]}</span>
+                            <span style="font-weight:700;">${e[1].qty}</span>
+                        </div>
+                    `).join('');
+
+                    const topDrivers = Object.entries(data.byDriver || {}).sort((a, b) => b[1].count - a[1].count).slice(0, 5);
+                    document.getElementById('list-top-drivers').innerHTML = topDrivers.map(e => `
+                        <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                            <span style="font-size:13px;">${e[0]}</span>
+                            <span style="font-weight:700; color:var(--success);">${e[1].count} liv.</span>
+                        </div>
+                    `).join('');
+
+                    const topUsers = Object.entries(data.byUser || {}).sort((a, b) => b[1].count - a[1].count).slice(0, 5);
+                    document.getElementById('list-top-users').innerHTML = topUsers.map(e => `
+                        <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                            <span style="font-size:13px;">${e[0]}</span>
+                            <span style="font-weight:700; color:var(--accent);">${e[1].count} cmd.</span>
                         </div>
                     `).join('');
                 }
@@ -2182,30 +2242,41 @@
         }
 
         function renderFilteredInsights(data, query = "") {
-            // Filter and Render Livreurs
-            const livreursHtml = Object.entries(data.byLivreur)
+            // Render Drivers
+            const driversHtml = Object.entries(data.byDriver || {})
                 .filter(([name]) => name.toLowerCase().includes(query))
-                .sort((a, b) => b[1] - a[1])
+                .sort((a, b) => b[1].count - a[1].count)
                 .map(([name, val]) => `
-                    <div style="display:flex; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--border)">
-                        <span>🚴 <b>${name}</b></span>
-                        <b style="color:var(--success)">${val.toFixed(2)}€</b>
+                    <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                        <span style="font-size:13px;">${name}</span>
+                        <span style="font-weight:700; color:var(--success);">${val.count} liv.</span>
                     </div>
                 `).join('');
-            document.getElementById('list-livreurs').innerHTML = livreursHtml || '<div style="padding:20px; color:var(--text-muted)">Aucun livreur trouvé.</div>';
+            document.getElementById('list-top-drivers').innerHTML = driversHtml || '<div style="padding:10px; color:var(--text-muted)">—</div>';
 
-            // Filter and Render Clients
-            const clientsHtml = Object.entries(data.byClient)
-                .filter(([id, stats]) => stats.name.toLowerCase().includes(query))
-                .sort((a, b) => b[1].ca - a[1].ca)
-                .slice(0, 15)
-                .map(([id, stats]) => `
-                    <div style="display:flex; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--border)">
-                        <span>💎 <b>${stats.name}</b> (${stats.orders} cmds)</span>
-                        <b style="color:var(--accent)">${stats.ca.toFixed(2)}€</b>
+            // Render Products
+            const prodsHtml = Object.entries(data.byProduct || {})
+                .filter(([name]) => name.toLowerCase().includes(query))
+                .sort((a, b) => b[1].qty - a[1].qty)
+                .map(([name, val]) => `
+                    <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                        <span style="font-size:13px;">${name}</span>
+                        <span style="font-weight:700;">${val.qty}</span>
                     </div>
                 `).join('');
-            document.getElementById('list-clients').innerHTML = clientsHtml || '<div style="padding:20px; color:var(--text-muted)">Aucun client trouvé.</div>';
+            document.getElementById('list-top-products').innerHTML = prodsHtml || '<div style="padding:10px; color:var(--text-muted)">—</div>';
+
+            // Render Users
+            const usersHtml = Object.entries(data.byUser || {})
+                .filter(([name]) => name.toLowerCase().includes(query))
+                .sort((a, b) => b[1].count - a[1].count)
+                .map(([name, val]) => `
+                    <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                        <span style="font-size:13px;">${name}</span>
+                        <span style="font-weight:700; color:var(--accent);">${val.count} cmd.</span>
+                    </div>
+                `).join('');
+            document.getElementById('list-top-users').innerHTML = usersHtml || '<div style="padding:10px; color:var(--text-muted)">—</div>';
         }
 
         function exportAnalyticsCSV() {

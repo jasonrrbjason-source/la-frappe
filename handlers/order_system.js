@@ -31,7 +31,7 @@ function setupOrderSystem(bot) {
         const product = products.find(p => p.id === productId);
         const settings = ctx.state.settings;
 
-        if (!product) return ctx.reply('❌ Produit non trouvé.');
+        if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', [Markup.button.callback('◀️ Retour', 'view_catalog')]);
 
         let text = `📦 <b>${product.name}</b>\n\n` +
             `💰 Prix : <b>${product.price}€</b>\n` +
@@ -59,7 +59,7 @@ function setupOrderSystem(bot) {
         const product = products.find(p => p.id === productId);
         const settings = ctx.state.settings;
 
-        if (!product) return ctx.reply('❌ Produit non trouvé.');
+        if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
 
         const totalPrice = (product.price * qty).toFixed(2);
         pendingOrders.set(ctx.from.id, { productId, qty, totalPrice });
@@ -183,7 +183,7 @@ function setupOrderSystem(bot) {
         const useDiscount = ctx.match[1] === 'discount';
         const pending = useDiscount ? pendingOrderConfirmation.get(userId) : pendingOrders.get(userId);
 
-        if (!pending) return ctx.reply('❌ Session expirée.');
+        if (!pending) return safeEdit(ctx, '❌ Session expirée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
         const products = await getProducts();
         const product = products.find(p => p.id === pending.productId);
@@ -217,24 +217,13 @@ function setupOrderSystem(bot) {
         const { order, error: createError } = await createOrder(orderData);
         if (createError) {
             console.error("Error creating order:", createError);
-            return ctx.reply('❌ Erreur lors de la création de la commande.').catch(() => { });
+            return safeEdit(ctx, '❌ Erreur lors de la création de la commande.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
         }
 
-        const settings = ctx.state.settings;
-        await ctx.reply(settings.msg_order_success || `✅ <b>Commande #${order.id.substring(0, 5)} envoyée !</b>\n\nUn livreur va vous contacter dès qu'elle sera prise en charge.`, { parse_mode: 'HTML' });
-
-        // Si crédit utilisé -> Déduire du wallet
-        if (discount > 0) {
-            const user = await getUser(`telegram_${userId}`);
-            const { updateUserWallet } = require('../services/database');
-            await updateUserWallet(`telegram_${userId}`, user.wallet_balance - discount);
-        }
-
-        pendingOrders.delete(userId);
-        pendingOrderConfirmation.delete(userId);
+        const successText = ctx.state.settings.msg_order_success || `✅ <b>Commande #${order.id.substring(0, 5)} envoyée !</b>\n\nUn livreur va vous contacter dès qu'elle sera prise en charge.`;
 
         await safeEdit(ctx,
-            `✅ <b>Commande enregistrée !</b>\n\n` +
+            `${successText}\n\n` +
             `📦 Produit : ${product.name} (x${pending.qty})\n` +
             `📍 Adresse : ${pending.address}\n` +
             `💰 Total : <b>${finalPrice.toFixed(2)}€</b>\n\n` +
@@ -243,8 +232,8 @@ function setupOrderSystem(bot) {
         );
 
         // Alerte aux admins
-        if (settings.admin_telegram_id) {
-            const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
+        if (ctx.state.settings.admin_telegram_id) {
+            const adminIds = String(ctx.state.settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
             for (const adminId of adminIds) {
                 bot.telegram.sendMessage(adminId,
                     `🚨 <b>NOUVELLE COMMANDE !</b>\n\n` +
@@ -315,9 +304,9 @@ function setupOrderSystem(bot) {
 
     bot.command('dispo', async (ctx) => {
         const user = await getUser(`telegram_${ctx.from.id}`);
-        if (!user || !user.is_livreur) return ctx.reply('❌ Vous n\'êtes pas livreur.');
+        if (!user || !user.is_livreur) return safeEdit(ctx, '❌ Vous n\'êtes pas livreur.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
 
-        await ctx.replyWithHTML(
+        await safeEdit(ctx,
             `📢 <b>Statut actuel :</b> ${user.is_available ? '✅ DISPONIBLE' : '😴 INDISPONIBLE'}\n\n` +
             `Voulez-vous changer votre statut ?`,
             Markup.inlineKeyboard([
@@ -369,10 +358,10 @@ function setupOrderSystem(bot) {
 
     bot.command('ma_position', async (ctx) => {
         const city = ctx.message.text.split(' ')[1];
-        if (!city) return ctx.reply('❌ Usage: /ma_position [ville]');
+        if (!city) return safeEdit(ctx, '❌ Usage: /ma_position [ville]', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
 
         await updateLivreurPosition(`telegram_${ctx.from.id}`, city.toLowerCase());
-        await ctx.reply(`📍 Secteur mis à jour : ${city.toUpperCase()}`);
+        await safeEdit(ctx, `📍 Secteur mis à jour : ${city.toUpperCase()}`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu Livreur', 'livreur_menu')]]));
     });
 
     bot.action('change_city', async (ctx) => {
@@ -463,7 +452,7 @@ function setupOrderSystem(bot) {
         const orderId = ctx.match[1];
         const order = await getOrder(orderId);
 
-        if (!order || order.status !== 'pending') return ctx.reply('❌ Cette commande n\'est plus disponible.');
+        if (!order || order.status !== 'pending') return safeEdit(ctx, '❌ Cette commande n\'est plus disponible.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'show_available_orders')]]));
 
         await updateOrderStatus(orderId, 'taken', {
             livreur_id: `telegram_${ctx.from.id}`,
@@ -473,6 +462,7 @@ function setupOrderSystem(bot) {
         const settings = await getAppSettings();
         await safeEdit(ctx,
             `${settings.ui_icon_success} <b>Commande #${orderId.substring(0, 5)} acceptée !</b>\n\n` +
+            `📦 Produit : <b>${order.product_name} (x${order.quantity})</b>\n` +
             `📍 Adresse : <code>${order.address}</code>\n\n` +
             `💰 Total à encaisser : <b>${order.total_price}€</b>\n\n` +
             `💡 <i>Pensez à partager votre position en direct pour notifier le client de votre arrivée.</i>\n\n` +
@@ -650,7 +640,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const orderId = ctx.match[1];
         const order = await getOrder(orderId);
-        if (!order) return ctx.reply('❌ Commande non trouvée.');
+        if (!order) return safeEdit(ctx, '❌ Commande non trouvée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
 
         const settings = await getAppSettings();
         await safeEdit(ctx,

@@ -109,7 +109,7 @@ function setupStartHandler(bot) {
     bot.action('my_referrals', async (ctx) => {
         await ctx.answerCbQuery();
         const user = await getUser(`telegram_${ctx.from.id}`);
-        if (!user) return ctx.reply('❌ Erreur : Profil non trouvé. Relancez /start');
+        if (!user) return safeEdit(ctx, '❌ Erreur : Profil non trouvé. Relancez /start', Markup.inlineKeyboard([[Markup.button.callback('🚀 /start', 'start')]]));
 
         const botUsername = ctx.botInfo.username;
         const refLink = `https://t.me/${botUsername}?start=${user.referral_code}`;
@@ -217,7 +217,7 @@ function setupStartHandler(bot) {
             // Sauvegarder les coordonnées
             await saveUserLocation(userId, loc.latitude, loc.longitude);
 
-            await ctx.reply('✅ Position enregistrée. Merci !', Markup.removeKeyboard());
+            await safeEdit(ctx, '✅ Position enregistrée. Merci !', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'livreur_menu')]]));
 
             // On pourrait faire un reverse geocoding ici pour avoir la ville exacte si besoin
             // Pour l'instant on garde les coordonnées pour le tracking livreur

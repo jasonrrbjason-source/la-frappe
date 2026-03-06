@@ -61,7 +61,7 @@ async function safeEdit(ctx, text, opts = {}) {
     try {
         const currentMsg = ctx.callbackQuery?.message;
 
-        // --- TENTATIVE 1 : EDIT FLUIDE (Même type de message pour éviter l'évaporation) ---
+        // --- TENTATIVE 1 : EDIT FLUIDE (Même type de message pour éviter l'évanescence) ---
         if (currentMsg) {
             const hasPhoto = !!currentMsg.photo;
             const hasVideo = !!currentMsg.video;
@@ -124,33 +124,30 @@ async function safeEdit(ctx, text, opts = {}) {
             await addMessageToTrack(trackId, m.message_id).catch(() => { });
         }
 
-        // 3. Suppression de l'ancien menu APRES l'envoi (Transition douce)
-        if (currentMsg) {
+        // 3. Nettoyage PROFOND (Transition Flux Constant)
+        const user = await getUser(trackId);
+        const newIdsStrings = newMsgs.map(m => String(m.message_id));
+        const currentMsgIdStr = currentMsg ? String(currentMsg.message_id) : null;
+
+        // Supprimer l'ancien last_menu_id
+        if (user && user.last_menu_id) {
+            const lastIdStr = String(user.last_menu_id);
+            if (!newIdsStrings.includes(lastIdStr)) {
+                await ctx.telegram.deleteMessage(chatId, user.last_menu_id).catch(() => { });
+            }
+        }
+
+        // Supprimer le message actuel s'il n'a pas été supprimé par last_menu_id
+        if (currentMsg && !newIdsStrings.includes(currentMsgIdStr)) {
             await ctx.telegram.deleteMessage(chatId, currentMsg.message_id).catch(() => { });
         }
 
-        // 4. Nettoyage profond des résidus (Garantit le Flux Constant)
-        const user = await getUser(trackId);
-        if (user) {
-            const newIdsStrings = newMsgs.map(m => String(m.message_id));
-            const currentMsgIdStr = currentMsg ? String(currentMsg.message_id) : null;
-
-            // Supprimer l'ancien last_menu_id s'il est différent des nouveaux messages
-            if (user.last_menu_id) {
-                const lastIdStr = String(user.last_menu_id);
-                if (!newIdsStrings.includes(lastIdStr) && lastIdStr !== currentMsgIdStr) {
-                    await ctx.telegram.deleteMessage(chatId, user.last_menu_id).catch(() => { });
-                }
-            }
-
-            // Nettoyage des messages traqués
-            if (user.tracked_messages && user.tracked_messages.length > 0) {
-                const toClean = user.tracked_messages.slice(-20); // Prendre un peu plus large
-                for (const mid of toClean) {
-                    const midStr = String(mid);
-                    if (!newIdsStrings.includes(midStr) && midStr !== currentMsgIdStr) {
-                        await ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
-                    }
+        // Supprimer TOUS les anciens messages traqués (Garantit un seul message)
+        if (user && user.tracked_messages && user.tracked_messages.length > 0) {
+            for (const mid of user.tracked_messages) {
+                const midStr = String(mid);
+                if (!newIdsStrings.includes(midStr) && midStr !== currentMsgIdStr) {
+                    await ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
                 }
             }
         }

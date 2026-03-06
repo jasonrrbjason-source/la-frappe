@@ -27,7 +27,7 @@ async function handleAdminLogin(ctx, password) {
         authenticatedAdmins.add(ctx.from.id);
         return showAdminMenu(ctx);
     } else {
-        return ctx.reply('❌ Mot de passe incorrect.');
+        return safeEdit(ctx, '❌ Mot de passe incorrect.');
     }
 }
 
@@ -55,7 +55,7 @@ async function showAdminMenu(ctx, isEdit = false) {
     if (isEdit) {
         return safeEdit(ctx, text, keyboard);
     } else {
-        return ctx.replyWithHTML(text, keyboard);
+        return safeEdit(ctx, text, keyboard);
     }
 }
 
@@ -63,11 +63,11 @@ function setupAdminHandlers(bot) {
 
     // Commande /admin
     bot.command('admin', async (ctx) => {
-        if (!(await isAdmin(ctx))) return ctx.reply('❌ Accès réservé.');
+        if (!(await isAdmin(ctx))) return safeEdit(ctx, '❌ Accès réservé.');
         const args = ctx.message.text.split(' ');
         if (args.length < 2) {
             pendingAdminLogins.add(ctx.from.id);
-            return ctx.reply('🔐 Veuillez entrer le mot de passe administrateur :');
+            return safeEdit(ctx, '🔐 Veuillez entrer le mot de passe administrateur :');
         }
         return handleAdminLogin(ctx, args[1]);
     });
@@ -334,11 +334,11 @@ function setupAdminHandlers(bot) {
     bot.on('text', async (ctx, next) => {
         if (pendingBroadcasts.has(ctx.from.id) && authenticatedAdmins.has(ctx.from.id)) {
             pendingBroadcasts.delete(ctx.from.id);
-            const msg = ctx.message.text.trim();
-            if (!msg) return ctx.reply('❌ Message vide.');
-            await ctx.reply('🚀 Diffusion en cours...');
+            const msg = (ctx.message.text || '').trim();
+            if (!msg) return safeEdit(ctx, '❌ Message vide.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_broadcast')]]));
+            await safeEdit(ctx, '🚀 Diffusion en cours...');
             const res = await broadcastMessage('users', msg);
-            return ctx.reply(`✅ Diffusion terminée !\n\n📊 Cibles : ${res.total}\n✅ Succès : ${res.success}\n❌ Échecs : ${res.failed}`);
+            return safeEdit(ctx, `✅ Diffusion terminée !\n\n📊 Cibles : ${res.total}\n✅ Succès : ${res.success}\n❌ Échecs : ${res.failed}`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu Admin', 'admin_menu')]]));
         }
         return next();
     });
@@ -346,9 +346,9 @@ function setupAdminHandlers(bot) {
     bot.command('broadcast', async (ctx) => {
         if (!authenticatedAdmins.has(ctx.from.id)) return;
         const msg = ctx.message.text.split(' ').slice(1).join(' ');
-        if (!msg) return ctx.reply('❌ Message vide. Usage: /broadcast Hello');
+        if (!msg) return safeEdit(ctx, '❌ Message vide. Usage: /broadcast Votre Message', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu Admin', 'admin_menu')]]));
         const res = await broadcastMessage('users', msg);
-        ctx.reply(`✅ Diffusion terminée vers ${res.total} membres.`);
+        await safeEdit(ctx, `✅ Diffusion terminée vers ${res.total} membres.`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu Admin', 'admin_menu')]]));
     });
 
     // Bloquer un utilisateur

@@ -470,42 +470,55 @@ async function getRecentUsers(limit = 20) {
     return (data || []).map(decryptUser);
 }
 async function searchUsers(query) {
-    if (!query) {
-        const { data } = await supabase.from(COL_USERS).select('*').limit(20);
-        return (data || []).map(decryptUser);
-    }
-    const { data } = await supabase.from(COL_USERS)
-        .select('*')
-        .or(`id.ilike.%${query}%,username.ilike.%${query}%,first_name.ilike.%${query}%`)
-        .limit(20);
-    return (data || []).map(decryptUser);
+    // Note: Since username/first_name are ENCRYPTED in DB, SQL 'ilike' won't work.
+    // We fetch a larger batch and filter in memory for better UX on small/medium userbases.
+    const { data } = await supabase.from(COL_USERS).select('*').limit(200);
+    const decrypted = (data || []).map(decryptUser);
+
+    if (!query) return decrypted.slice(0, 50);
+
+    const q = query.toLowerCase().replace('@', '');
+    return decrypted.filter(u => {
+        const uid = String(u.id || '').toLowerCase();
+        const uname = String(u.username || '').toLowerCase();
+        const fname = String(u.first_name || '').toLowerCase();
+        const pid = String(u.platform_id || '').toLowerCase();
+
+        return uid.includes(q) || uname.includes(q) || fname.includes(q) || pid.includes(q);
+    }).slice(0, 50);
 }
 
 async function searchLivreurs(query) {
-    let q = supabase.from(COL_USERS).select('*').eq('is_livreur', true);
-    if (!query) {
-        const { data } = await q.limit(20);
-        return (data || []).map(decryptUser);
-    }
+    const { data } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true).limit(200);
+    const decrypted = (data || []).map(decryptUser);
 
-    const isId = /^\d+$/.test(query);
-    if (isId) {
-        q = q.or(`platform_id.eq.${query},id.eq.telegram_${query}`);
-    } else {
-        const clean = query.replace('@', '');
-        q = q.or(`username.ilike.%${clean}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
-    }
+    if (!query) return decrypted.slice(0, 50);
 
-    const { data } = await q.limit(20);
-    return (data || []).map(decryptUser);
+    const q = query.toLowerCase().replace('@', '');
+    return decrypted.filter(u => {
+        const uid = String(u.id || '').toLowerCase();
+        const uname = String(u.username || '').toLowerCase();
+        const fname = String(u.first_name || '').toLowerCase();
+        const pid = String(u.platform_id || '').toLowerCase();
+
+        return uid.includes(q) || uname.includes(q) || fname.includes(q) || pid.includes(q);
+    }).slice(0, 50);
 }
 
 async function getDetailedLivreurActivity(livreurId) {
-    const docId = livreurId.includes('_') ? livreurId : `telegram_${livreurId}`;
+    if (!livreurId) return [];
+    // Ensure format matches livreur_id in orders (e.g. telegram_123)
+    const docId = (livreurId.includes('_') || livreurId.startsWith('t_')) ? livreurId : `telegram_${livreurId}`;
+
+    // We try both formats just in case some orders have the raw ID
+    const rawId = livreurId.replace('telegram_', '');
+
     const { data } = await supabase.from(COL_ORDERS)
         .select('*')
-        .eq('livreur_id', docId)
-        .order('created_at', { ascending: false });
+        .or(`livreur_id.eq.${docId},livreur_id.eq.${rawId},livreur_id.eq.${livreurId}`)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
     return data || [];
 }
 

@@ -109,7 +109,8 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
 
         let finalUser;
         if (nowMs - lastActiveMs > 300000) { // 5 minutes
-            await supabase.from(COL_USERS).update(coreData).eq('id', docId);
+            const { error: updErr } = await supabase.from(COL_USERS).update(coreData).eq('id', docId);
+            if (updErr) console.error(`❌ Échec UPDATE user ${docId}:`, updErr.message);
             _userCache.delete(docId);
             finalUser = { ...existing, ...coreData };
         } else {
@@ -139,7 +140,12 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         data: {},
         referral_code: generateReferralCode(platform, platformUser.id),
     };
-    await supabase.from(COL_USERS).insert([newUser]);
+    const { error: insertError } = await supabase.from(COL_USERS).insert([newUser]);
+    if (insertError) {
+        console.error(`❌ Échec INSERT user ${docId}:`, insertError.message, insertError.details);
+        return { isNew: false, user: decryptUser({ ...newUser }) };
+    }
+
     await incrementStat('total_users');
     await incrementDailyStat('new_users');
 

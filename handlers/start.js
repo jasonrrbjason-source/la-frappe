@@ -341,4 +341,4 @@ function getLivreurMenuKeyboard(settings, user, hasActiveOrders = false) {
     return Markup.inlineKeyboard(buttons);
 }
 
-module.exports = { setupStartHandler, getLivreurMenuKeyboard };
+module.exports = { setupStartHandler, getLivreurMenuKeyboard, getMainMenuKeyboard };

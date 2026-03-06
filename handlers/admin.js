@@ -194,15 +194,18 @@ function setupAdminHandlers(bot) {
         await safeEdit(ctx, `👥 <b>Gestion des Utilisateurs</b>\n\nDerniers inscrits :`, Markup.inlineKeyboard(buttons));
     });
 
+    const adminSearchState = new Map();
     bot.action('admin_user_search', async (ctx) => {
         await ctx.answerCbQuery();
-        ctx.state.awaiting_admin_search = true;
-        await safeEdit(ctx, `🔍 <b>Recherche Utilisateur</b>\n\nEnvoyez le nom ou le @username de la personne :`);
+        adminSearchState.set(ctx.from.id, true);
+        await safeEdit(ctx, `🔍 <b>Recherche Utilisateur</b>\n\nEnvoyez le nom ou le @username de la personne :`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', 'admin_users')]]));
     });
 
+    // On utilise un handler spécifique pour la recherche
     bot.on('text', async (ctx, next) => {
-        if (ctx.state.awaiting_admin_search) {
-            delete ctx.state.awaiting_admin_search;
+        if (adminSearchState.has(ctx.from.id)) {
+            adminSearchState.delete(ctx.from.id);
             const query = ctx.message.text.trim();
             const users = await searchUsers(query);
             if (users.length === 0) return ctx.reply('❌ Aucun utilisateur trouvé.');

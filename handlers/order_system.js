@@ -85,7 +85,8 @@ function setupOrderSystem(bot) {
 
         const rows = [];
         for (let i = 0; i < options.length; i += 2) rows.push(options.slice(i, i + 2));
-        rows.push([Markup.button.callback('◀️ Retour', `product_${product.id}`)]);
+        rows.push([Markup.button.callback('◀️ Retour Quantité', `product_${product.id}`)]);
+        rows.push([Markup.button.callback('❌ Annuler', 'view_catalog')]);
 
         await safeEdit(ctx, text, Markup.inlineKeyboard(rows));
     }
@@ -121,7 +122,7 @@ function setupOrderSystem(bot) {
             {
                 ...Markup.inlineKeyboard([
                     ...(settings.dashboard_url ? [[Markup.button.webApp("📍 Choisir sur la carte", `${settings.dashboard_url.replace('/dashboard', '/address_picker')}`)]] : []),
-                    [Markup.button.callback('◀️ Changer quantité', `product_${product.id}`)],
+                    [Markup.button.callback('◀️ Retour Quantité', product.unit ? `qty_${product.id}_${qty}` : `product_${product.id}`)],
                     [Markup.button.callback('❌ Annuler', 'view_catalog')]
                 ]),
                 photo: product.image_url || null
@@ -170,6 +171,7 @@ function setupOrderSystem(bot) {
                         ...Markup.inlineKeyboard([
                             [Markup.button.callback(`✅ Oui, déduire ${possibleDiscount.toFixed(2)}€`, 'confirm_order_use_credit_yes')],
                             [Markup.button.callback('❌ Non, payer plein tarif', 'confirm_order_use_credit_no')],
+                            [Markup.button.callback('◀️ Retour Adresse', 'back_to_address')],
                             [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
                         ]),
                         photo: product.image_url || null
@@ -187,7 +189,8 @@ function setupOrderSystem(bot) {
         const buttons = [
             [Markup.button.callback('🚀 Immédiatement', 'scheduling_now')],
             [Markup.button.callback('🕒 Planifier une heure', 'scheduling_plan')],
-            [Markup.button.callback('◀️ Annuler', 'view_catalog')]
+            [Markup.button.callback('◀️ Retour Adresse', 'back_to_address')],
+            [Markup.button.callback('❌ Annuler', 'view_catalog')]
         ];
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     }
@@ -225,7 +228,7 @@ function setupOrderSystem(bot) {
             buttons.push([Markup.button.callback(`${idx === 0 ? 'Aujourd\'hui' : 'Demain'} (${dateStr})`, `sched_date_${dateKey}`)]);
         });
 
-        buttons.push([Markup.button.callback('◀️ Retour', 'scheduling_now')]);
+        buttons.push([Markup.button.callback('◀️ Retour', 'back_to_scheduling')]);
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     });
 
@@ -234,13 +237,17 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const text = `🕒 <b>À quelle heure ?</b>\n\nSélectionnez un créneau horaire :`;
 
-        // Exemple de créneaux
-        const slots = ["12h00", "13h00", "14h00", "18h00", "19h00", "20h00", "21h00", "22h00", "23h00", "00h00"];
+        // Génération automatique des créneaux (de 00h à 23h, toutes les 30m ou 15m)
+        const slots = [];
+        for (let h = 0; h < 24; h++) {
+            const hStr = h.toString().padStart(2, '0');
+            // On peut mettre 00, 15, 30, 45 ou juste 00, 30
+            slots.push(`${hStr}h00`, `${hStr}h15`, `${hStr}h30`, `${hStr}h45`);
+        }
+
         const buttons = [];
-        for (let i = 0; i < slots.length; i += 2) {
-            const row = [];
-            row.push(Markup.button.callback(slots[i], `sched_final_${date}_${slots[i]}`));
-            if (slots[i + 1]) row.push(Markup.button.callback(slots[i + 1], `sched_final_${date}_${slots[i + 1]}`));
+        for (let i = 0; i < slots.length; i += 4) {
+            const row = slots.slice(i, i + 4).map(s => Markup.button.callback(s, `sched_final_${date}_${s}`));
             buttons.push(row);
         }
         buttons.push([Markup.button.callback('◀️ Retour', 'scheduling_plan')]);
@@ -261,6 +268,21 @@ function setupOrderSystem(bot) {
         const discount = pending.possibleDiscount || 0;
         const finalPrice = parseFloat(pending.totalPrice) - discount;
         await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, discount, pending.scheduled_at);
+    });
+
+    bot.action('back_to_address', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const pending = pendingOrders.get(userId);
+        if (!pending) return ctx.reply("Session expirée.");
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+        await promptAddress(ctx, product, pending.qty, pending.totalPrice);
+    });
+
+    bot.action('back_to_scheduling', async (ctx) => {
+        await ctx.answerCbQuery();
+        await askScheduling(ctx);
     });
 
     const pendingOrderConfirmation = new Map();
@@ -306,6 +328,7 @@ function setupOrderSystem(bot) {
         await safeEdit(ctx, text, {
             ...Markup.inlineKeyboard([
                 [Markup.button.callback('✅ CONFIRMER LA COMMANDE', `create_order_${discount > 0 ? 'discount' : 'normal'}`)],
+                [Markup.button.callback('◀️ Modifier livraison', 'back_to_scheduling')],
                 [Markup.button.callback('❌ Annuler', 'view_catalog')]
             ]),
             photo: product.image_url || null
@@ -660,7 +683,10 @@ function setupOrderSystem(bot) {
 
         const settings = await getAppSettings();
 
-        await updateOrderStatus(orderId, 'delivered');
+        await updateOrderStatus(orderId, 'delivered', {
+            livreur_id: `telegram_${ctx.from.id}`,
+            livreur_name: ctx.from.first_name
+        });
         await incrementOrderCount(`telegram_${ctx.from.id}`);
 
         await safeEdit(ctx, `✅ Commande <b>#${orderId.substring(0, 5)}</b> marquée comme LIVRÉE !\nFélicitations pour votre livraison.`, {
@@ -719,7 +745,26 @@ function setupOrderSystem(bot) {
             const text = ctx.message.text;
             await saveFeedback(orderId, parseInt(rate), text);
 
-            await ctx.reply('🙏 Merci pour votre retour ! Votre avis a bien été enregistré.');
+            const thankMsg = await ctx.reply('🙏 Merci pour votre retour ! Votre avis a bien été enregistré.');
+
+            // Après 35s : vider et réafficher le menu principal
+            setTimeout(async () => {
+                try {
+                    // Supprimer le message de remerciement et le commentaire de l'utilisateur
+                    await ctx.deleteMessage(thankMsg.message_id).catch(() => {});
+                    await ctx.deleteMessage(ctx.message.message_id).catch(() => {});
+
+                    // Réafficher le menu principal
+                    const { getAppSettings, getUser } = require('../services/database');
+                    const { getMainMenuKeyboard } = require('./start');
+                    const settings = await getAppSettings();
+                    const user = await getUser(`telegram_${ctx.from.id}`);
+                    const menuText = `📋 <b>Menu principal</b>`;
+                    const keyboard = getMainMenuKeyboard(settings, user);
+                    await ctx.telegram.sendMessage(ctx.chat.id, menuText, { parse_mode: 'HTML', ...keyboard });
+                } catch (e) { console.error('Post-feedback cleanup error:', e.message); }
+            }, 35000);
+
             return;
         }
         await next();
@@ -837,7 +882,7 @@ function setupOrderSystem(bot) {
                 // Parsing date Supabase simple
                 const dateStr = d.created_at ? new Date(d.created_at).toLocaleDateString('fr-FR') : 'Date inconnue';
                 text += `${i + 1}. #${d.id.substring(0, 5)} - ${d.product_name} (${d.total_price}€)\n` +
-                    `📅 ${dateStr} - 📍 ${d.address.substring(0, 20)}...\n\n`;
+                    `📅 ${dateStr} - 📍 ${(d.address || 'N/A').substring(0, 20)}...\n\n`;
                 totalEarned += parseFloat(d.total_price);
             });
 

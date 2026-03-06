@@ -7,6 +7,12 @@ const {
 } = require('../services/database');
 const { safeEdit, debugLog } = require('../services/utils');
 
+// ======= ÉTAT EN MÉMOIRE (PERSISTANT PENDANT RUNTIME) =======
+const userCarts = new Map();
+const pendingOrders = new Map();
+const awaitingAddressDetails = new Map();
+const pendingOrderConfirmation = new Map();
+
 function setupOrderSystem(bot) {
     // ========== CATALOGUE & COMMANDE ==========
 

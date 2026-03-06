@@ -592,7 +592,7 @@ async function getStatsOverview() {
         totalStats: stats,
         totalOrders: (ordersSnap || []).length,
         totalCA: totalCA.toFixed(2),
-        totalLivreurs: (livreursSnap || []).length,
+        totalLivreurs: (livreursRaw || []).length,
         activeLivreurs: activeLivreurs,
         recentBroadcasts: bcSnap || []
     };

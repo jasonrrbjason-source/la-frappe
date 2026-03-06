@@ -2325,6 +2325,13 @@
             loadData('orders');
         }
 
+        async function toggleLivreurAvailability(platformId, platform, isAvailable) {
+            const isNewState = !isAvailable;
+            await api('/livreurs/availability', 'POST', { userId: platformId, platform, isAvailable: isNewState });
+            showToast(`Livreur ${isNewState ? 'disponible' : 'indisponible'} !`);
+            loadData('livreurs');
+        }
+
         async function toggleLivreur(userId, platform, isLivreur) {
             await api('/livreurs/status', 'POST', { userId, platform, isLivreur });
             loadData('users');
@@ -2438,6 +2445,10 @@
                     </td>
                     <td data-label="Ville/Secteur">${l.current_city ? l.current_city.toUpperCase() : '—'}</td>
                     <td data-label="Actions" class="action-btns">
+                        <button class="btn btn-sm ${l.is_available ? 'btn-danger' : 'btn-accent'}" 
+                                onclick="toggleLivreurAvailability('${l.platform_id}', '${l.platform}', ${l.is_available})">
+                            ${l.is_available ? '🔴 OFF' : '🟢 ON'}
+                        </button>
                         <button class="btn btn-sm btn-outline" onclick="showLivreurHistory('${l.id || l.doc_id}', '${l.first_name}')">📜 Historique</button>
                         <button class="btn btn-danger btn-sm" onclick="toggleLivreur('${l.platform_id}', '${l.platform}', false);loadData('livreurs')">Retirer</button>
                     </td>

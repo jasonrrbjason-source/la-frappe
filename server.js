@@ -299,6 +299,17 @@ function createServer() {
         } catch (e) { console.error('Livreurs API error:', e); res.status(500).json({ error: e.message }); }
     });
 
+    app.get('/api/livreurs/:id/history', authMiddleware, async (req, res) => {
+        try {
+            const { getDetailedLivreurActivity } = require('./services/database');
+            const history = await getDetailedLivreurActivity(req.params.id);
+            res.json(history);
+        } catch (e) {
+            console.error('Livreur history error:', e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     app.get('/api/settings', authMiddleware, async (req, res) => {
         try { res.json(await getAppSettings()); }
         catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }

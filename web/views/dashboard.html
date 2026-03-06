@@ -790,10 +790,9 @@
         <a class="nav-item active" onclick="switchSection('overview')"><i id="nav_icon_overview">🏠</i> Accueil</a>
         <a class="nav-item" onclick="switchSection('users')"><i id="nav_icon_users">👥</i> Utilisateurs</a>
         <a class="nav-item" onclick="switchSection('products')"><i id="nav_icon_products">👟</i> Produits</a>
-        <a class="nav-item" onclick="switchSection('orders')"><i id="nav_icon_orders">📦</i> Commandes</a>
+        <a class="nav-item" onclick="switchSection('logistique')"><i id="nav_icon_logistique">🚚</i> Logistique</a>
         <a class="nav-item" onclick="switchSection('insights')"><i id="nav_icon_insights">📊</i> Insights</a>
         <a class="nav-item" onclick="switchSection('broadcast')"><i id="nav_icon_broadcast">📣</i> Diffusion</a>
-        <a class="nav-item" onclick="switchSection('livreurs')"><i id="nav_icon_livreurs">🚴</i> Livreurs</a>
         <a class="nav-item" onclick="switchSection('settings')"><i id="nav_icon_settings">⚙️</i> Paramètres</a>
         <a class="nav-item logout-btn" onclick="logout()"><i>🚪</i> Déconnexion</a>
     </aside>
@@ -984,146 +983,94 @@
             </div>
         </section>
 
-        <!-- ORDERS -->
-        <section class="section" id="section-orders">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <h1>Commandes</h1>
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <span id="orderTotalSum"
-                        style="background:var(--accent); color:white; padding:6px 15px; border-radius:30px; font-weight:bold; font-size:15px;">—
-                        €</span>
-                    <div style="background:rgba(255,255,255,0.05); padding:5px; border-radius:10px; display:flex; gap:5px;"
-                        id="orderFilterContainer">
-                        <button class="btn btn-sm btn-outline"
-                            onclick="filterData('orders', 'today', this)">Aujourd'hui</button>
-                        <button class="btn btn-sm btn-outline"
-                            onclick="filterData('orders', 'week', this)">Semaine</button>
-                        <button class="btn btn-sm btn-outline"
-                            onclick="filterData('orders', 'month', this)">Mois</button>
-                        <button class="btn btn-sm btn-outline active"
-                            onclick="filterData('orders', 'all', this)">Tout</button>
+        <!-- LOGISTIQUE (FUSION ORDERS + LIVREURS) -->
+        <section class="section" id="section-logistique">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+                <h1>Logistique & Livraisons</h1>
+                <div style="display:flex; background:var(--hover); padding:4px; border-radius:12px; gap:4px;">
+                    <button class="btn btn-sm btn-outline active" id="btn-tab-orders"
+                        onclick="switchLogisticsTab('orders')">📦 Commandes</button>
+                    <button class="btn btn-sm btn-outline" id="btn-tab-livreurs"
+                        onclick="switchLogisticsTab('livreurs')">🚴 Livreurs</button>
+                </div>
+            </div>
+
+            <!-- Sub-section: Orders -->
+            <div id="sub-logistics-orders">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span id="orderTotalSum"
+                            style="background:var(--accent); color:white; padding:6px 15px; border-radius:30px; font-weight:bold; font-size:15px;">—
+                            €</span>
+                        <div style="background:rgba(255,255,255,0.05); padding:5px; border-radius:10px; display:flex; gap:5px;"
+                            id="orderFilterContainer">
+                            <button class="btn btn-sm btn-outline"
+                                onclick="filterData('orders', 'today', this)">Aujourd'hui</button>
+                            <button class="btn btn-sm btn-outline"
+                                onclick="filterData('orders', 'week', this)">Semaine</button>
+                            <button class="btn btn-sm btn-outline"
+                                onclick="filterData('orders', 'month', this)">Mois</button>
+                            <button class="btn btn-sm btn-outline active"
+                                onclick="filterData('orders', 'all', this)">Tout</button>
+                        </div>
                     </div>
+                    <button class="btn btn-accent" onclick="loadData('orders')">🔄 Rafraîchir</button>
                 </div>
-            </div>
-            <div class="card">
-                <table id="orderTable" class="responsive-table">
-                    <thead>
-                        <tr>
-                            <th>Client</th>
-                            <th>Détails</th>
-                            <th>Total</th>
-                            <th>Ville</th>
-                            <th>Date</th>
-                            <th>Livré à</th>
-                            <th>Statut</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- BROADCAST -->
-        <section class="section" id="section-broadcast">
-            <h1>Diffusion (Broadcast)</h1>
-            <div class="card">
-                <input type="hidden" id="bcPlatform" value="telegram">
-
-                <label>Message (Texte / HTML)</label>
-                <textarea id="bcMsg" rows="5" placeholder="Ecrivez votre message ici..."
-                    style="font-size:15px"></textarea>
-
-                <label>Médias</label>
-                <div id="bc_media_grid"
-                    style="display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin-bottom:16px; min-height:0;">
-                </div>
-                <button class="btn btn-outline" type="button" onclick="document.getElementById('file_bc').click()"
-                    style="width:100%; margin-bottom:16px; border-style:dashed;">
-                    📷 Ajouter des photos / vidéos
-                </button>
-                <input type="file" id="file_bc" hidden accept="image/*,video/*" multiple onchange="addBcMedia(this)">
-
-                <div
-                    style="background:rgba(255,150,0,0.1); padding:12px; border-radius:8px; margin-bottom:16px; font-size:12px; color:#ffa500;">
-                    💡 Le formatage HTML est supporté. Les médias seront envoyés avec le message.
-                </div>
-
-                <div style="display:flex; gap:10px;">
-                    <button class="btn btn-accent" id="btn_send_bc" onclick="sendBC()" style="flex:2">🚀 Lancer la
-                        diffusion</button>
-                    <button class="btn btn-outline" onclick="viewDiagnosticLogs()" style="flex:1; font-size:11px;">📋
-                        Logs Diagnostic</button>
+                <div class="card">
+                    <table id="orderTable" class="responsive-table">
+                        <thead>
+                            <tr>
+                                <th>Client</th>
+                                <th>Détails</th>
+                                <th>Total</th>
+                                <th>Ville</th>
+                                <th>Date</th>
+                                <th>Livré à</th>
+                                <th>Statut</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
                 </div>
             </div>
 
-            <h2 style="margin:40px 0 20px; font-size:20px;">📜 Historique des Diffusions</h2>
-            <div class="card">
-                <table class="responsive-table" id="bcHistoryTable">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Média</th>
-                            <th>Message</th>
-                            <th>Cibles</th>
-                            <th>Succès</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td colspan="5" style="padding:20px; text-align:center; color:var(--text-muted)">Chargement
-                                de l'historique...</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- LIVREURS -->
-        <section class="section" id="section-livreurs">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <h1 style="margin:0;">Livreurs</h1>
-                <span id="livreursTotalCounter"
-                    style="background:#0a84ff; color:white; padding:4px 12px; border-radius:20px; font-size:14px; font-weight:700;">Chargement...</span>
-            </div>
-
-            <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <div class="flex" style="gap:15px; align-items:center;">
-                    <div class="search-container" style="margin:0; width:300px;">
-                        <span class="search-icon">🔍</span>
-                        <input type="text" class="search-input" id="livreur-search"
-                            placeholder="Rechercher un livreur..." onkeyup="searchLivreursUI()">
+            <!-- Sub-section: Livreurs -->
+            <div id="sub-logistics-livreurs" style="display:none;">
+                <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <div class="flex" style="gap:15px; align-items:center;">
+                        <div class="search-container" style="margin:0; width:300px;">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" class="search-input" id="livreur-search"
+                                placeholder="Rechercher un livreur..." onkeyup="searchLivreursUI()">
+                        </div>
+                        <label style="margin:0; display:flex; align-items:center; gap:8px; cursor:pointer;">
+                            <input type="checkbox" id="online-livreurs-only" onchange="loadData('livreurs')"
+                                style="width:18px; height:18px;">
+                            <span style="font-size:13px; color:var(--text-main);">En ligne uniquement</span>
+                        </label>
                     </div>
-                    <label style="margin:0; display:flex; align-items:center; gap:8px; cursor:pointer;">
-                        <input type="checkbox" id="online-livreurs-only" onchange="loadData('livreurs')"
-                            style="width:18px; height:18px;">
-                        <span style="font-size:13px; color:var(--text-main);">En ligne uniquement</span>
-                    </label>
+                    <button class="btn btn-accent" onclick="loadData('livreurs')">🔄 Rafraîchir</button>
                 </div>
-                <button class="btn btn-accent" onclick="loadData('livreurs')">🔄 Rafraîchir</button>
-            </div>
-            <div class="card" style="margin-bottom:20px">
-                <p style="color:var(--text-muted);margin-bottom:16px">Liste de tous les utilisateurs ayant le statut
-                    livreur. Pour promouvoir un utilisateur en livreur, allez dans la section <b>Utilisateurs</b>.</p>
-                <table class="responsive-table" style="width:100%;border-collapse:collapse">
-                    <thead>
-                        <tr style="border-bottom:1px solid var(--border)">
-                            <th style="padding:10px;text-align:left">Livreur</th>
-                            <th style="padding:10px;text-align:left">Statut</th>
-                            <th style="padding:10px;text-align:left">Ville</th>
-                            <th style="padding:10px;text-align:left">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="livreursTable">
-                        <tr>
-                            <td colspan="5" style="padding:20px;text-align:center;color:var(--text-muted)">Chargement...
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+                <div class="card" style="margin-bottom:20px">
+                    <table class="responsive-table" style="width:100%;border-collapse:collapse">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--border)">
+                                <th style="padding:10px;text-align:left">Livreur</th>
+                                <th style="padding:10px;text-align:left">Statut</th>
+                                <th style="padding:10px;text-align:left">Ville</th>
+                                <th style="padding:10px;text-align:left">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="livreursTable"></tbody>
+                    </table>
+                </div>
             </div>
         </section>
+
+        <!-- OLD SECTIONS (Keep IDs for JS consistency but they won't be in sidebar) -->
+        <section class="section" id="section-orders" style="display:none;"></section>
+        <section class="section" id="section-livreurs" style="display:none;"></section>
 
         <!-- SETTINGS -->
         <section class="section" id="section-settings">
@@ -1406,6 +1353,12 @@
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
+            if (id === 'logistique') {
+                // Par défaut, quand on clique sur Logistique, on reste sur l'onglet actif ou orders
+                const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');
+                switchLogisticsTab(isLivreurs ? 'livreurs' : 'orders');
+            }
+
             const target = document.getElementById('section-' + id);
             if (target) {
                 target.classList.add('active');
@@ -1415,7 +1368,8 @@
             // On cherche l'item du menu correspondant
             const navItems = document.querySelectorAll('.nav-item');
             navItems.forEach(item => {
-                if (item.getAttribute('onclick') && item.getAttribute('onclick').includes(`'${id}'`)) {
+                const onClick = item.getAttribute('onclick');
+                if (onClick && (onClick.includes(`'${id}'`) || (id === 'orders' && onClick.includes("'logistique'")) || (id === 'livreurs' && onClick.includes("'logistique'")))) {
                     item.classList.add('active');
                 }
             });
@@ -1545,7 +1499,11 @@
         }
 
         async function loadData(id) {
-            const section = document.getElementById('section-' + id);
+            if (id === 'logistique') {
+                const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');
+                id = isLivreurs ? 'livreurs' : 'orders';
+            }
+            const section = document.getElementById('section-' + id) || document.getElementById('section-logistique');
             try {
                 if (!window.appSettings) {
                     window.appSettings = await api('/settings');
@@ -2427,10 +2385,89 @@
                     </td>
                     <td data-label="Ville/Secteur">${l.current_city ? l.current_city.toUpperCase() : '—'}</td>
                     <td data-label="Actions" class="action-btns">
+                        <button class="btn btn-sm btn-outline" onclick="showLivreurHistory('${l.id || l.doc_id}', '${l.first_name}')">📜 Historique</button>
                         <button class="btn btn-danger btn-sm" onclick="toggleLivreur('${l.platform_id}', '${l.platform}', false);loadData('livreurs')">Retirer</button>
                     </td>
                 </tr>
             `).join('');
+        }
+
+        // Logic for Logistics Tabs
+        function switchLogisticsTab(tab) {
+            document.getElementById('sub-logistics-orders').style.display = (tab === 'orders') ? 'block' : 'none';
+            document.getElementById('sub-logistics-livreurs').style.display = (tab === 'livreurs') ? 'block' : 'none';
+
+            document.getElementById('btn-tab-orders').classList.toggle('active', tab === 'orders');
+            document.getElementById('btn-tab-livreurs').classList.toggle('active', tab === 'livreurs');
+
+            loadData(tab);
+        }
+
+        // Logic for Livreur History
+        async function showLivreurHistory(livreurId, name) {
+            try {
+                const history = await api(`/livreurs/${livreurId}/history`);
+                const modal = document.getElementById('modalOverlay');
+                const title = document.getElementById('modalTitle');
+                const body = document.getElementById('modalMessage');
+
+                title.innerText = `Historique de ${name}`;
+
+                if (!history.length) {
+                    body.innerHTML = '<p style="padding:20px; opacity:0.6;">Aucune livraison terminée.</p>';
+                } else {
+                    let totalVal = history.reduce((acc, o) => acc + (parseFloat(o.total_price) || 0), 0);
+                    body.innerHTML = `
+                        <div style="text-align:left; max-height:400px; overflow-y:auto; font-size:13px;">
+                            <div style="margin-bottom:15px; background:var(--accent); color:white; padding:10px; border-radius:8px; text-align:center;">
+                                <b>${history.length} livraisons | Total : ${totalVal.toFixed(2)}€</b>
+                            </div>
+                            <table style="width:100%; border-spacing:0;">
+                                <thead style="font-size:10px; color:var(--text-muted);">
+                                    <tr>
+                                        <th style="padding:5px;">Date</th>
+                                        <th style="padding:5px;">Client</th>
+                                        <th style="padding:5px;">Produit</th>
+                                        <th style="padding:5px;">Prix</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${history.map(o => {
+                        const d = new Date(o.created_at);
+                        const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+                        return `
+                                            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                                <td style="padding:8px 5px; opacity:0.7;">${date}</td>
+                                                <td style="padding:8px 5px;">${o.first_name}</td>
+                                                <td style="padding:8px 5px;">${o.product_name}</td>
+                                                <td style="padding:8px 5px;"><b>${o.total_price}€</b></td>
+                                            </tr>
+                                        `;
+                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                }
+
+                // On remplace les boutons du footer du modal pour cet usage
+                const footer = document.querySelector('.modal-actions');
+                const oldBtns = footer.innerHTML;
+                footer.innerHTML = '<button class="btn btn-accent" onclick="closeModal(false)">Fermer</button>';
+
+                modal.classList.add('active');
+
+                // Restore old buttons on close
+                const originalClose = window.closeModal;
+                window.closeModal = (res) => {
+                    modal.classList.remove('active');
+                    footer.innerHTML = oldBtns;
+                    window.closeModal = originalClose;
+                };
+
+            } catch (e) {
+                showToast("Erreur historique: " + e.message, 'error');
+            }
         }
 
         async function assignDriver(orderId, livreurId, livreurName) {

@@ -211,23 +211,26 @@ async function setLivreurAvailability(docId, isAvailable) {
     meta.is_available = isAvailable;
 
     // 1. On tente l'update complet (Colonne + JSONB)
-    const { error: fullError } = await supabase.from(COL_USERS).update({
-        is_available: isAvailable,
-        data: meta,
+    const updates = {
+        is_available: !!isAvailable,
         updated_at: ts()
-    }).eq('id', docId);
+    };
+
+    // On synchronise 'data' pour le fallback futur
+    if (userData.data && typeof userData.data === 'object') {
+        updates.data = { ...userData.data, is_available: !!isAvailable };
+    } else {
+        updates.data = { is_available: !!isAvailable };
+    }
+
+    const { error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId);
 
     if (fullError) {
         console.warn(`⚠️ Colonne is_available absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);
-        // 2. Fallback : On sauve uniquement dans le JSONB 'data' pour ne pas bloquer le bot
-        const { error: fallbackError } = await supabase.from(COL_USERS).update({
-            data: meta,
+        await supabase.from(COL_USERS).update({
+            data: updates.data,
             updated_at: ts()
         }).eq('id', docId);
-
-        if (fallbackError) {
-            console.error('❌ ÉCHEC CRITIQUE: Impossible de sauver la disponibilité même en fallback JSONB', fallbackError);
-        }
     }
 
     _userCache.delete(docId);
@@ -246,23 +249,20 @@ async function updateLivreurPosition(docId, input) {
     meta.is_available = !!(user.is_available);
 
     // 1. Tentative d'update complet (Colonne current_city + JSONB)
-    const { error: fullError } = await supabase.from(COL_USERS).update({
+    const updates = {
         current_city: city,
         data: meta,
         updated_at: ts()
-    }).eq('id', docId);
+    };
+
+    const { error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId);
 
     if (fullError) {
         console.warn(`⚠️ Colonne current_city absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);
-        // 2. Fallback JSONB
-        const { error: fallbackError } = await supabase.from(COL_USERS).update({
+        await supabase.from(COL_USERS).update({
             data: meta,
             updated_at: ts()
         }).eq('id', docId);
-
-        if (fallbackError) {
-            console.error('❌ ÉCHEC CRITIQUE: Impossible de sauver le secteur même en fallback JSONB', fallbackError);
-        }
     }
 
     _userCache.delete(docId);
@@ -461,6 +461,15 @@ async function searchLivreurs(query) {
 
     const { data } = await q.limit(20);
     return (data || []).map(decryptUser);
+}
+
+async function getDetailedLivreurActivity(livreurId) {
+    const docId = livreurId.includes('_') ? livreurId : `telegram_${livreurId}`;
+    const { data } = await supabase.from(COL_ORDERS)
+        .select('*')
+        .eq('livreur_id', docId)
+        .order('created_at', { ascending: false });
+    return data || [];
 }
 
 function generateReferralCode(platform, platformId) {

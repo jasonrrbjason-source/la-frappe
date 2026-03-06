@@ -10,9 +10,18 @@ async function safeEdit(ctx, text, opts = {}) {
     const chatId = ctx.chat.id;
 
     // Détection et extraction des médias
-    const photo = opts.photo || null;
+    let photo = opts.photo || null;
     const video = opts.video || null;
     const mediaGroup = opts.mediaGroup || null;
+
+    // Résolution automatique des URLs locales (Telegram ne supporte pas les chemins relatifs)
+    const settings = ctx.state?.settings || {};
+    if (photo && photo.startsWith('/') && !photo.startsWith('http') && settings.dashboard_url) {
+        // Enlever le dernier slash du dashboard_url s'il existe
+        const baseUrl = settings.dashboard_url.replace(/\/$/, '');
+        photo = baseUrl + photo;
+    }
+
     delete opts.photo;
     delete opts.video;
     delete opts.mediaGroup;

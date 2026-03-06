@@ -128,8 +128,89 @@ function setupOrderSystem(bot) {
             }
         }
 
-        // Sinon paiement normal cash
-        await showOrderSummary(ctx, product, pending.qty, address, totalPriceRaw, 0);
+        // Demande de planification avant le résumé
+        await askScheduling(ctx);
+    });
+
+    async function askScheduling(ctx) {
+        const text = `🕒 <b>Quand souhaitez-vous être livré ?</b>\n\nChoisissez si vous voulez être livré dès que possible ou planifier un horaire précis.`;
+        const buttons = [
+            [Markup.button.callback('🚀 Immédiatement', 'scheduling_now')],
+            [Markup.button.callback('🕒 Planifier une heure', 'scheduling_plan')],
+            [Markup.button.callback('◀️ Annuler', 'view_catalog')]
+        ];
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    }
+
+    bot.action('scheduling_now', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const pending = pendingOrderConfirmation.get(userId) || pendingOrders.get(userId);
+        if (!pending) return ctx.reply("Session expirée.");
+        pending.scheduled_at = null;
+
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+        const discount = pending.possibleDiscount || 0;
+        const finalPrice = parseFloat(pending.totalPrice) - discount;
+        await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, discount, null);
+    });
+
+    bot.action('scheduling_plan', async (ctx) => {
+        await ctx.answerCbQuery();
+        const text = `📅 <b>Choisissez le moment de livraison :</b>`;
+        const buttons = [];
+
+        // On propose des créneaux
+        const now = new Date();
+        const dates = [0, 1].map(offset => {
+            const d = new Date();
+            d.setDate(now.getDate() + offset);
+            return d;
+        });
+
+        dates.forEach((d, idx) => {
+            const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+            const dateKey = d.toISOString().split('T')[0];
+            buttons.push([Markup.button.callback(`${idx === 0 ? 'Aujourd\'hui' : 'Demain'} (${dateStr})`, `sched_date_${dateKey}`)]);
+        });
+
+        buttons.push([Markup.button.callback('◀️ Retour', 'scheduling_now')]);
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action(/^sched_date_(.+)$/, async (ctx) => {
+        const date = ctx.match[1];
+        await ctx.answerCbQuery();
+        const text = `🕒 <b>À quelle heure ?</b>\n\nSélectionnez un créneau horaire :`;
+
+        // Exemple de créneaux
+        const slots = ["12h00", "13h00", "14h00", "18h00", "19h00", "20h00", "21h00", "22h00", "23h00", "00h00"];
+        const buttons = [];
+        for (let i = 0; i < slots.length; i += 2) {
+            const row = [];
+            row.push(Markup.button.callback(slots[i], `sched_final_${date}_${slots[i]}`));
+            if (slots[i + 1]) row.push(Markup.button.callback(slots[i + 1], `sched_final_${date}_${slots[i + 1]}`));
+            buttons.push(row);
+        }
+        buttons.push([Markup.button.callback('◀️ Retour', 'scheduling_plan')]);
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action(/^sched_final_(.+)_(.+)$/, async (ctx) => {
+        const [date, hour] = [ctx.match[1], ctx.match[2]];
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const pending = pendingOrderConfirmation.get(userId) || pendingOrders.get(userId);
+        if (!pending) return ctx.reply("Session expirée.");
+
+        pending.scheduled_at = `${date} ${hour}`;
+
+        const products = await getProducts();
+        const product = products.find(p => p.id === pending.productId);
+        const discount = pending.possibleDiscount || 0;
+        const finalPrice = parseFloat(pending.totalPrice) - discount;
+        await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, discount, pending.scheduled_at);
     });
 
     const pendingOrderConfirmation = new Map();
@@ -144,7 +225,7 @@ function setupOrderSystem(bot) {
         const product = products.find(p => p.id === pending.productId);
         const finalPrice = parseFloat(pending.totalPrice) - pending.possibleDiscount;
 
-        await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, pending.possibleDiscount);
+        await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, pending.possibleDiscount, pending.scheduled_at);
     });
 
     bot.action('confirm_order_use_credit_no', async (ctx) => {
@@ -156,13 +237,14 @@ function setupOrderSystem(bot) {
         const products = await getProducts();
         const product = products.find(p => p.id === pending.productId);
 
-        await showOrderSummary(ctx, product, pending.qty, pending.address, parseFloat(pending.totalPrice), 0);
+        await showOrderSummary(ctx, product, pending.qty, pending.address, parseFloat(pending.totalPrice), 0, pending.scheduled_at);
     });
 
-    async function showOrderSummary(ctx, product, qty, address, finalPrice, discount) {
+    async function showOrderSummary(ctx, product, qty, address, finalPrice, discount, scheduledAt = null) {
         const text = `🛒 <b>Récapitulatif de Commande</b>\n\n` +
             `📦 Produit : ${product.name} (x${qty})\n` +
             `📍 Adresse : ${address}\n` +
+            (scheduledAt ? `🕒 Planifié pour : <b>${scheduledAt}</b>\n` : `🚀 Livraison : Dès que possible\n`) +
             `💰 Prix : ${qty * product.price}€\n` +
             (discount > 0 ? `🎁 Réduction solde : -${discount.toFixed(2)}€\n` : '') +
             `💵 <b>TOTAL À RÉGLER : ${finalPrice.toFixed(2)}€</b>\n\n` +
@@ -211,7 +293,8 @@ function setupOrderSystem(bot) {
             city: city, // Ajout de la ville pour le filtrage livreur
             platform: 'telegram',
             status: 'pending',
-            discount_applied: discount
+            discount_applied: discount,
+            scheduled_at: pending.scheduled_at || null
         };
 
         const { order, error: createError } = await createOrder(orderData);
@@ -226,6 +309,7 @@ function setupOrderSystem(bot) {
             `${successText}\n\n` +
             `📦 Produit : ${product.name} (x${pending.qty})\n` +
             `📍 Adresse : ${pending.address}\n` +
+            (pending.scheduled_at ? `🕒 Prévu pour : <b>${pending.scheduled_at}</b>\n` : `🚀 Livraison rapide demandée\n`) +
             `💰 Total : <b>${finalPrice.toFixed(2)}€</b>\n\n` +
             `⏳ Recherche d'un livreur en cours...`,
             Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]])
@@ -240,6 +324,7 @@ function setupOrderSystem(bot) {
                     `👤 Client : ${ctx.from.first_name} (@${ctx.from.username})\n` +
                     `📦 Produit : ${product.name} (x${pending.qty})\n` +
                     `📍 Adresse : ${pending.address}\n` +
+                    (pending.scheduled_at ? `🕒 <b>PLANIFIÉ : ${pending.scheduled_at}</b>\n` : `🚀 <b>ASAP</b>\n`) +
                     `💰 Total : ${finalPrice.toFixed(2)}€\n` +
                     `🔑 ID : <code>${order.id}</code>\n\n` +
                     `Choisissez un livreur ou gérez la commande :`,

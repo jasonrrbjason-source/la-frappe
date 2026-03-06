@@ -12,6 +12,15 @@ const COL_DAILY_STATS = 'bot_daily_stats';
 
 function ts() { return new Date().toISOString(); }
 
+// Simple server-side cache to avoid heavy DB scans on every refresh
+const _statsCache = {
+    overview: null,
+    analytics: null,
+    ttl: 30000, // 30 seconds
+    lastOverview: 0,
+    lastAnalytics: 0
+};
+
 // Helper pour simplifier Supabase updates numériques
 const incr = (n = 1) => n;
 function decryptUser(userData) {
@@ -303,6 +312,7 @@ async function createOrder(orderData) {
     const { data, error } = await supabase.from(COL_ORDERS).insert([{
         id: id,
         ...orderData,
+        scheduled_at: orderData.scheduled_at || null, // Horaires planifiés
         status: 'pending',
         created_at: ts()
     }]).select();
@@ -566,46 +576,70 @@ async function getDailyStats(days = 30) {
 }
 
 async function getStatsOverview() {
+    const now = Date.now();
+    if (_statsCache.overview && (now - _statsCache.lastOverview < _statsCache.ttl)) {
+        return _statsCache.overview;
+    }
+
     const total = await getUserCount();
     const active = await getActiveUserCount();
     const stats = await getGlobalStats();
 
     const { data: bcSnap } = await supabase.from(COL_BROADCASTS).select('id, created_at, success, failed, message').order('created_at', { ascending: false }).limit(5);
-    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('status, total_price');
-    const { data: livreursRaw } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
-    const encryptedLivreurs = (livreursRaw || []).map(d => {
-        try { return decryptUser(d); } catch (e) { return d; }
-    });
-    const activeLivreurs = encryptedLivreurs.filter(l => l.is_available === true).length;
+
+    // Only select delivered orders for CA calculation to avoid huge data transfer
+    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('status, total_price').eq('status', 'delivered');
+    // Optimized count for active drivers (direct query, no memory decryption needed)
+    const { count: activeLivreurs } = await supabase.from(COL_USERS)
+        .select('*', { count: 'exact', head: true })
+        .eq('is_livreur', true)
+        .eq('is_available', true);
+
+    const { count: totalLivreurs } = await supabase.from(COL_USERS)
+        .select('*', { count: 'exact', head: true })
+        .eq('is_livreur', true);
 
     let totalCA = 0;
-    let deliveredCount = 0;
     (ordersSnap || []).forEach(order => {
-        if (order.status === 'delivered') {
-            totalCA += (parseFloat(order.total_price) || 0);
-            deliveredCount++;
-        }
+        totalCA += (parseFloat(order.total_price) || 0);
     });
 
-    return {
+    // Get total count of all orders separately if needed, or just delivered
+    const { count: totalOrdersCount } = await supabase.from(COL_ORDERS).select('*', { count: 'exact', head: true });
+
+    const result = {
         totalUsers: total,
         activeUsers: active,
         totalStats: stats,
-        totalOrders: (ordersSnap || []).length,
+        totalOrders: totalOrdersCount || 0,
         totalCA: totalCA.toFixed(2),
-        totalLivreurs: (livreursRaw || []).length,
+        totalLivreurs: totalLivreurs || 0,
         activeLivreurs: activeLivreurs,
         recentBroadcasts: bcSnap || []
     };
+
+    _statsCache.overview = result;
+    _statsCache.lastOverview = now;
+    return result;
 }
 
 async function getOrderAnalytics() {
-    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('id, status, total_price, created_at, delivered_at, user_id, first_name, username, city, livreur_id, product_name, quantity');
+    const now = Date.now();
+    if (_statsCache.analytics && (now - _statsCache.lastAnalytics < _statsCache.ttl)) {
+        return _statsCache.analytics;
+    }
+
+    // Limit to last 3000 orders to keep it snappy. Analytics are mostly for recent trends.
+    const { data: ordersSnap } = await supabase.from(COL_ORDERS)
+        .select('id, status, total_price, created_at, delivered_at, user_id, first_name, username, city, livreur_id, livreur_name, product_name, quantity')
+        .order('created_at', { ascending: false })
+        .limit(3000);
+
     const analytics = {
         totalCA: 0,
         totalOrders: 0,
         avgDeliveryTime: 0,
-        byHour: {}, byDay: {}, byWeek: {}, byMonth: {}, byYear: {}, byCity: {}, byLivreur: {}, byClient: {}, byProduct: {},
+        byHour: {}, byDay: {}, byWeek: {}, byMonth: {}, byYear: {}, byCity: {}, byDriver: {}, byUser: {}, byProduct: {},
         rawDelivered: []
     };
 
@@ -632,11 +666,25 @@ async function getOrderAnalytics() {
 
         const clientId = order.user_id || 'unknown';
         const clientName = order.first_name || order.username || 'Client Inconnu';
-        if (!analytics.byClient[clientId]) {
-            analytics.byClient[clientId] = { name: clientName, ca: 0, orders: 0 };
+        if (!analytics.byUser[clientName]) {
+            analytics.byUser[clientName] = { count: 0, ca: 0 };
         }
-        analytics.byClient[clientId].ca += price;
-        analytics.byClient[clientId].orders++;
+        analytics.byUser[clientName].count++;
+        analytics.byUser[clientName].ca += price;
+
+        const driverName = order.livreur_name || 'Inconnu';
+        if (!analytics.byDriver[driverName]) {
+            analytics.byDriver[driverName] = { count: 0, ca: 0 };
+        }
+        analytics.byDriver[driverName].count++;
+        analytics.byDriver[driverName].ca += price;
+
+        const productName = order.product_name || 'Inconnu';
+        if (!analytics.byProduct[productName]) {
+            analytics.byProduct[productName] = { qty: 0, ca: 0 };
+        }
+        analytics.byProduct[productName].qty += (parseInt(order.quantity) || 1);
+        analytics.byProduct[productName].ca += price;
 
         if (order.created_at) {
             const date = new Date(order.created_at);
@@ -688,6 +736,9 @@ async function getOrderAnalytics() {
     });
 
     analytics.avgDeliveryTime = deliveryCount > 0 ? Math.round(totalDeliveryMinutes / deliveryCount) : 0;
+
+    _statsCache.analytics = analytics;
+    _statsCache.lastAnalytics = now;
     return analytics;
 }
 

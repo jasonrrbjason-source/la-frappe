@@ -6,7 +6,7 @@ const IV_LENGTH = 16;
 const SALT_LENGTH = 64;
 const TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
-const ITERATIONS = 100000;
+const ITERATIONS = 1000; // Réduit pour booster les performances de décryptage
 
 /**
  * Récupère ou génère la clé de chiffrement à partir de la variable d'environnement

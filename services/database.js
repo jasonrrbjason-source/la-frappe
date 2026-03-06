@@ -220,27 +220,17 @@ async function setLivreurStatus(userId, platform, isLivreur) {
     _userCache.delete(docId);
 }
 async function setLivreurAvailability(docId, isAvailable) {
-    const user = await getUser(docId);
-    let meta = user ? (user.data || {}) : {};
-    meta.is_available = !!isAvailable;
-
-    console.log(`[DB] Setting availability for ${docId} to ${isAvailable}`);
     const updates = {
         is_available: !!isAvailable,
-        data: meta,
         updated_at: ts()
     };
 
     const { data: updated, error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId).select();
-    if (updated) console.log(`[DB] Updated row count: ${updated.length}`);
-
     if (fullError) {
-        console.warn(`⚠️ Colonne is_available absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);
-        await supabase.from(COL_USERS).update({
-            data: meta,
-            updated_at: ts()
-        }).eq('id', docId);
+        console.error(`❌ DB Error setLivreurAvailability: ${fullError.message}`);
+        throw new Error(fullError.message);
     }
+    if (updated) console.log(`[DB] Updated row count: ${updated.length}`);
 
     _userCache.delete(docId);
 }
@@ -259,20 +249,15 @@ async function updateLivreurPosition(docId, input) {
     // 1. On ne touche plus à is_available ici pour les séparer
     const updates = {
         current_city: city,
-        data: meta,
         updated_at: ts()
     };
 
     const { data: updated, error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId).select();
-    if (updated) console.log(`[DB] Updated row count: ${updated.length} for ID: ${docId}`);
-
     if (fullError) {
-        console.warn(`⚠️ Colonne current_city absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);
-        await supabase.from(COL_USERS).update({
-            data: meta,
-            updated_at: ts()
-        }).eq('id', docId);
+        console.error(`❌ DB Error updateLivreurPosition: ${fullError.message}`);
+        throw new Error(fullError.message);
     }
+    if (updated) console.log(`[DB] Updated row count: ${updated.length} for ID: ${docId}`);
 
     _userCache.delete(docId);
 }

@@ -367,6 +367,14 @@ async function assignOrderLivreur(orderId, livreurId, livreurName) {
     }).eq('id', orderId);
 }
 
+async function saveFeedback(orderId, rating, text) {
+    await supabase.from(COL_ORDERS).update({
+        feedback_rating: rating,
+        feedback_text: text,
+        updated_at: ts()
+    }).eq('id', orderId);
+}
+
 async function getOrder(orderId) {
     const { data } = await supabase.from(COL_ORDERS).select('*').eq('id', orderId).limit(1);
     return data && data.length > 0 ? data[0] : null;
@@ -438,18 +446,14 @@ async function getRecentUsers(limit = 20) {
     return (data || []).map(decryptUser);
 }
 async function searchUsers(query) {
-    if (!query) return [];
-    const isId = !isNaN(query);
-    let q = supabase.from(COL_USERS).select('*');
-
-    if (isId) {
-        q = q.or(`platform_id.eq.${query},id.eq.telegram_${query}`);
-    } else {
-        const clean = query.replace('@', '');
-        q = q.or(`username.ilike.%${clean}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%`);
+    if (!query) {
+        const { data } = await supabase.from(COL_USERS).select('*').limit(20);
+        return (data || []).map(decryptUser);
     }
-
-    const { data } = await q.limit(20);
+    const { data } = await supabase.from(COL_USERS)
+        .select('*')
+        .or(`id.ilike.%${query}%,username.ilike.%${query}%,first_name.ilike.%${query}%`)
+        .limit(20);
     return (data || []).map(decryptUser);
 }
 
@@ -803,6 +807,6 @@ module.exports = {
     saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
-    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, nukeDatabase,
+    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, saveFeedback, nukeDatabase,
     _userCache
 };

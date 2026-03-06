@@ -243,8 +243,11 @@ function setupOrderSystem(bot) {
                     `📍 Adresse : ${pending.address}\n` +
                     `💰 Total : ${finalPrice.toFixed(2)}€\n` +
                     `🔑 ID : <code>${order.id}</code>\n\n` +
-                    `Utilisez le dashboard pour l'assigner à un livreur.`,
-                    { parse_mode: 'HTML' }
+                    `Cliquez ci-dessous pour l'assigner manuellement ou la gérer :`,
+                    {
+                        parse_mode: 'HTML',
+                        ...Markup.inlineKeyboard([[Markup.button.callback('🛠 Gérer la commande', `admin_order_view_${order.id}`)]])
+                    }
                 ).catch(() => { });
             }
         }
@@ -448,7 +451,7 @@ function setupOrderSystem(bot) {
         await safeEdit(ctx,
             `${settings.ui_icon_success} <b>Commande #${orderId.substring(0, 5)} acceptée !</b>\n\n` +
             `📍 Ville : ${order.city}\n` +
-            `👤 Client : ${order.first_name} (@${order.username})\n\n` +
+            `👤 Client : ${order.first_name}\n\n` +
             `💡 <i>Pensez à partager votre position en direct pour notifier le client de votre arrivée.</i>\n\n` +
             `Cliquez sur le bouton ci-dessous une fois livré :`,
             {
@@ -509,12 +512,55 @@ function setupOrderSystem(bot) {
             ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]])
         });
 
-        // Notifier client
+        // Notifier client + Feedback
         bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
             `✅ <b>Votre commande #${orderId.substring(0, 5)} a été livrée !</b>\n\n` +
             `Merci de votre confiance et à bientôt chez ${settings.bot_name} !`,
-            { parse_mode: 'HTML' }
+            {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('⭐️ Laisser un avis / Commentaire', `feedback_start_${orderId}`)]
+                ])
+            }
         ).catch(() => { });
+    });
+
+    bot.action(/^feedback_start_(.+)$/, async (ctx) => {
+        const orderId = ctx.match[1];
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `🌟 <b>Votre avis nous intéresse !</b>\n\n` +
+            `Comment s'est passée votre livraison ?\n` +
+            `Notez votre expérience :`,
+            Markup.inlineKeyboard([
+                [Markup.button.callback('⭐️⭐️⭐️⭐️⭐️ (Excellent)', `feedback_rate_${orderId}_5`)],
+                [Markup.button.callback('⭐️⭐️⭐️⭐️ (Très bien)', `feedback_rate_${orderId}_4`)],
+                [Markup.button.callback('⭐️⭐️⭐️ (Bien)', `feedback_rate_${orderId}_3`)],
+                [Markup.button.callback('⭐️ (Moyen/Mauvais)', `feedback_rate_${orderId}_1`)],
+            ])
+        );
+    });
+
+    bot.action(/^feedback_rate_(.+)_(.+)$/, async (ctx) => {
+        const [, orderId, rate] = ctx.match;
+        await ctx.answerCbQuery();
+        ctx.state.pendingFeedback = { orderId, rate };
+        await safeEdit(ctx, `✍️ <b>Dernière étape</b>\n\nEnvoyez un petit commentaire (en un seul message) pour expliquer votre note :`);
+    });
+
+    // Capture du commentaire feedback
+    bot.on('message', async (ctx, next) => {
+        if (ctx.state.pendingFeedback) {
+            const { orderId, rate } = ctx.state.pendingFeedback;
+            const text = ctx.message.text;
+            const { saveFeedback } = require('../services/database');
+            await saveFeedback(orderId, parseInt(rate), text);
+
+            delete ctx.state.pendingFeedback;
+            await ctx.reply('🙏 Merci pour votre retour ! Votre avis a bien été enregistré.');
+            return;
+        }
+        await next();
     });
 
     bot.action('livreur_menu', async (ctx) => {

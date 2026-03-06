@@ -65,7 +65,9 @@ CREATE TABLE IF NOT EXISTS bot_orders (
   livreur_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ,
-  delivered_at TIMESTAMPTZ
+  delivered_at TIMESTAMPTZ,
+  feedback_text TEXT,
+  feedback_rating NUMERIC
 );
 
 -- 4. Table Diffusions / Broadcasts (bot_broadcasts)
@@ -195,3 +197,5 @@ USING (auth.role() = 'service_role');
 -- ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS address TEXT;
 -- ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_thresholds TEXT DEFAULT '5,9,10';
 -- ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_amount NUMERIC DEFAULT 10;
+-- ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS feedback_text TEXT;
+-- ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS feedback_rating NUMERIC;

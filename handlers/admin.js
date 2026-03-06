@@ -139,18 +139,108 @@ function setupAdminHandlers(bot) {
             `🔘 Statut : <b>${order.status.toUpperCase()}</b>`;
 
         const buttons = [
+            [Markup.button.callback('🤝 ASSIGNER LIVREUR', `admin_order_assign_list_${orderId}`)],
             [Markup.button.callback('✅ LIVRÉE', `admin_order_set_${orderId}_delivered`), Markup.button.callback('❌ ANNULÉE', `admin_order_set_${orderId}_cancelled`)],
             [Markup.button.callback('◀️ Retour', 'admin_orders')]
         ];
         await safeEdit(ctx, msg, Markup.inlineKeyboard(buttons));
     });
 
+    bot.action(/^admin_order_assign_list_(.+)$/, async (ctx) => {
+        const orderId = ctx.match[1];
+        await ctx.answerCbQuery();
+        const livreurs = await searchLivreurs('');
+        const active = livreurs.filter(l => l.is_active && l.is_available);
+
+        if (active.length === 0) return safeEdit(ctx, '❌ Aucun livreur disponible actuellement.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', `admin_order_view_${orderId}`)]]));
+
+        const buttons = active.map(l => [Markup.button.callback(`🚴 ${l.first_name} (${l.current_city || '?'})`, `admin_order_do_assign_${orderId}_${l.id}`)]);
+        buttons.push([Markup.button.callback('◀️ Annuler', `admin_order_view_${orderId}`)]);
+
+        await safeEdit(ctx, `🤝 <b>Assignation manuelle</b>\n\nChoisissez le livreur pour la commande #${orderId.slice(-6)} :`, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action(/^admin_order_do_assign_(.+)_(.+)$/, async (ctx) => {
+        const [, orderId, lid] = ctx.match;
+        const livreur = await getUser(lid);
+        if (!livreur) return ctx.answerCbQuery('❌ Erreur');
+
+        const { assignOrderLivreur } = require('../services/database');
+        await assignOrderLivreur(orderId, lid, livreur.first_name);
+
+        await ctx.answerCbQuery(`✅ Assigné à ${livreur.first_name}`);
+        // Notification au livreur
+        bot.telegram.sendMessage(lid.replace('telegram_', ''), `🔔 <b>ADMIN : Une commande vous a été assignée !</b>\n\nRegardez vos commandes dans votre espace livreur.`).catch(() => { });
+
+        return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `admin_order_view_${orderId}` } });
+    });
+
     bot.action(/^admin_order_set_(.+)_(.+)$/, async (ctx) => {
         const [, orderId, status] = ctx.match;
         await updateOrderStatus(orderId, status);
         await ctx.answerCbQuery(`✅ Statut mis à jour : ${status}`);
-        // Refresh view
         return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `admin_order_view_${orderId}` } });
+    });
+
+    // Gestion des Utilisateurs
+    bot.action('admin_users', async (ctx) => {
+        await ctx.answerCbQuery();
+        const users = await searchUsers('');
+        const buttons = users.slice(0, 10).map(u => [Markup.button.callback(`👤 ${u.first_name} (@${u.username || '?'})`, `admin_user_view_${u.id}`)]);
+        buttons.push([Markup.button.callback('🔍 Rechercher un utilisateur', 'admin_user_search')]);
+        buttons.push([Markup.button.callback('◀️ Retour', 'admin_menu')]);
+        await safeEdit(ctx, `👥 <b>Gestion des Utilisateurs</b>\n\nDerniers inscrits :`, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action('admin_user_search', async (ctx) => {
+        await ctx.answerCbQuery();
+        ctx.state.awaiting_admin_search = true;
+        await safeEdit(ctx, `🔍 <b>Recherche Utilisateur</b>\n\nEnvoyez le nom ou le @username de la personne :`);
+    });
+
+    bot.on('text', async (ctx, next) => {
+        if (ctx.state.awaiting_admin_search) {
+            delete ctx.state.awaiting_admin_search;
+            const query = ctx.message.text.trim();
+            const users = await searchUsers(query);
+            if (users.length === 0) return ctx.reply('❌ Aucun utilisateur trouvé.');
+
+            const buttons = users.map(u => [Markup.button.callback(`👤 ${u.first_name} (@${u.username || '?'})`, `admin_user_view_${u.id}`)]);
+            await ctx.reply(`🔍 <b>Résultats pour "${query}" :</b>`, Markup.inlineKeyboard(buttons));
+            return;
+        }
+        await next();
+    });
+
+    bot.action(/^admin_user_view_(.+)$/, async (ctx) => {
+        const uid = ctx.match[1];
+        const u = await getUser(uid);
+        if (!u) return ctx.answerCbQuery('❌ Introuvable');
+        await ctx.answerCbQuery();
+
+        const msg = `👤 <b>Profil de ${u.first_name}</b>\n\n` +
+            `🆔 ID : <code>${u.id}</code>\n` +
+            `💰 Solde : ${u.wallet_balance || 0}€\n` +
+            `⭐️ Points : ${u.points || 0}\n` +
+            `📦 Commandes : ${u.order_count || 0}\n` +
+            `🚴 Est Livreur : ${u.is_livreur ? '✅ OUI' : '❌ NON'}`;
+
+        const buttons = [
+            [Markup.button.callback(u.is_livreur ? '🚫 Retirer Livreur' : '🚴 Passer Livreur', `admin_user_toggle_livreur_${u.id}`)],
+            [Markup.button.callback('◀️ Retour', 'admin_users')]
+        ];
+        await safeEdit(ctx, msg, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action(/^admin_user_toggle_livreur_(.+)$/, async (ctx) => {
+        const uid = ctx.match[1];
+        const u = await getUser(uid);
+        if (u) {
+            const { supabase, COL_USERS } = require('../services/database');
+            await supabase.from(COL_USERS).update({ is_livreur: !u.is_livreur }).eq('id', uid);
+            await ctx.answerCbQuery(`✅ Changé !`);
+            return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `admin_user_view_${uid}` } });
+        }
     });
 
     // Livreurs
@@ -159,7 +249,7 @@ function setupAdminHandlers(bot) {
         const livreurs = await searchLivreurs('');
         if (livreurs.length === 0) return safeEdit(ctx, '🚴 Aucun livreur.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]]));
 
-        const list = livreurs.map(l => `${l.is_available ? '🟢' : '🔴'} ${l.first_name} (@${l.username || '?'})`).join('\n');
+        const list = livreurs.map(l => `${l.is_available ? '🟢' : '🔴'} ${l.first_name} (${l.current_city || '?'})`).join('\n');
         await safeEdit(ctx, `🚴 <b>Liste des Livreurs</b>\n\n${list}`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]]));
     });
 

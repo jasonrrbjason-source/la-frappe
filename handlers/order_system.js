@@ -1003,14 +1003,14 @@ function setupOrderSystem(bot) {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
         await safeEdit(ctx,
-            `🌟 <b>Votre avis nous intéresse !</b>\n\n` +
-            `Comment s'est passée votre livraison ?\n` +
-            `Notez votre expérience :`,
+            `🌟 <b>Donnez votre avis !</b>\n\n` +
+            `Votre satisfaction est notre priorité. Comment s'est passée votre commande ?\n\n` +
+            `Choisissez une note ci-dessous :`,
             Markup.inlineKeyboard([
-                [Markup.button.callback('⭐️⭐️⭐️⭐️⭐️ (Excellent)', `feedback_rate_${orderId}_5`)],
-                [Markup.button.callback('⭐️⭐️⭐️⭐️ (Très bien)', `feedback_rate_${orderId}_4`)],
-                [Markup.button.callback('⭐️⭐️⭐️ (Bien)', `feedback_rate_${orderId}_3`)],
-                [Markup.button.callback('⭐️ (Moyen/Mauvais)', `feedback_rate_${orderId}_1`)],
+                [Markup.button.callback('⭐️⭐️⭐️⭐️⭐️ Excellent', `feedback_rate_${orderId}_5`)],
+                [Markup.button.callback('⭐️⭐️⭐️⭐️ Très bien', `feedback_rate_${orderId}_4`)],
+                [Markup.button.callback('⭐️⭐️⭐️ Bien', `feedback_rate_${orderId}_3`)],
+                [Markup.button.callback('⭐️ Moyen / Insatisfait', `feedback_rate_${orderId}_1`)],
             ])
         );
     });
@@ -1022,7 +1022,7 @@ function setupOrderSystem(bot) {
         const { setPendingFeedback } = require('../services/database');
         await setPendingFeedback(`telegram_${ctx.from.id}`, orderId, rate);
 
-        await safeEdit(ctx, `✍️ <b>Dernière étape</b>\n\nEnvoyez un petit commentaire (en un seul message) pour expliquer votre note :`);
+        await safeEdit(ctx, `✍️ <b>Un dernier mot ?</b>\n\nEnvoyez maintenant votre commentaire en répondant simplement à ce message (ex: "Livraison rapide, au top !") :`);
     });
 
     // Capture du commentaire feedback
@@ -1050,9 +1050,12 @@ function setupOrderSystem(bot) {
 
                     // Notifier les admins
                     if (settings.admin_telegram_id) {
-                        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
+                        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
                         for (const adminId of adminIds) {
-                            ctx.telegram.sendMessage(adminId, feedbackMsg, { parse_mode: 'HTML' }).catch(() => { });
+                            if (!adminId) continue;
+                            bot.telegram.sendMessage(adminId, feedbackMsg, { parse_mode: 'HTML' }).catch(err => {
+                                console.error(`Error sending feedback to admin ${adminId}:`, err.message);
+                            });
                         }
                     }
 

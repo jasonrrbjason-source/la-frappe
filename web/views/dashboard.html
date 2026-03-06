@@ -1107,6 +1107,7 @@
                                 <th>Ville</th>
                                 <th>Date</th>
                                 <th>Livré à</th>
+                                <th>Avis</th>
                                 <th>Statut</th>
                                 <th>Action</th>
                             </tr>
@@ -1594,12 +1595,12 @@
                     <td data-label="Livré à">
                         <small>${o.status === 'delivered' ? '✅ ' + deliveredTime : (o.livreur_name ? '⏳ En cours' : '—')}</small>
                         ${o.livreur_name ? `<br><small style="color:var(--accent); font-weight:700;">🚴 ${o.livreur_name}</small>` : ''}
+                    </td>
+                    <td data-label="Avis">
                         ${o.feedback_rating ? `
-                            <div style="margin-top:5px; border-top:1px dashed var(--border); padding-top:2px;">
-                                <div style="color:orange; font-size:10px; font-weight:bold;">${'⭐'.repeat(o.feedback_rating)}</div>
-                                <div style="font-size:10px; font-style:italic; color:var(--text-muted); line-height:1.2;">"${o.feedback_text || ''}"</div>
-                            </div>
-                        ` : ''}
+                            <div style="color:orange; font-size:12px; font-weight:bold;">${'⭐'.repeat(o.feedback_rating)}</div>
+                            <div style="font-size:11px; font-style:italic; color:var(--text-muted); line-height:1.2; max-width:150px;">"${o.feedback_text || ''}"</div>
+                        ` : '<small style="color:var(--text-muted)">—</small>'}
                     </td>
                     <td data-label="Statut"><span class="badge badge-${o.status}">${label}</span></td>
                     <td data-label="Action">

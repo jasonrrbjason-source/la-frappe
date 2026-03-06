@@ -2278,11 +2278,17 @@
         function updateNavbarIcons() {
             if (!window.appSettings) return;
             const s = window.appSettings;
-            if (s.ui_icon_catalog) document.getElementById('nav_icon_products').innerText = s.ui_icon_catalog;
-            if (s.ui_icon_orders) document.getElementById('nav_icon_orders').innerText = s.ui_icon_orders;
-            if (s.ui_icon_pending) document.getElementById('nav_icon_livreurs').innerText = s.ui_icon_pending;
-            if (s.ui_icon_welcome) document.getElementById('nav_icon_overview').innerText = s.ui_icon_welcome;
-            if (s.bot_name) document.getElementById('brand_name').innerText = s.bot_name;
+            const setIcon = (id, icon) => {
+                const el = document.getElementById(id);
+                if (el && icon) el.innerText = icon;
+            };
+
+            setIcon('nav_icon_products', s.ui_icon_catalog);
+            setIcon('nav_icon_logistique', s.ui_icon_pending);
+            setIcon('nav_icon_overview', s.ui_icon_welcome);
+
+            const brand = document.getElementById('brand_name');
+            if (brand && s.bot_name) brand.innerText = s.bot_name;
         }
 
         async function updateOrderStatus(orderId, status) {

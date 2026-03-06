@@ -24,15 +24,12 @@ function decryptUser(userData) {
         last_name: encryption.decrypt(userData.last_name),
     };
 
-    // Proxy vital fields from JSONB data to root for easy JS access (Backward compatibility)
+    // Priority: trust JSONB if it exists, otherwise root column
     if (userData.data && typeof userData.data === 'object') {
         const cityInside = userData.data.current_city;
-        if ((!decrypted.current_city || decrypted.current_city === 'non défini') && cityInside) {
-            decrypted.current_city = cityInside;
-        }
+        if (cityInside) decrypted.current_city = cityInside;
 
-        // Si la racine est null/undefined, on prend dans data
-        if ((decrypted.is_available === null || decrypted.is_available === undefined) && userData.data.is_available !== undefined) {
+        if (userData.data.is_available !== undefined) {
             decrypted.is_available = userData.data.is_available;
         }
     }
@@ -807,6 +804,6 @@ module.exports = {
     saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
-    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, saveFeedback, nukeDatabase,
+    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getDetailedLivreurActivity, saveFeedback, nukeDatabase,
     _userCache
 };

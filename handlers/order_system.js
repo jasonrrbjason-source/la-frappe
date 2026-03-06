@@ -1171,4 +1171,10 @@ function setupOrderSystem(bot) {
     });
 }
 
-module.exports = { setupOrderSystem, userCarts };
+module.exports = {
+    setupOrderSystem,
+    userCarts,
+    pendingOrders,
+    awaitingAddressDetails,
+    pendingOrderConfirmation
+};

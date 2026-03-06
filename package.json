@@ -11,10 +11,10 @@
     "telegram",
     "bot",
     "telegraf",
-    "firebase",
+    "supabase",
     "admin"
   ],
-  "author": "Prestige Club",
+  "author": "",
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",

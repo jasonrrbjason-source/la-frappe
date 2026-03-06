@@ -152,6 +152,7 @@ function setupAdminHandlers(bot) {
             `👤 Client : ${order.first_name} (@${order.username})\n` +
             `🛒 Produit : ${order.product_name} x${order.quantity}\n` +
             `📍 Adresse : ${order.address || 'Non renseignée'}\n` +
+            (order.scheduled_at ? `🕒 <b>LIVRAISON PRÉVUE : ${order.scheduled_at}</b>\n` : `🚀 <b>ASAP</b>\n`) +
             `💰 Total : ${order.total_price}€\n` +
             (order.livreur_name ? `🚴 Livreur : ${order.livreur_name}\n` : '') +
             `🔘 Statut : <b>${order.status.toUpperCase()}</b>`;

@@ -10,7 +10,8 @@ const {
     setLivreurAvailability, getAppSettings, updateAppSettings,
     deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics, searchLivreurs,
     getBroadcastHistory, deleteBroadcast, getDetailedLivreurActivity,
-    db, admin, nukeDatabase, decryptUser, supabase, COL_USERS
+    nukeDatabase, decryptUser, supabase, COL_USERS,
+    registerUser, getLivreurHistory
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
 const fs = require('fs');
@@ -19,7 +20,7 @@ function debugLog(msg) {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${msg}\n`;
     try {
-        fs.appendFileSync(path.join(process.cwd(), 'debug_la_frappe.log'), line);
+        fs.appendFileSync(path.join(process.cwd(), 'debug.log'), line);
     } catch (e) { }
     console.log(msg);
 }
@@ -247,7 +248,7 @@ function createServer() {
 
     app.get('/api/debug/logs', authMiddleware, async (req, res) => {
         try {
-            const logPath = path.join(process.cwd(), 'debug_la_frappe.log');
+            const logPath = path.join(process.cwd(), 'debug.log');
             if (!fs.existsSync(logPath)) return res.send('Aucun log trouvé.');
             const content = fs.readFileSync(logPath, 'utf8');
             res.header('Content-Type', 'text/plain');

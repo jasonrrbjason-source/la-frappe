@@ -1,4 +1,9 @@
 require('dotenv').config();
+const { validateLicense } = require('./services/license');
+if (!validateLicense()) {
+    console.error('❌ Licence invalide ou manquante. Arrêt.');
+    process.exit(1);
+}
 const { createServer, setBotInstance } = require('./server');
 const { Telegraf } = require('telegraf');
 const { setupStartHandler } = require('./handlers/start');
@@ -9,7 +14,7 @@ const { setBroadcastBot } = require('./services/broadcast');
 const PORT = process.env.PORT || 3000;
 
 async function main() {
-    console.log('🚀 Démarrage du Bot Telegram La Frappe...\n');
+    console.log('🚀 Démarrage du Bot Telegram...\n');
 
     // 1. Initialisation du Bot Telegram
     const telegramTok = process.env.BOT_TOKEN;
@@ -227,6 +232,9 @@ function startAutomatedTimer(bot) {
     setInterval(async () => {
         try {
             console.log('🕒 Exécution du timer automatique et nettoyage (6h)...');
+            if (!validateLicense()) {
+                console.warn('⚠️ Vérification de licence périodique échouée.');
+            }
             const { getAppSettings, getAllActiveUsers, updateUserData } = require('./services/database');
             const { broadcastMessage } = require('./services/broadcast');
 

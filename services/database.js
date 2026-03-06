@@ -665,7 +665,7 @@ async function getStatsOverview() {
         .select('*', { count: 'exact', head: true })
         .eq('is_livreur', true);
 
-    const totalCA = parseFloat(stats.global?.total_ca || 0);
+    const totalCA = parseFloat(stats.total_ca || stats.global?.total_ca || 0);
 
     // Get total count of all orders separately if needed, or just delivered
     const { count: totalOrdersCount } = await supabase.from(COL_ORDERS).select('*', { count: 'exact', head: true });
@@ -934,13 +934,9 @@ async function nukeDatabase() {
     }
 }
 
-// Mock the DB/Admin to prevent server.js from crashing if it calls db.xx
-const db = {};
-const admin = {};
-
 module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
-    db, admin, incr, ts, makeDocId, decryptUser,
+    incr, ts, makeDocId, decryptUser,
     registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
     getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers, searchLivreurs,

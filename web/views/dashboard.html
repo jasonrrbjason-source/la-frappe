@@ -1503,10 +1503,15 @@
 
             // Spécial Logistique : s'assurer qu'on affiche le bon sous-onglet
             if (id === 'logistique') {
+                document.getElementById('section-logistique').classList.add('active');
+                document.querySelectorAll('.nav-item').forEach(item => {
+                    const onClick = item.getAttribute('onclick');
+                    if (onClick && onClick.includes("'logistique'")) item.classList.add('active');
+                });
                 const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');
                 switchLogisticsTab(isLivreurs ? 'livreurs' : 'orders');
                 if (window.innerWidth <= 768) toggleSidebar();
-                return; // Early return because switchLogisticsTab calls loadData
+                return;
             }
 
             const target = document.getElementById('section-' + id);
@@ -1684,9 +1689,10 @@
 
                 if (id === 'overview') {
                     const s = window.appStats;
+                    if (!s) return; // Prevent crash if stats failed
                     const setStat = (id, val) => {
                         const el = document.getElementById(id);
-                        if (el) el.innerText = val;
+                        if (el) el.innerText = (val !== undefined && val !== null) ? val : '—';
                     };
                     setStat('statUsers', s.totalUsers);
                     setStat('statActive', s.activeUsers);

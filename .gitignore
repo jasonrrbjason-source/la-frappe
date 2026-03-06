@@ -3,3 +3,4 @@ serviceAccountKey.json
 node_modules
 *.log
 .DS_Store
+generate-license.js

@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS bot_orders (
   total_price NUMERIC,
   discount_applied NUMERIC DEFAULT 0,
   city TEXT,
+  address TEXT,
   platform TEXT,
   status TEXT DEFAULT 'pending',
   points_awarded BOOLEAN DEFAULT false,
@@ -189,3 +190,4 @@ USING (auth.role() = 'service_role');
 -- =========================================================================
 -- ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS current_city TEXT;
 -- ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}'::jsonb;
+-- ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS address TEXT;

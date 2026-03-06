@@ -298,14 +298,14 @@ function setupOrderSystem(bot) {
         }
 
         const { getLivreurMenuKeyboard } = require('./start');
-        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
-            `👤 ${user ? user.first_name : ctx.from.first_name}\n` +
+        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur || 'Espace Livreur'}</b>\n\n` +
+            `👤 ${user ? (user.first_name || 'Inconnu') : ctx.from.first_name}\n` +
             `📍 Secteur : <b>${user?.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
-            `🔘 Statut : <b>${isAvailable ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
+            `🔘 Statut : <b>${isAvailable ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n` +
             `Que voulez-vous faire ?`;
 
-        const opts = { parse_mode: 'HTML', ...getLivreurMenuKeyboard(settings, user) };
-        await safeEdit(ctx, text, opts);
+        const keyboard = getLivreurMenuKeyboard(settings, user || { is_available: isAvailable });
+        await safeEdit(ctx, text, keyboard);
 
         // 5. Cleanup bouton "Démarrer"
         ctx.telegram.setChatMenuButton(ctx.chat.id, { type: 'commands' }).catch(() => { });

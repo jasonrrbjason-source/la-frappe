@@ -302,17 +302,17 @@ function getMainMenuKeyboard(settings, user = null) {
 }
 
 function getLivreurMenuKeyboard(settings, user) {
-    const isAvail = user.is_available || (user.data && user.data.is_available);
+    const isAvail = user?.is_available || user?.data?.is_available;
     const dispoBtn = isAvail
-        ? Markup.button.callback(`${settings.ui_icon_error} Passer Indisponible`, 'set_dispo_false')
-        : Markup.button.callback(`${settings.ui_icon_success} Passer Disponible`, 'set_dispo_true');
+        ? Markup.button.callback(`${settings.ui_icon_error || '❌'} Passer Indisponible`, 'set_dispo_false')
+        : Markup.button.callback(`${settings.ui_icon_success || '✅'} Passer Disponible`, 'set_dispo_true');
 
     const buttons = [
         [dispoBtn],
-        [Markup.button.callback(`${settings.ui_icon_orders} Commandes disponibles`, 'show_city_orders')],
+        [Markup.button.callback(`${settings.ui_icon_orders || '📦'} Commandes disponibles`, 'show_city_orders')],
         [Markup.button.callback('📍 Changer de secteur', 'change_city')],
         [Markup.button.callback('📡 Tracking Live (Aide)', 'tracking_info')],
-        [Markup.button.callback(`${settings.ui_icon_stats} Mon historique livraisons`, 'my_deliveries')],
+        [Markup.button.callback(`${settings.ui_icon_stats || '📈'} Mon historique livraisons`, 'my_deliveries')],
         [Markup.button.callback('🛒 Mode Client (commander)', 'client_menu')],
         [Markup.button.callback('◀️ Retour au menu principal', 'main_menu')],
     ];
@@ -321,7 +321,7 @@ function getLivreurMenuKeyboard(settings, user) {
     if (user && settings.admin_telegram_id) {
         const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
         if (adminIds.includes(String(user.platform_id))) {
-            buttons.push([Markup.button.callback(`${settings.ui_icon_admin} ${settings.label_admin_bot}`, 'admin_menu')]);
+            buttons.push([Markup.button.callback(`${settings.ui_icon_admin || '⚙️'} ${settings.label_admin_bot || 'Gestion Bot'}`, 'admin_menu')]);
         }
     }
 

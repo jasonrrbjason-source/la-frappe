@@ -50,6 +50,9 @@ function setupOrderSystem(bot) {
 
     // Stockage temporaire des commandes en cours (in-memory simple)
     const pendingOrders = new Map();
+    const userCarts = new Map(); // { userId: [ { productId, qty, unit, price, name } ] }
+    const awaitingAddressDetails = new Map(); // { userId: { address, ... } }
+    const pendingOrderConfirmation = new Map();
 
     bot.action(/^qty_(.+)_(.+)$/, async (ctx) => {
         await ctx.answerCbQuery();
@@ -62,14 +65,120 @@ function setupOrderSystem(bot) {
         if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
 
         const totalPrice = (product.price * qty).toFixed(2);
-        pendingOrders.set(ctx.from.id, { productId, qty, totalPrice });
+        pendingOrders.set(ctx.from.id, { productId, qty, totalPrice, productName: product.name });
 
         if (product.unit && product.unit.length > 0 && !(['unité', 'unite', 'piece', 'pce'].includes(product.unit.toLowerCase()))) {
             return askUnit(ctx, product, qty);
         }
 
-        await promptAddress(ctx, product, qty, totalPrice);
+        await showAddToCartChoice(ctx, product, qty, totalPrice);
     });
+
+    async function showAddToCartChoice(ctx, product, qty, totalPrice, unitAmount = null) {
+        const userId = ctx.from.id;
+        const pending = pendingOrders.get(userId);
+        if (unitAmount) pending.chosen_unit_amount = unitAmount;
+
+        const text = `🛒 <b>Sélection : ${qty}x ${product.name}${unitAmount ? ` (${unitAmount})` : ''}</b>\n` +
+            `💰 Prix : <b>${totalPrice}€</b>\n\n` +
+            `Que voulez-vous faire ?`;
+
+        const buttons = [
+            [Markup.button.callback('🛒 Ajouter au panier', 'add_to_cart')],
+            [Markup.button.callback('💳 Régler maintenant', 'checkout_now')],
+            [Markup.button.callback('◀️ Retour', `product_${product.id}`)]
+        ];
+
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    }
+
+    bot.action('add_to_cart', async (ctx) => {
+        await ctx.answerCbQuery('Ajouté au panier ! 🛒');
+        const userId = ctx.from.id;
+        const pending = pendingOrders.get(userId);
+        if (!pending) return ctx.reply("Session expirée.");
+
+        let cart = userCarts.get(userId) || [];
+        cart.push(pending);
+        userCarts.set(userId, cart);
+        pendingOrders.delete(userId);
+
+        const products = await getProducts();
+        const text = `✅ Produit ajouté !\n\nVotre panier contient <b>${cart.length}</b> article(s).`;
+        const buttons = [
+            [Markup.button.callback('🛍️ Continuer mes achats', 'view_catalog')],
+            [Markup.button.callback('💳 Voir mon panier / Commander', 'view_cart')],
+            [Markup.button.callback('❌ Vider le panier', 'clear_cart')]
+        ];
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action('checkout_now', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const pending = pendingOrders.get(userId);
+        if (!pending) return;
+
+        let cart = userCarts.get(userId) || [];
+        cart.push(pending);
+        userCarts.set(userId, cart);
+        pendingOrders.delete(userId);
+
+        await startCheckout(ctx);
+    });
+
+    bot.action('view_cart', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const cart = userCarts.get(userId) || [];
+        if (cart.length === 0) return ctx.answerCbQuery('Votre panier est vide 📭');
+
+        let total = 0;
+        let summary = `🛒 <b>Votre Panier</b>\n\n`;
+        cart.forEach((item, idx) => {
+            const price = parseFloat(item.totalPrice);
+            total += price;
+            summary += `${idx + 1}. ${item.productName} (x${item.qty})${item.chosen_unit_amount ? ` [${item.chosen_unit_amount}]` : ''} - <b>${price.toFixed(2)}€</b>\n`;
+        });
+        summary += `\n💰 <b>TOTAL : ${total.toFixed(2)}€</b>`;
+
+        const buttons = [
+            [Markup.button.callback('💳 Commander', 'start_checkout')],
+            [Markup.button.callback('🛍️ Continuer mes achats', 'view_catalog')],
+            [Markup.button.callback('❌ Vider le panier', 'clear_cart')]
+        ];
+        await safeEdit(ctx, summary, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action('clear_cart', async (ctx) => {
+        await ctx.answerCbQuery('Panier vidé 🗑️');
+        userCarts.delete(ctx.from.id);
+        await ctx.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'view_catalog' } });
+    });
+
+    bot.action('start_checkout', async (ctx) => {
+        await ctx.answerCbQuery();
+        await startCheckout(ctx);
+    });
+
+    async function startCheckout(ctx) {
+        const userId = ctx.from.id;
+        const cart = userCarts.get(userId) || [];
+        if (cart.length === 0) return ctx.reply("Votre panier est vide.");
+
+        let total = cart.reduce((acc, item) => acc + parseFloat(item.totalPrice), 0);
+        await promptAddressEntry(ctx, total);
+    }
+
+    async function promptAddressEntry(ctx, totalPrice) {
+        ctx.state.awaiting_address_step1 = true;
+        await safeEdit(ctx,
+            `🏁 <b>Étape 1 : Adresse de livraison</b>\n\n` +
+            `Veuillez nous envoyer votre <b>adresse précise</b> (Rue, Numéro, Ville).\n\n` +
+            `💬 <i>Exemple : 45 rue de la Paix, Paris</i>`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Panier', 'view_cart')]])
+        );
+    }
 
     async function askUnit(ctx, product, qty) {
         const unit = product.unit;
@@ -110,7 +219,7 @@ function setupOrderSystem(bot) {
             pending.chosen_unit_amount = `${amount}${product.unit}`;
         }
 
-        await promptAddress(ctx, product, qty, finalPrice);
+        await showAddToCartChoice(ctx, product, qty, finalPrice, `${amount}${product.unit}`);
     });
 
     async function promptAddress(ctx, product, qty, totalPrice) {
@@ -133,56 +242,93 @@ function setupOrderSystem(bot) {
     // Capture de l'adresse (message texte)
     bot.on('message', async (ctx, next) => {
         if (!ctx.message.text || ctx.message.text.startsWith('/')) return next();
-
         const userId = ctx.from.id;
-        const pending = pendingOrders.get(userId);
-        if (!pending) return next();
 
-        const address = ctx.message.text;
-        pending.address = address;
+        // Step 1: Address Validation
+        if (ctx.state.awaiting_address_step1) {
+            const addr = ctx.message.text.trim();
+            // Validation basique : au moins 8 caractères et un chiffre (numéro de rue)
+            if (addr.length < 8 || !(/\d/.test(addr))) {
+                await ctx.reply("❌ <b>Adresse incomplète ou invalide.</b>\n\nVeuillez donner une adresse précise (Numéro + Rue + Ville) pour que le livreur vous trouve facilement.", { parse_mode: 'HTML' });
+                return;
+            }
 
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
-        const settings = ctx.state?.settings || {}; // Changed this line
+            delete ctx.state.awaiting_address_step1;
+            awaitingAddressDetails.set(userId, { address: addr });
+
+            await ctx.deleteMessage().catch(() => { });
+            return await ctx.reply(`🏢 <b>Détails de livraison (Optionnel)</b>\n\nIndiquez votre <b>digicode, étage, numéro d'appartement</b> ou toute info utile pour le livreur.\n\nSinon, cliquez sur le bouton ci-dessous :`,
+                Markup.inlineKeyboard([
+                    [Markup.button.callback('⏭ Passer cette étape', 'address_details_skip')],
+                    [Markup.button.callback('◀️ Changer l\'adresse', 'start_checkout')]
+                ])
+            );
+        }
+
+        // Step 2: Details Capture (if user sends text instead of clicking skip)
+        const detailsWait = awaitingAddressDetails.get(userId);
+        if (detailsWait && !detailsWait.finalized) {
+            const details = ctx.message.text.trim();
+            detailsWait.address += ` (Infos : ${details})`;
+            detailsWait.finalized = true;
+            await ctx.deleteMessage().catch(() => { });
+            return finalizeAddressFlow(ctx, detailsWait.address);
+        }
+
+        return next();
+    });
+
+    bot.action('address_details_skip', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = ctx.from.id;
+        const data = awaitingAddressDetails.get(userId);
+        if (!data) return;
+        data.finalized = true;
+        await finalizeAddressFlow(ctx, data.address);
+    });
+
+    async function finalizeAddressFlow(ctx, fullAddress) {
+        const userId = ctx.from.id;
+        const cart = userCarts.get(userId) || [];
+        const total = cart.reduce((acc, item) => acc + parseFloat(item.totalPrice), 0);
+
+        // On transfère vers pending pour la suite (fidelité / scheduling)
+        const checkoutData = {
+            isCart: true,
+            address: fullAddress,
+            totalPrice: total,
+            userId: userId
+        };
+        pendingOrders.set(userId, checkoutData);
+
+        const settings = ctx.state.settings;
         const user = await getUser(`telegram_${userId}`);
 
-        // Calcul du prix final et de la règle de fidélité
-        const totalPriceRaw = parseFloat(pending.totalPrice);
-
-        // Supprimer le message d'adresse utilisateur pour flux propre
-        await ctx.deleteMessage().catch(() => { });
-
-        // SI CRÉDIT DISPONIBLE → ON DEMANDE (En respectant la règle de fidélité)
+        // SI CRÉDIT DISPONIBLE → ON DEMANDE
         if (user && user.wallet_balance > 0) {
             const maxPct = settings.fidelity_wallet_max_pct || 50;
             const minSpend = settings.fidelity_min_spend || 0;
-
-            const maxAllowedCredit = (totalPriceRaw * maxPct) / 100;
+            const maxAllowedCredit = (total * maxPct) / 100;
             const possibleDiscount = Math.min(maxAllowedCredit, user.wallet_balance);
 
-            if (totalPriceRaw >= minSpend && possibleDiscount > 0) {
-                pendingOrderConfirmation.set(userId, { ...pending, possibleDiscount });
+            if (total >= minSpend && possibleDiscount > 0) {
+                pendingOrderConfirmation.set(userId, { ...checkoutData, possibleDiscount });
                 return safeEdit(ctx,
                     `💰 <b>Utiliser votre solde ?</b>\n\n` +
                     `Votre solde actuel : <b>${(user.wallet_balance).toFixed(2)}€</b>\n` +
-                    `Règle de fidélité : Vous pouvez utiliser jusqu'à <b>${maxPct}%</b> du panier (soit <b>${possibleDiscount.toFixed(2)}€</b>).\n\n` +
-                    `Voulez-vous appliquer cette réduction ?`,
-                    {
-                        ...Markup.inlineKeyboard([
-                            [Markup.button.callback(`✅ Oui, déduire ${possibleDiscount.toFixed(2)}€`, 'confirm_order_use_credit_yes')],
-                            [Markup.button.callback('❌ Non, payer plein tarif', 'confirm_order_use_credit_no')],
-                            [Markup.button.callback('◀️ Retour Adresse', 'back_to_address')],
-                            [Markup.button.callback('🚫 Annuler commande', 'view_catalog')]
-                        ]),
-                        photo: product.image_url || null
-                    }
+                    `Réduction possible : <b>${possibleDiscount.toFixed(2)}€</b>.\n\n` +
+                    `Voulez-vous l'appliquer ?`,
+                    Markup.inlineKeyboard([
+                        [Markup.button.callback(`✅ Oui, déduire ${possibleDiscount.toFixed(2)}€`, 'confirm_order_use_credit_yes')],
+                        [Markup.button.callback('❌ Non, payer plein tarif', 'confirm_order_use_credit_no')],
+                        [Markup.button.callback('◀️ Retour Adresse', 'start_checkout')]
+                    ])
                 );
             }
         }
 
-        // Demande de planification avant le résumé
         await askScheduling(ctx);
-    });
+    }
 
     async function askScheduling(ctx) {
         const text = `🕒 <b>Quand souhaitez-vous être livré ?</b>\n\nChoisissez si vous voulez être livré dès que possible ou planifier un horaire précis.`;
@@ -201,12 +347,7 @@ function setupOrderSystem(bot) {
         const pending = pendingOrderConfirmation.get(userId) || pendingOrders.get(userId);
         if (!pending) return ctx.reply("Session expirée.");
         pending.scheduled_at = null;
-
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
-        const discount = pending.possibleDiscount || 0;
-        const finalPrice = parseFloat(pending.totalPrice) - discount;
-        await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, discount, null);
+        await showCartSummary(ctx, pending.address, pending.totalPrice - (pending.possibleDiscount || 0), pending.possibleDiscount || 0, null);
     });
 
     bot.action('scheduling_plan', async (ctx) => {
@@ -262,22 +403,14 @@ function setupOrderSystem(bot) {
         if (!pending) return ctx.reply("Session expirée.");
 
         pending.scheduled_at = `${date} ${hour}`;
-
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
         const discount = pending.possibleDiscount || 0;
         const finalPrice = parseFloat(pending.totalPrice) - discount;
-        await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, discount, pending.scheduled_at);
+        await showCartSummary(ctx, pending.address, finalPrice, discount, pending.scheduled_at);
     });
 
     bot.action('back_to_address', async (ctx) => {
         await ctx.answerCbQuery();
-        const userId = ctx.from.id;
-        const pending = pendingOrders.get(userId);
-        if (!pending) return ctx.reply("Session expirée.");
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
-        await promptAddress(ctx, product, pending.qty, pending.totalPrice);
+        await startCheckout(ctx);
     });
 
     bot.action('back_to_scheduling', async (ctx) => {
@@ -285,7 +418,7 @@ function setupOrderSystem(bot) {
         await askScheduling(ctx);
     });
 
-    const pendingOrderConfirmation = new Map();
+
 
     bot.action('confirm_order_use_credit_yes', async (ctx) => {
         await ctx.answerCbQuery();
@@ -293,11 +426,8 @@ function setupOrderSystem(bot) {
         const pending = pendingOrderConfirmation.get(userId);
         if (!pending) return safeEdit(ctx, "Sesssion expirée ❌", Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
         const finalPrice = parseFloat(pending.totalPrice) - pending.possibleDiscount;
-
-        await showOrderSummary(ctx, product, pending.qty, pending.address, finalPrice, pending.possibleDiscount, pending.scheduled_at);
+        await showCartSummary(ctx, pending.address, finalPrice, pending.possibleDiscount, pending.scheduled_at);
     });
 
     bot.action('confirm_order_use_credit_no', async (ctx) => {
@@ -306,23 +436,25 @@ function setupOrderSystem(bot) {
         const pending = pendingOrderConfirmation.get(userId);
         if (!pending) return safeEdit(ctx, "Sesssion expirée ❌", Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
-
-        await showOrderSummary(ctx, product, pending.qty, pending.address, parseFloat(pending.totalPrice), 0, pending.scheduled_at);
+        await showCartSummary(ctx, pending.address, parseFloat(pending.totalPrice), 0, pending.scheduled_at);
     });
 
-    async function showOrderSummary(ctx, product, qty, address, finalPrice, discount, scheduledAt = null) {
-        const pending = pendingOrderConfirmation.get(ctx.from.id) || pendingOrders.get(ctx.from.id);
-        const unitInfo = pending && pending.chosen_unit_amount ? `(${pending.chosen_unit_amount}) ` : '';
+    async function showCartSummary(ctx, address, finalPrice, discount, scheduledAt = null) {
+        const userId = ctx.from.id;
+        const cart = userCarts.get(userId) || [];
+
+        let cartText = ``;
+        cart.forEach((item, idx) => {
+            cartText += `📦 <b>${item.productName}</b> (x${item.qty})${item.chosen_unit_amount ? ` [${item.chosen_unit_amount}]` : ''}\n`;
+        });
 
         const text = `🛒 <b>Récapitulatif de Commande</b>\n\n` +
-            `📦 Produit : ${product.name} ${unitInfo}(x${qty})\n` +
+            cartText +
             `📍 Adresse : ${address}\n` +
             (scheduledAt ? `🕒 Planifié pour : <b>${scheduledAt}</b>\n` : `🚀 Livraison : Dès que possible\n`) +
-            `💰 Prix : ${qty * product.price}€\n` +
+            `💰 Total : <b>${(finalPrice + discount).toFixed(2)}€</b>\n` +
             (discount > 0 ? `🎁 Réduction solde : -${discount.toFixed(2)}€\n` : '') +
-            `💵 <b>TOTAL À RÉGLER : ${finalPrice.toFixed(2)}€</b>\n\n` +
+            `💵 <b>NET À RÉGLER : ${finalPrice.toFixed(2)}€</b>\n\n` +
             `Confirmez-vous la commande ?`;
 
         await safeEdit(ctx, text, {
@@ -330,8 +462,7 @@ function setupOrderSystem(bot) {
                 [Markup.button.callback('✅ CONFIRMER LA COMMANDE', `create_order_${discount > 0 ? 'discount' : 'normal'}`)],
                 [Markup.button.callback('◀️ Modifier livraison', 'back_to_scheduling')],
                 [Markup.button.callback('❌ Annuler', 'view_catalog')]
-            ]),
-            photo: product.image_url || null
+            ])
         });
     }
 
@@ -340,11 +471,12 @@ function setupOrderSystem(bot) {
         const userId = ctx.from.id;
         const useDiscount = ctx.match[1] === 'discount';
         const pending = useDiscount ? pendingOrderConfirmation.get(userId) : pendingOrders.get(userId);
-
         if (!pending) return safeEdit(ctx, '❌ Session expirée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
-        const products = await getProducts();
-        const product = products.find(p => p.id === pending.productId);
+        const cart = userCarts.get(userId) || [];
+        const productList = cart.map(item => `${item.productName} (x${item.qty})${item.chosen_unit_amount ? ` [${item.chosen_unit_amount}]` : ''}`).join(', ');
+        const totalQty = cart.reduce((acc, item) => acc + item.qty, 0);
+
         const discount = useDiscount ? pending.possibleDiscount : 0;
         const finalPrice = parseFloat(pending.totalPrice) - discount;
 
@@ -362,8 +494,8 @@ function setupOrderSystem(bot) {
             user_id: `telegram_${userId}`,
             username: ctx.from.username || 'Inconnu',
             first_name: ctx.from.first_name || 'Inconnu',
-            product_name: pending.chosen_unit_amount ? `${product.name} (${pending.chosen_unit_amount})` : product.name,
-            quantity: pending.qty,
+            product_name: productList,
+            quantity: totalQty,
             total_price: finalPrice,
             address: pending.address,
             city: city, // Ajout de la ville pour le filtrage livreur
@@ -381,16 +513,30 @@ function setupOrderSystem(bot) {
 
         const successText = ctx.state.settings.msg_order_success || `✅ <b>Commande #${order.id.substring(0, 5)} envoyée !</b>\n\nUn livreur va vous contacter dès qu'elle sera prise en charge.`;
 
+        // Removed duplicate createOrder call
+        userCarts.delete(userId); // Vider le panier après commande
+        pendingOrders.delete(userId);
+        pendingOrderConfirmation.delete(userId);
+        awaitingAddressDetails.delete(userId);
+
+        const settings = ctx.state.settings;
         await safeEdit(ctx,
-            `${successText}\n\n` +
-            `📦 Produit : ${product.name} ${pending.chosen_unit_amount ? `(${pending.chosen_unit_amount}) ` : ''}(x${pending.qty})\n` +
+            `✅ <b>Commande enregistrée !</b>\n\n` +
+            `📦 Produit : ${productList}\n` +
             `📍 Adresse : ${pending.address}\n` +
-            (pending.scheduled_at ? `🕒 Prévu pour : <b>${pending.scheduled_at}</b>\n` : `🚀 Livraison rapide demandée\n`) +
+            (pending.scheduled_at ? `🕒 Prévu pour : <b>${pending.scheduled_at}</b>\n` : `🚀 Livraison : Dès que possible\n`) +
             `💰 Total : <b>${finalPrice.toFixed(2)}€</b>\n\n` +
-            `⏳ Recherche d'un livreur en cours...`,
+            `${settings.ui_icon_success || '✅'} Recherche d'un livreur en cours...`,
             Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]])
         );
 
+        // Notify Admin / Livreurs
+        const notificationText = `🆕 <b>NOUVELLE COMMANDE !</b>\n\n` +
+            `📦 ${productList}\n` +
+            `📍 ${pending.address}\n` +
+            (pending.scheduled_at ? `🕒 <b>Prévu pour : ${pending.scheduled_at}</b>\n` : `🕒 Dès que possible\n`) +
+            `💰 <b>${finalPrice.toFixed(2)}€</b>\n\n` +
+            `<i>Ouvrez votre espace livreur pour la prendre.</i>`;
         // Alerte aux admins
         if (ctx.state.settings.admin_telegram_id) {
             const adminIds = String(ctx.state.settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
@@ -398,7 +544,7 @@ function setupOrderSystem(bot) {
                 bot.telegram.sendMessage(adminId,
                     `🚨 <b>NOUVELLE COMMANDE !</b>\n\n` +
                     `👤 Client : ${ctx.from.first_name} (@${ctx.from.username})\n` +
-                    `📦 Produit : ${product.name} ${pending.chosen_unit_amount ? `(${pending.chosen_unit_amount}) ` : ''}(x${pending.qty})\n` +
+                    `📦 Produit : ${productList}\n` +
                     `📍 Adresse : ${pending.address}\n` +
                     (pending.scheduled_at ? `🕒 <b>PLANIFIÉ : ${pending.scheduled_at}</b>\n` : `🚀 <b>ASAP</b>\n`) +
                     `💰 Total : ${finalPrice.toFixed(2)}€\n` +
@@ -418,11 +564,7 @@ function setupOrderSystem(bot) {
             for (const l of allLivreurs) {
                 if (l.platform_id) {
                     bot.telegram.sendMessage(l.platform_id,
-                        `🆕 <b>NOUVELLE COMMANDE !</b>\n\n` +
-                        `📦 ${product.name} (x${pending.qty})\n` +
-                        `📍 ${pending.address}\n` +
-                        `💰 <b>${finalPrice.toFixed(2)}€</b>\n\n` +
-                        `<i>Ouvrez votre espace livreur pour la prendre.</i>`,
+                        notificationText,
                         {
                             parse_mode: 'HTML',
                             ...Markup.inlineKeyboard([[Markup.button.callback('📦 Voir les commandes', 'show_available_orders')]])
@@ -600,7 +742,8 @@ function setupOrderSystem(bot) {
         let text = `📦 <b>Commandes disponibles (${orders.length})</b>\n\n`;
         const buttons = orders.map(o => {
             const addr = o.address ? o.address.substring(0, 25) : '?';
-            return [Markup.button.callback(`${o.product_name} - ${o.total_price}€ (${addr})`, `take_order_${o.id}`)];
+            const scheduledInfo = o.scheduled_at ? ` (${o.scheduled_at})` : '';
+            return [Markup.button.callback(`${o.product_name} - ${o.total_price}€ (${addr})${scheduledInfo}`, `take_order_${o.id}`)];
         });
         buttons.push([Markup.button.callback('🔄 Rafraîchir', 'show_available_orders')]);
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
@@ -620,11 +763,12 @@ function setupOrderSystem(bot) {
             livreur_name: ctx.from.first_name
         });
 
-        const settings = await getAppSettings();
+        const settings = ctx.state.settings;
         await safeEdit(ctx,
             `${settings.ui_icon_success} <b>Commande #${orderId.substring(0, 5)} acceptée !</b>\n\n` +
-            `📦 Produit : <b>${order.product_name} (x${order.quantity})</b>\n` +
-            `📍 Adresse : <code>${order.address}</code>\n\n` +
+            `📦 Produit : <b>${order.product_name}</b>\n` +
+            `📍 Adresse : <code>${order.address}</code>\n` +
+            (order.scheduled_at ? `🕒 <b>PRÉVU POUR : ${order.scheduled_at}</b>\n\n` : `🕒 Dès que possible\n\n`) +
             `💰 Total à encaisser : <b>${order.total_price}€</b>\n\n` +
             `💡 <i>Pensez à partager votre position en direct pour notifier le client de votre arrivée.</i>\n\n` +
             `Cliquez sur le bouton ci-dessous une fois livré :`,
@@ -751,8 +895,8 @@ function setupOrderSystem(bot) {
             setTimeout(async () => {
                 try {
                     // Supprimer le message de remerciement et le commentaire de l'utilisateur
-                    await ctx.deleteMessage(thankMsg.message_id).catch(() => {});
-                    await ctx.deleteMessage(ctx.message.message_id).catch(() => {});
+                    await ctx.deleteMessage(thankMsg.message_id).catch(() => { });
+                    await ctx.deleteMessage(ctx.message.message_id).catch(() => { });
 
                     // Réafficher le menu principal
                     const { getAppSettings, getUser } = require('../services/database');

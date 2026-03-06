@@ -89,7 +89,10 @@ async function safeEdit(ctx, text, opts = {}) {
                     }, { reply_markup: extra.reply_markup });
                     await addMessageToTrack(trackId, currentMsg.message_id).catch(() => { });
                     return;
-                } catch (e) { /* fallback if edit fails */ }
+                } catch (e) {
+                    if (e.description && e.description.includes('message is not modified')) return;
+                    // Fallback if edit fails for other reasons (e.g. media type change or network)
+                }
             }
         }
 

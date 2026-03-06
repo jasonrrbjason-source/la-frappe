@@ -16,18 +16,25 @@ const pendingOrderConfirmation = new Map();
 function setupOrderSystem(bot) {
     // ========== CATALOGUE & COMMANDE ==========
 
-    bot.action('view_catalog', async (ctx) => {
-        await ctx.answerCbQuery();
+    async function displayCatalog(ctx) {
         const products = await getProducts();
         if (!products || products.length === 0) {
             return safeEdit(ctx, '📭 Le catalogue est actuellement vide.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
         }
 
-        let text = `${ctx.state.settings.ui_icon_catalog} <b>Catalogue ${ctx.state.settings.bot_name}</b>\n\nChoisissez un produit :`;
+        const settings = ctx.state?.settings || {};
+        const catalogIcon = settings.ui_icon_catalog || '📦';
+        const botName = settings.bot_name || 'Bot';
+        let text = `${catalogIcon} <b>Catalogue ${botName}</b>\n\nChoisissez un produit :`;
         const buttons = products.map(p => [Markup.button.callback(`${p.name} - ${p.price}€`, `product_${p.id}`)]);
         buttons.push([Markup.button.callback('◀️ Retour', 'main_menu')]);
 
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    }
+
+    bot.action('view_catalog', async (ctx) => {
+        await ctx.answerCbQuery();
+        await displayCatalog(ctx);
     });
 
     bot.action(/^product_(.+)$/, async (ctx) => {
@@ -132,11 +139,12 @@ function setupOrderSystem(bot) {
         await startCheckout(ctx);
     });
 
-    bot.action('view_cart', async (ctx) => {
-        await ctx.answerCbQuery();
+    async function displayCart(ctx) {
         const userId = ctx.from.id;
         const cart = userCarts.get(userId) || [];
-        if (cart.length === 0) return ctx.answerCbQuery('Votre panier est vide 📭');
+        if (cart.length === 0) {
+            return safeEdit(ctx, 'Votre panier est vide 📭', Markup.inlineKeyboard([[Markup.button.callback('🛍️ Retour au Catalogue', 'view_catalog')]]));
+        }
 
         let total = 0;
         let summary = `🛒 <b>Votre Panier</b>\n\n`;
@@ -146,8 +154,8 @@ function setupOrderSystem(bot) {
             const price = parseFloat(item.totalPrice);
             total += price;
             summary += `${idx + 1}. ${item.productName} (x${item.qty})${item.chosen_unit_amount ? ` [${item.chosen_unit_amount}]` : ''} - <b>${price.toFixed(2)}€</b>\n`;
-            // Bouton de suppression individuelle
-            buttons.push([Markup.button.callback(`❌ Retirer ${item.productName.substring(0, 15)}...`, `remove_item_${idx}`)]);
+            // Bouton de suppression individuelle plus clair
+            buttons.push([Markup.button.callback(`❌ Retirer ${item.productName}`, `remove_item_${idx}`)]);
         });
         summary += `\n💰 <b>TOTAL : ${total.toFixed(2)}€</b>`;
 
@@ -156,6 +164,11 @@ function setupOrderSystem(bot) {
         buttons.push([Markup.button.callback('❌ Vider le panier', 'clear_cart')]);
 
         await safeEdit(ctx, summary, Markup.inlineKeyboard(buttons));
+    }
+
+    bot.action('view_cart', async (ctx) => {
+        await ctx.answerCbQuery();
+        await displayCart(ctx);
     });
 
     bot.action(/^remove_item_(.+)$/, async (ctx) => {
@@ -167,21 +180,18 @@ function setupOrderSystem(bot) {
             cart.splice(idx, 1);
             userCarts.set(userId, cart);
         }
-        // Retour au panier
-        if (cart.length === 0) {
-            return safeEdit(ctx, 'Votre panier est maintenant vide. 📭', Markup.inlineKeyboard([[Markup.button.callback('🛍️ Retour au Catalogue', 'view_catalog')]]));
-        }
-        // On re-déclenche l'action view_cart (on simule)
-        return await ctx.handleUpdate({
-            ...ctx.update,
-            callback_query: { ...ctx.callbackQuery, data: 'view_cart' }
-        });
+        await displayCart(ctx);
     });
 
     bot.action('clear_cart', async (ctx) => {
         await ctx.answerCbQuery('Panier vidé 🗑️');
         userCarts.delete(ctx.from.id);
-        await ctx.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'view_catalog' } });
+        try {
+            await displayCatalog(ctx);
+        } catch (e) {
+            console.error('Error displaying catalog after clear:', e.message);
+            await safeEdit(ctx, '✅ Panier vidé !', Markup.inlineKeyboard([[Markup.button.callback('🛍️ Voir le Catalogue', 'view_catalog')], [Markup.button.callback('◀️ Menu', 'main_menu')]]));
+        }
     });
 
     bot.action('start_checkout', async (ctx) => {

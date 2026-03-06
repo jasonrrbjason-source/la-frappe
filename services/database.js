@@ -78,6 +78,7 @@ const _userCache = new Map();
 async function registerUser(platformUser, platform = 'telegram', referrerId = null) {
     if (!platform) platform = 'telegram';
     const docId = makeDocId(platform, platformUser.id);
+    const nowMs = Date.now();
 
     let existing = null;
     if (_userCache.has(docId)) {
@@ -88,7 +89,37 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
     }
 
     const isGroup = platformUser.type === 'group' || platformUser.type === 'supergroup';
-    const coreData = {
+
+    // Si l'utilisateur existe déjà
+    if (existing) {
+        const lastActiveMs = existing.last_active ? new Date(existing.last_active).getTime() : 0;
+
+        // Optimisation: Mise à jour DB seulement si inactif depuis > 5 min
+        if (nowMs - lastActiveMs > 300000) {
+            const updateData = {
+                last_active: ts(),
+                updated_at: ts(),
+                username: !isGroup ? encryption.encrypt(platformUser.username || '') : (platformUser.username || ''),
+                first_name: !isGroup ? encryption.encrypt(platformUser.first_name || '') : (platformUser.title || ''),
+                last_name: !isGroup ? encryption.encrypt(platformUser.last_name || '') : '',
+                language_code: platformUser.language_code || 'fr',
+                is_active: true
+            };
+
+            await supabase.from(COL_USERS).update(updateData).eq('id', docId);
+            _userCache.set(docId, { data: { ...existing, ...updateData }, expire: nowMs + 300000 });
+        } else {
+            // Toucher au cache sans toucher à la DB
+            _userCache.set(docId, { data: existing, expire: nowMs + 300000 });
+        }
+
+        return { isNew: false, user: decryptUser(existing) };
+    }
+
+    // Nouvel utilisateur : on chiffre ici (une seule fois à l'inscription)
+    const newUser = {
+        id: docId,
+        doc_id: docId,
         platform,
         platform_id: String(platformUser.id),
         type: isGroup ? 'group' : 'user',
@@ -96,40 +127,11 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         first_name: !isGroup ? encryption.encrypt(platformUser.first_name || '') : (platformUser.title || ''),
         last_name: !isGroup ? encryption.encrypt(platformUser.last_name || '') : '',
         language_code: platformUser.language_code || 'fr',
+        date_inscription: ts(),
         last_active: ts(),
         updated_at: ts(),
         is_active: true,
         is_blocked: false,
-    };
-
-    if (existing) {
-        // Optimisation: Si l'utilisateur a été actif il y a moins de 5 minutes, on skip l'UPDATE Supabase
-        const nowMs = Date.now();
-        const lastActiveMs = existing.last_active ? new Date(existing.last_active).getTime() : 0;
-
-        let finalUser;
-        if (nowMs - lastActiveMs > 300000) { // 5 minutes
-            const { error: updErr } = await supabase.from(COL_USERS).update(coreData).eq('id', docId);
-            if (updErr) console.error(`❌ Échec UPDATE user ${docId}:`, updErr.message);
-            _userCache.delete(docId);
-            finalUser = { ...existing, ...coreData };
-        } else {
-            // Pas de DB call
-            finalUser = { ...existing };
-        }
-
-        const decrypted = decryptUser(finalUser);
-        _userCache.set(docId, { data: finalUser, expire: nowMs + 300000 });
-        return { isNew: false, user: decrypted };
-    }
-
-    const newUser = {
-        id: docId,
-        doc_id: docId,
-        ...coreData,
-        date_inscription: ts(),
-        is_blocked: false,
-        is_active: true,
         referred_by: referrerId || null,
         referral_count: 0,
         order_count: 0,
@@ -140,10 +142,12 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         data: {},
         referral_code: generateReferralCode(platform, platformUser.id),
     };
+
     const { error: insertError } = await supabase.from(COL_USERS).insert([newUser]);
     if (insertError) {
-        console.error(`❌ Échec INSERT user ${docId}:`, insertError.message, insertError.details);
-        return { isNew: false, user: decryptUser({ ...newUser }) };
+        console.error(`❌ Échec INSERT user ${docId}:`, insertError.message);
+        // Si erreur de doublon, on ré-essaye en récupérant l'existant
+        return { isNew: false, user: decryptUser(newUser) };
     }
 
     await incrementStat('total_users');
@@ -318,9 +322,11 @@ async function createOrder(orderData) {
     const { data, error } = await supabase.from(COL_ORDERS).insert([{
         id: id,
         ...orderData,
-        scheduled_at: orderData.scheduled_at || null, // Horaires planifiés
+        scheduled_at: orderData.scheduled_at || null,
         status: 'pending',
-        created_at: ts()
+        created_at: ts(),
+        notif_1h_sent: false,
+        notif_30m_sent: false
     }]).select();
 
     if (error) {
@@ -330,6 +336,22 @@ async function createOrder(orderData) {
 
     await incrementStat('total_orders');
     return { order: data[0], error: null };
+}
+
+async function getUpcomingPlannedOrders() {
+    // On cherche les commandes qui ne sont pas encore livrées/annulées et qui ont un horaire prévu
+    const { data, error } = await supabase.from(COL_ORDERS)
+        .select('*')
+        .not('status', 'in', '("delivered","cancelled")')
+        .not('scheduled_at', 'is', null);
+
+    if (error) return [];
+    return data;
+}
+
+async function markNotifSent(orderId, type) {
+    const field = type === '1h' ? 'notif_1h_sent' : 'notif_30m_sent';
+    await supabase.from(COL_ORDERS).update({ [field]: true }).eq('id', orderId);
 }
 
 async function updateOrderStatus(orderId, status, extraData = {}) {
@@ -491,9 +513,9 @@ async function getRecentUsers(limit = 20) {
     return (data || []).map(decryptUser);
 }
 async function searchUsers(query) {
-    // Note: Since username/first_name are ENCRYPTED in DB, SQL 'ilike' won't work.
-    // We fetch a larger batch and filter in memory for better UX on small/medium userbases.
-    const { data } = await supabase.from(COL_USERS).select('*').limit(200);
+    // Note: Since username/first_name are ENCRYPTED in DB, SQL 'ilike' won't work perfectly.
+    // We fetch a larger batch and filter in memory.
+    const { data } = await supabase.from(COL_USERS).select('*').order('date_inscription', { ascending: false }).limit(500);
     const decrypted = (data || []).map(decryptUser);
 
     if (!query) return decrypted.slice(0, 50);
@@ -898,5 +920,6 @@ module.exports = {
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getOrdersByUser, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,
+    getUpcomingPlannedOrders, markNotifSent,
     _userCache
 };

@@ -357,16 +357,23 @@ function setupOrderSystem(bot) {
 
         // On propose des créneaux
         const now = new Date();
-        const dates = [0, 1].map(offset => {
+        // On propose des créneaux sur 7 jours
+        const dates = [];
+        for (let i = 0; i < 7; i++) {
             const d = new Date();
-            d.setDate(now.getDate() + offset);
-            return d;
-        });
+            d.setDate(now.getDate() + i);
+            dates.push(d);
+        }
 
         dates.forEach((d, idx) => {
-            const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+            const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
             const dateKey = d.toISOString().split('T')[0];
-            buttons.push([Markup.button.callback(`${idx === 0 ? 'Aujourd\'hui' : 'Demain'} (${dateStr})`, `sched_date_${dateKey}`)]);
+            let label = "";
+            if (idx === 0) label = `Aujourd'hui (${dateStr})`;
+            else if (idx === 1) label = `Demain (${dateStr})`;
+            else label = `${dateStr}`;
+
+            buttons.push([Markup.button.callback(label, `sched_date_${dateKey}`)]);
         });
 
         buttons.push([Markup.button.callback('◀️ Retour', 'back_to_scheduling')]);
@@ -761,16 +768,34 @@ function setupOrderSystem(bot) {
         const orders = await getAvailableOrders();
         const settings = await getAppSettings();
 
-        if (orders.length === 0) {
-            return safeEdit(ctx, '📭 Aucune commande disponible pour le moment.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
-        }
+        // Séparer les commandes "Maintenant" des "Planifiées"
+        const asap = orders.filter(o => !o.scheduled_at);
+        const planned = orders.filter(o => o.scheduled_at);
 
         let text = `📦 <b>Commandes disponibles (${orders.length})</b>\n\n`;
-        const buttons = orders.map(o => {
-            const addr = o.address ? o.address.substring(0, 25) : '?';
-            const scheduledInfo = o.scheduled_at ? ` (${o.scheduled_at})` : '';
-            return [Markup.button.callback(`${o.product_name} - ${o.total_price}€ (${addr})${scheduledInfo}`, `take_order_${o.id}`)];
-        });
+
+        const buttons = [];
+
+        if (asap.length > 0) {
+            text += `🚀 <b>Livraison immédiate :</b>\n`;
+            asap.forEach(o => {
+                const addr = o.address ? o.address.substring(0, 15) : '?';
+                buttons.push([Markup.button.callback(`🚀 ${o.product_name} - ${o.total_price}€ (${addr})`, `take_order_${o.id}`)]);
+            });
+        }
+
+        if (planned.length > 0) {
+            text += `\n🗓 <b>Commandes Planifiées :</b>\n`;
+            planned.forEach(o => {
+                const addr = o.address ? o.address.substring(0, 15) : '?';
+                buttons.push([Markup.button.callback(`🗓 ${o.scheduled_at} - ${o.product_name} (${addr})`, `take_order_${o.id}`)]);
+            });
+        }
+
+        if (orders.length === 0) {
+            text = '📭 Aucune commande disponible pour le moment.';
+        }
+
         buttons.push([Markup.button.callback('🔄 Rafraîchir', 'show_available_orders')]);
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
 
@@ -996,11 +1021,18 @@ function setupOrderSystem(bot) {
         if (!order) return safeEdit(ctx, '❌ Commande non trouvée.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
 
         const settings = await getAppSettings();
-        await safeEdit(ctx,
-            `📦 <b>Détails Livraison #${orderId.substring(0, 5)}</b>\n\n` +
+        let detailText = `📦 <b>Détails Livraison #${orderId.substring(0, 5)}</b>\n\n` +
             `📍 Adresse : <code>${order.address}</code>\n` +
-            `💰 À encaisser : <b>${order.total_price}€</b>\n\n` +
-            `Utilisez les boutons ci-dessous pour avancer :`,
+            `💰 À encaisser : <b>${order.total_price}€</b>\n\n`;
+
+        if (order.scheduled_at) {
+            detailText = `🗓 <b>LIVRAISON PLANIFIÉE</b>\n` +
+                `🕒 Prévu pour : <b>${order.scheduled_at}</b>\n\n` + detailText;
+        } else {
+            detailText = `🚀 <b>LIVRAISON IMMÉDIATE (ASAP)</b>\n\n` + detailText;
+        }
+
+        await safeEdit(ctx, detailText + `Utilisez les boutons ci-dessous pour avancer :`,
             {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard([

@@ -72,6 +72,22 @@ function setupAdminHandlers(bot) {
         return handleAdminLogin(ctx, args[1]);
     });
 
+    bot.command('adduser', async (ctx) => {
+        if (!(await isAdmin(ctx))) return;
+        const args = ctx.message.text.split(' ');
+        if (args.length < 2) return ctx.reply('❌ Usage: /adduser <TELEGRAM_ID>');
+
+        const targetId = args[1];
+        const { registerUser } = require('../services/database');
+
+        try {
+            await registerUser({ id: targetId, first_name: 'Utilisateur Manuel', username: 'inconnu' });
+            ctx.reply(`✅ Utilisateur <code>${targetId}</code> ajouté manuellement avec succès !`, { parse_mode: 'HTML' });
+        } catch (e) {
+            ctx.reply(`❌ Erreur : ${e.message}`);
+        }
+    });
+
     bot.action('admin_menu', async (ctx) => {
         if (!(await isAdmin(ctx))) return ctx.answerCbQuery('❌ Accès refusé.');
         if (authenticatedAdmins.has(ctx.from.id)) {

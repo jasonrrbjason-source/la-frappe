@@ -130,6 +130,9 @@ async function main() {
             // Lancement du timer automatique (toutes les 6h)
             startAutomatedTimer(bot);
 
+            // Lancement de la vérification des commandes planifiées (toutes les minutes)
+            setInterval(() => checkPlannedOrders(bot), 60000);
+
         } catch (err) {
             console.error('❌ Erreur au démarrage du bot:', err.message);
         }
@@ -148,6 +151,72 @@ async function main() {
     };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
+}
+
+// Vérification des commandes planifiées et notifications
+async function checkPlannedOrders(bot) {
+    try {
+        const { getUpcomingPlannedOrders, markNotifSent, getAllLivreurs, getAppSettings } = require('./services/database');
+        const orders = await getUpcomingPlannedOrders();
+        const settings = await getAppSettings();
+        if (orders.length === 0) return;
+
+        const now = new Date();
+        // Correction locale France (UTC+1 ou UTC+2)
+        const nowParis = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
+
+        for (const order of orders) {
+            if (!order.scheduled_at) continue;
+
+            // Format attendu: "YYYY-MM-DD HHhMM"
+            const [datePart, timePart] = order.scheduled_at.split(' ');
+            if (!datePart || !timePart) continue;
+
+            const [h, m] = timePart.replace('h', ':').split(':');
+            const schedDate = new Date(`${datePart}T${h}:${m}:00`); // Local time for current system usually matches server
+
+            const diffMs = schedDate - nowParis;
+            const diffMin = Math.round(diffMs / 60000);
+
+            // Notification 1 heure avant (entre 55 et 65 min)
+            if (diffMin <= 60 && diffMin > 30 && !order.notif_1h_sent) {
+                await sendPlannedAlert(bot, order, '1h', settings);
+                await markNotifSent(order.id, '1h');
+            }
+
+            // Notification 30 min avant (entre 0 et 30 min)
+            if (diffMin <= 30 && diffMin > 0 && !order.notif_30m_sent) {
+                await sendPlannedAlert(bot, order, '30m', settings);
+                await markNotifSent(order.id, '30m');
+            }
+        }
+    } catch (e) {
+        console.error('❌ Error checkPlannedOrders:', e.message);
+    }
+}
+
+async function sendPlannedAlert(bot, order, type, settings) {
+    const timeLabel = type === '1h' ? '1 HEURE' : '30 MINUTES';
+    const text = `⏰ <b>RAPPEL COMMANDE PLANIFIÉE</b>\n\n` +
+        `La commande <b>#${order.id.substring(0, 5)}</b> doit être livrée dans environ <b>${timeLabel}</b>.\n\n` +
+        `📦 ${order.product_name}\n` +
+        `📍 ${order.address}\n` +
+        `🕒 Prévu pour : <b>${order.scheduled_at}</b>\n\n` +
+        (order.livreur_id ? `👤 Assigné à : ID ${order.livreur_id}` : `⚠️ <b>PERSONNE N'A PRIS CETTE COMMANDE !</b>`);
+
+    // Si assigné : notifier le livreur
+    if (order.livreur_id) {
+        const livreurTgId = order.livreur_id.replace('telegram_', '');
+        await bot.telegram.sendMessage(livreurTgId, text, { parse_mode: 'HTML' }).catch(() => { });
+    }
+
+    // Dans tous les cas (ou si non assigné), prévenir les admins
+    if (settings.admin_telegram_id) {
+        const admins = String(settings.admin_telegram_id).split(/[\s,]+/);
+        for (const adminId of admins) {
+            await bot.telegram.sendMessage(adminId.trim(), `📢 [INFO ADMIN] ${text}`, { parse_mode: 'HTML' }).catch(() => { });
+        }
+    }
 }
 
 // Fonction pour le message automatique toutes les 6h

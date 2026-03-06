@@ -337,7 +337,7 @@ function setupAdminHandlers(bot) {
             const msg = ctx.message.text.trim();
             if (!msg) return ctx.reply('❌ Message vide.');
             await ctx.reply('🚀 Diffusion en cours...');
-            const res = await broadcastMessage(msg);
+            const res = await broadcastMessage('users', msg);
             return ctx.reply(`✅ Diffusion terminée !\n\n📊 Cibles : ${res.total}\n✅ Succès : ${res.success}\n❌ Échecs : ${res.failed}`);
         }
         return next();
@@ -347,7 +347,7 @@ function setupAdminHandlers(bot) {
         if (!authenticatedAdmins.has(ctx.from.id)) return;
         const msg = ctx.message.text.split(' ').slice(1).join(' ');
         if (!msg) return ctx.reply('❌ Message vide. Usage: /broadcast Hello');
-        const res = await broadcastMessage(msg);
+        const res = await broadcastMessage('users', msg);
         ctx.reply(`✅ Diffusion terminée vers ${res.total} membres.`);
     });
 

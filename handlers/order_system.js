@@ -243,13 +243,27 @@ function setupOrderSystem(bot) {
                     `📍 Adresse : ${pending.address}\n` +
                     `💰 Total : ${finalPrice.toFixed(2)}€\n` +
                     `🔑 ID : <code>${order.id}</code>\n\n` +
-                    `Cliquez ci-dessous pour l'assigner manuellement ou la gérer :`,
+                    `Choisissez un livreur ou gérez la commande :`,
                     {
                         parse_mode: 'HTML',
-                        ...Markup.inlineKeyboard([[Markup.button.callback('🛠 Gérer la commande', `admin_order_view_${order.id}`)]])
+                        ...Markup.inlineKeyboard([[Markup.button.callback('🛠 Gérer / Assigner', `admin_order_view_${order.id}`)]])
                     }
                 ).catch(() => { });
             }
+        }
+
+        // Notification aux livreurs disponibles
+        const livreurs = await getAvailableLivreurs();
+        for (const l of livreurs) {
+            const lid = l.id.replace('telegram_', '');
+            bot.telegram.sendMessage(lid,
+                `🚴 <b>COMMANDE DISPONIBLE !</b>\n\n` +
+                `📦 Produit : ${product.name} (x${pending.qty})\n` +
+                `📍 Adresse : ${pending.address}\n` +
+                `💰 Total : <b>${finalPrice.toFixed(2)}€</b>\n\n` +
+                `<i>Ouvrez votre espace livreur pour la prendre.</i>`,
+                { parse_mode: 'HTML' }
+            ).catch(() => { });
         }
     });
 
@@ -412,6 +426,10 @@ function setupOrderSystem(bot) {
         const user = await getUser(`telegram_${ctx.from.id}`);
         const city = type === 'all' ? null : (user?.current_city || user?.data?.current_city);
 
+        if (type === 'city' && (!city || city === 'non défini')) {
+            return safeEdit(ctx, '❌ Vous n\'avez pas défini de secteur. Utilisez "Changer de secteur" pour voir les commandes de votre zone.', Markup.inlineKeyboard([[Markup.button.callback('🌍 Voir toutes les villes', 'show_all_orders')], [Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
+        }
+
         const orders = await getAvailableOrders(city);
         const settings = await getAppSettings();
 
@@ -426,8 +444,9 @@ function setupOrderSystem(bot) {
             return safeEdit(ctx, emptyText, Markup.inlineKeyboard(emptyButtons));
         }
 
-        let text = `📦 <b>Commandes ${type === 'all' ? 'disponibles (Global)' : 'à ' + city.toUpperCase()}</b>\n\n`;
-        const buttons = orders.map(o => [Markup.button.callback(`${o.product_name} - ${o.total_price}€ (${o.city.toUpperCase()})`, `take_order_${o.id}`)]);
+        const typeLabel = type === 'all' ? 'disponibles (Global)' : `à ${city.toUpperCase()}`;
+        let text = `📦 <b>Commandes ${typeLabel}</b>\n\n`;
+        const buttons = orders.map(o => [Markup.button.callback(`${o.product_name} - ${o.total_price}€ (${o.city?.toUpperCase() || '?'})`, `take_order_${o.id}`)]);
 
         if (type === 'city') buttons.push([Markup.button.callback('🌍 Voir toutes les villes', 'show_all_orders')]);
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
@@ -451,7 +470,8 @@ function setupOrderSystem(bot) {
         await safeEdit(ctx,
             `${settings.ui_icon_success} <b>Commande #${orderId.substring(0, 5)} acceptée !</b>\n\n` +
             `📍 Ville : ${order.city}\n` +
-            `👤 Client : ${order.first_name}\n\n` +
+            `📍 Adresse : <code>${order.address}</code>\n\n` +
+            `💰 Total à encaisser : <b>${order.total_price}€</b>\n\n` +
             `💡 <i>Pensez à partager votre position en direct pour notifier le client de votre arrivée.</i>\n\n` +
             `Cliquez sur le bouton ci-dessous une fois livré :`,
             {

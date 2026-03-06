@@ -9,8 +9,8 @@ const {
     getAllOrders, updateOrderStatus, setLivreurStatus, getOrder, assignOrderLivreur,
     setLivreurAvailability, getAppSettings, updateAppSettings,
     deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics, searchLivreurs,
-    getBroadcastHistory,
-    db, admin, nukeDatabase
+    getBroadcastHistory, getDetailedLivreurActivity,
+    db, admin, nukeDatabase, decryptUser, supabase, COL_USERS
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
 const fs = require('fs');
@@ -288,12 +288,13 @@ function createServer() {
 
     app.get('/api/livreurs', authMiddleware, async (req, res) => {
         try {
-            const dbModule = require('./services/database');
-            const { supabase, COL_USERS } = dbModule;
             const { data } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
             const livreurs = (data || []).map(d => {
-                try { return dbModule.decryptUser({ ...d, doc_id: d.id }); }
-                catch { return { ...d, doc_id: d.id }; }
+                try { return decryptUser({ ...d, doc_id: d.id }); }
+                catch (e) {
+                    console.error('Decryption failed for livreur:', d.id, e.message);
+                    return { ...d, doc_id: d.id };
+                }
             });
             res.json(livreurs);
         } catch (e) { console.error('Livreurs API error:', e); res.status(500).json({ error: e.message }); }
@@ -301,7 +302,6 @@ function createServer() {
 
     app.get('/api/livreurs/:id/history', authMiddleware, async (req, res) => {
         try {
-            const { getDetailedLivreurActivity } = require('./services/database');
             const history = await getDetailedLivreurActivity(req.params.id);
             res.json(history);
         } catch (e) {

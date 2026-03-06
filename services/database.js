@@ -25,12 +25,17 @@ function decryptUser(userData) {
     };
 
     // Priority: trust JSONB if it exists, otherwise root column
-    if (userData.data && typeof userData.data === 'object') {
-        const cityInside = userData.data.current_city;
+    let meta = userData.data;
+    if (typeof meta === 'string') {
+        try { meta = JSON.parse(meta); } catch (e) { }
+    }
+
+    if (meta && typeof meta === 'object') {
+        const cityInside = meta.current_city;
         if (cityInside) decrypted.current_city = cityInside;
 
-        if (userData.data.is_available !== undefined) {
-            decrypted.is_available = userData.data.is_available;
+        if (meta.is_available !== undefined) {
+            decrypted.is_available = !!meta.is_available;
         }
     }
 

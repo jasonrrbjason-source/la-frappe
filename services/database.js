@@ -146,15 +146,17 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
 
     const { error: insertError } = await supabase.from(COL_USERS).insert([newUser]);
     if (insertError) {
-        // Si erreur de doublon, on ré-essaye en récupérant l'existant
+        // Si erreur de doublon (code 23505), on récupère l'existant
         if (insertError.code === '23505') {
             const { data: updatedArray } = await supabase.from(COL_USERS).select('*').eq('id', docId).limit(1);
             if (updatedArray && updatedArray.length > 0) {
+                _userCache.set(docId, { data: updatedArray[0], expire: Date.now() + 300000 });
                 return { isNew: false, user: decryptUser(updatedArray[0]) };
             }
         }
+        // Autres erreurs → on lance l'exception pour notifier l'appelant
         console.error(`❌ Échec INSERT user ${docId}:`, insertError.message);
-        return { isNew: false, user: decryptUser(newUser) };
+        throw new Error(`Impossible d'enregistrer l'utilisateur : ${insertError.message}`);
     }
 
     await incrementStat('total_users');
@@ -326,16 +328,22 @@ async function getLastMenuId(docId) {
 // --- Orders ---
 async function createOrder(orderData) {
     // SÉCURITÉ : On s'assure que l'utilisateur est bien enregistré avant de créer la commande
-    // Cela règle le problème des "utilisateurs qui n'apparaissent pas"
+    const tgId = orderData.user_id.replace('telegram_', '');
     try {
-        const tgId = orderData.user_id.replace('telegram_', '');
         await registerUser({
             id: tgId,
             username: orderData.username || 'inconnu',
-            first_name: orderData.first_name || 'Inconnu'
+            first_name: orderData.first_name || 'Inconnu',
+            type: 'user'
         });
     } catch (e) {
-        console.error("registerUser failed during createOrder:", e.message);
+        console.error("⚠️ registerUser failed during createOrder:", e.message);
+        // Vérifie si l'utilisateur existe quand même (erreur de doublon OK)
+        const existingUser = await getUser(`telegram_${tgId}`);
+        if (!existingUser) {
+            console.error(`❌ Cannot create order: user ${tgId} doesn't exist and registration failed`);
+            return { order: null, error: new Error("Utilisateur introuvable") };
+        }
     }
 
     const id = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;

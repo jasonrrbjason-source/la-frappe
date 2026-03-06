@@ -171,11 +171,20 @@ function setupOrderSystem(bot) {
     }
 
     async function promptAddressEntry(ctx, totalPrice) {
-        ctx.state.awaiting_address_step1 = true;
+        const userId = ctx.from.id;
+        const cart = userCarts.get(userId) || [];
+        const itemsText = cart.map(item => `• ${item.productName} (x${item.qty})${item.chosen_unit_amount ? ` [${item.chosen_unit_amount}]` : ''}`).join('\n');
+
+        // On persiste l'état d'attente d'adresse dans le Map global
+        awaitingAddressDetails.set(userId, { step: 1, total: totalPrice });
+
         await safeEdit(ctx,
+            `🛒 <b>Votre Panier :</b>\n${itemsText}\n` +
+            `💰 Montant : <b>${totalPrice.toFixed(2)}€</b>\n\n` +
             `🏁 <b>Étape 1 : Adresse de livraison</b>\n\n` +
-            `Veuillez nous envoyer votre <b>adresse précise</b> (Rue, Numéro, Ville).\n\n` +
-            `💬 <i>Exemple : 45 rue de la Paix, Paris</i>`,
+            `Veuillez envoyer votre <b>adresse précise</b> avec le <b>code postal</b> (Numéro, Rue, CP, Ville).\n\n` +
+            `⚠️ <i>Le code postal est obligatoire.</i>\n\n` +
+            `💬 <i>Exemple : 45 rue de la Paix, 75002 Paris</i>`,
             Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Panier', 'view_cart')]])
         );
     }
@@ -244,35 +253,44 @@ function setupOrderSystem(bot) {
         if (!ctx.message.text || ctx.message.text.startsWith('/')) return next();
         const userId = ctx.from.id;
 
+        const addrState = awaitingAddressDetails.get(userId);
+
         // Step 1: Address Validation
-        if (ctx.state.awaiting_address_step1) {
+        if (addrState && addrState.step === 1) {
             const addr = ctx.message.text.trim();
-            // Validation basique : au moins 8 caractères et un chiffre (numéro de rue)
-            if (addr.length < 8 || !(/\d/.test(addr))) {
-                await ctx.reply("❌ <b>Adresse incomplète ou invalide.</b>\n\nVeuillez donner une adresse précise (Numéro + Rue + Ville) pour que le livreur vous trouve facilement.", { parse_mode: 'HTML' });
+            // Validation : au moins 8 caractères, un chiffre (numéro de rue) ET un code postal (5 chiffres)
+            const hasNumber = /\d/.test(addr);
+            const hasPostalCode = /\b\d{5}\b/.test(addr);
+
+            if (addr.length < 8 || !hasNumber || !hasPostalCode) {
+                let errorMsg = "❌ <b>Adresse incomplète.</b>\n\n";
+                if (!hasPostalCode) errorMsg += "📍 Veuillez inclure un <b>code postal à 5 chiffres</b>.\n";
+                errorMsg += "\nVeuillez renvoyer l'adresse complète (Numéro + Rue + CP + Ville).";
+
+                await ctx.reply(errorMsg, { parse_mode: 'HTML' });
                 return;
             }
 
-            delete ctx.state.awaiting_address_step1;
-            awaitingAddressDetails.set(userId, { address: addr });
+            // Passer à l'étape 2 (Détails)
+            addrState.address = addr;
+            addrState.step = 2; // On utilise maintenant le même objet d'état
 
             await ctx.deleteMessage().catch(() => { });
             return await ctx.reply(`🏢 <b>Détails de livraison (Optionnel)</b>\n\nIndiquez votre <b>digicode, étage, numéro d'appartement</b> ou toute info utile pour le livreur.\n\nSinon, cliquez sur le bouton ci-dessous :`,
                 Markup.inlineKeyboard([
                     [Markup.button.callback('⏭ Passer cette étape', 'address_details_skip')],
-                    [Markup.button.callback('◀️ Changer l\'adresse', 'start_checkout')]
+                    [Markup.button.callback('◀️ Modifier l\'adresse', 'start_checkout')]
                 ])
             );
         }
 
         // Step 2: Details Capture (if user sends text instead of clicking skip)
-        const detailsWait = awaitingAddressDetails.get(userId);
-        if (detailsWait && !detailsWait.finalized) {
+        if (addrState && addrState.step === 2 && !addrState.finalized) {
             const details = ctx.message.text.trim();
-            detailsWait.address += ` (Infos : ${details})`;
-            detailsWait.finalized = true;
+            addrState.address += ` (Infos : ${details})`;
+            addrState.finalized = true;
             await ctx.deleteMessage().catch(() => { });
-            return finalizeAddressFlow(ctx, detailsWait.address);
+            return finalizeAddressFlow(ctx, addrState.address);
         }
 
         return next();

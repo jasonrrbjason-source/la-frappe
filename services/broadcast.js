@@ -43,19 +43,21 @@ async function broadcastMessage(platform, message, options = {}) {
     const { supabase } = require('../config/supabase');
     for (let f of mediaFiles) {
         try {
+            const extension = f.mimetype.includes('video') ? 'mp4' : (f.mimetype.includes('png') ? 'png' : 'jpg');
             const fileName = `bc-${Date.now()}-${Math.round(Math.random() * 1E9)}-${f.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
+            const finalPath = fileName.match(/\.[a-zA-Z0-9]+$/) ? fileName : `${fileName}.${extension}`;
 
             let fileBuffer = f.data;
             if (!fileBuffer && f.tempFilePath) {
                 fileBuffer = fs.readFileSync(f.tempFilePath);
             }
 
-            const { error } = await supabase.storage.from('uploads').upload(fileName, fileBuffer, {
+            const { error } = await supabase.storage.from('uploads').upload(finalPath, fileBuffer, {
                 contentType: f.mimetype,
                 upsert: true
             });
             if (!error) {
-                const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(fileName);
+                const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(finalPath);
                 unifiedMediaList.push({ url: publicData.publicUrl, type: f.mimetype.includes('video') ? 'video' : 'photo' });
             } else {
                 debugLog(`[BC-UPLOAD-WARN] Supabase error: ${error.message}. Fallback to buffer.`);
@@ -178,6 +180,7 @@ async function sendToUser(user, message, unifiedMediaList = []) {
                 return {
                     type: m.type,
                     media: mediaObj,
+                    ...(m.type === 'video' ? { supports_streaming: true } : {}),
                     ...(i === 0 && caption ? { caption: caption, parse_mode: 'HTML' } : {})
                 };
             });
@@ -185,15 +188,22 @@ async function sendToUser(user, message, unifiedMediaList = []) {
             debugLog(`[BC-SEND] MediaGroup (${mediaGroup.length}) -> ${chatId}`);
             const msgs = await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
 
-            // Cache file_ids
-            msgs.forEach((msg, i) => {
-                if (!unifiedMediaList[i].file_id) {
-                    let fId = null;
-                    if (msg.photo && msg.photo.length > 0) fId = msg.photo[msg.photo.length - 1].file_id;
-                    else if (msg.video) fId = msg.video.file_id;
-                    if (fId) unifiedMediaList[i].file_id = fId;
+            // Cache file_ids & Tracking
+            if (msgs && Array.isArray(msgs)) {
+                const { addMessageToTrack } = require('./database');
+                for (const msg of msgs) {
+                    await addMessageToTrack(user.id || user.doc_id, msg.message_id).catch(() => { });
                 }
-            });
+
+                msgs.forEach((msg, i) => {
+                    if (!unifiedMediaList[i].file_id) {
+                        let fId = null;
+                        if (msg.photo && msg.photo.length > 0) fId = msg.photo[msg.photo.length - 1].file_id;
+                        else if (msg.video) fId = msg.video.file_id;
+                        if (fId) unifiedMediaList[i].file_id = fId;
+                    }
+                });
+            }
         } else if (unifiedMediaList.length === 1) {
             const mData = unifiedMediaList[0];
             let mediaObj = mData.file_id;
@@ -203,17 +213,30 @@ async function sendToUser(user, message, unifiedMediaList = []) {
             }
 
             debugLog(`[BC-SEND] Single ${mData.type.toUpperCase()} -> ${chatId}`);
+            let msg;
             if (mData.type === 'video') {
-                const msg = await _bot.telegram.sendVideo(chatId, mediaObj, { caption: caption, parse_mode: 'HTML' });
+                msg = await _bot.telegram.sendVideo(chatId, mediaObj, {
+                    caption: caption,
+                    parse_mode: 'HTML',
+                    supports_streaming: true
+                });
                 if (msg.video && !unifiedMediaList[0].file_id) unifiedMediaList[0].file_id = msg.video.file_id;
             } else {
-                const msg = await _bot.telegram.sendPhoto(chatId, mediaObj, { caption: caption, parse_mode: 'HTML' });
+                msg = await _bot.telegram.sendPhoto(chatId, mediaObj, { caption: caption, parse_mode: 'HTML' });
                 if (msg.photo && !unifiedMediaList[0].file_id) unifiedMediaList[0].file_id = msg.photo[msg.photo.length - 1].file_id;
+            }
+            if (msg && user.id) {
+                const { addMessageToTrack } = require('./database');
+                await addMessageToTrack(user.id, msg.message_id).catch(() => { });
             }
         } else {
             // Texte uniquement
             debugLog(`[BC-SEND] Texte -> ${chatId}`);
-            await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
+            const msg = await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
+            if (msg && user.id) {
+                const { addMessageToTrack } = require('./database');
+                await addMessageToTrack(user.id, msg.message_id).catch(() => { });
+            }
         }
         return { success: true };
     } catch (error) {

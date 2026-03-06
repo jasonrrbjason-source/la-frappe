@@ -287,9 +287,12 @@ async function saveUserLocation(docId, lat, lon, city = null) {
 }
 
 async function getActiveLivreursCount() {
-    const { count } = await supabase.from(COL_USERS).select('*', { count: 'exact', head: true })
-        .eq('is_livreur', true).eq('is_active', true);
-    return count || 0;
+    const { data } = await supabase.from(COL_USERS).select('*')
+        .eq('is_livreur', true);
+
+    // Check JSONB for is_available as well
+    const available = (data || []).map(d => decryptUser(d)).filter(u => u.is_available === true);
+    return available.length;
 }
 
 async function addMessageToTrack(docId, messageId) {
@@ -568,7 +571,11 @@ async function getStatsOverview() {
 
     const { data: bcSnap } = await supabase.from(COL_BROADCASTS).select('id, created_at, success, failed, message').order('created_at', { ascending: false }).limit(5);
     const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('status, total_price');
-    const { data: livreursSnap } = await supabase.from(COL_USERS).select('is_available').eq('is_livreur', true);
+    const { data: livreursRaw } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
+    const encryptedLivreurs = (livreursRaw || []).map(d => {
+        try { return decryptUser(d); } catch (e) { return d; }
+    });
+    const activeLivreurs = encryptedLivreurs.filter(l => l.is_available === true).length;
 
     let totalCA = 0;
     let deliveredCount = 0;
@@ -578,8 +585,6 @@ async function getStatsOverview() {
             deliveredCount++;
         }
     });
-
-    const activeLivreurs = (livreursSnap || []).filter(d => d.is_livreur === true).length;
 
     return {
         totalUsers: total,

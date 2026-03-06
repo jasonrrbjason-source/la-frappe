@@ -134,9 +134,31 @@
         /* CARDS & STATS */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 20px;
             margin-bottom: 40px;
+        }
+
+        .stats-grid.stats-grid-large {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        @media (min-width: 1200px) {
+            .stats-grid.stats-grid-large {
+                grid-template-columns: 2fr 1fr;
+            }
+
+            .stats-grid.stats-grid-three {
+                grid-template-columns: repeat(3, 1fr);
+            }
+
+            .grid-span-full {
+                grid-column: 1 / -1;
+            }
+
+            .grid-span-2 {
+                grid-column: span 2;
+            }
         }
 
         .stat-card {
@@ -860,10 +882,12 @@
                 </div>
             </div>
 
-            <div class="stats-grid" id="insights_charts_grid">
-                <div class="card">
-                    <h3 id="chart-title">📈 Évolution des Revenus (Macro)</h3>
-                    <div style="height:350px; margin-top:20px;">
+            <div class="stats-grid stats-grid-large" id="insights_charts_grid">
+                <div class="card grid-span-full" style="min-height: 450px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 id="chart-title" style="margin:0;">📈 Évolution des Revenus (Macro)</h3>
+                    </div>
+                    <div style="height:380px;">
                         <canvas id="canvas-main-chart"></canvas>
                     </div>
                 </div>
@@ -879,7 +903,9 @@
                     <h3>💎 Top Clients (Leaderboard)</h3>
                     <div id="list-clients" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
                 </div>
+            </div>
 
+            <div class="stats-grid stats-grid-three" style="margin-top:20px;">
                 <div class="card">
                     <h3>🚴 Performance Livreurs</h3>
                     <div id="list-livreurs" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
@@ -888,6 +914,16 @@
                 <div class="card">
                     <h3>🔥 Top Produits (Ventes)</h3>
                     <div id="list-top-products" style="margin-top:20px; max-height:280px; overflow-y:auto;"></div>
+                </div>
+
+                <div class="card"
+                    style="display:flex; flex-direction:column; justify-content:center; align-items:center; background:linear-gradient(135deg, var(--card-bg) 0%, rgba(255,0,80,0.05) 100%);">
+                    <div style="font-size:48px; margin-bottom:10px;">📊</div>
+                    <div style="text-align:center">
+                        <div style="color:var(--text-muted); font-size:14px;">Total Commandes traitées</div>
+                        <div id="insights-total-orders" style="font-size:32px; font-weight:800; color:var(--accent);">—
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -1078,24 +1114,31 @@
             <div class="card" style="margin-bottom:30px;">
                 <h3>Envoyer une diffusion</h3>
                 <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
-                    <select id="bcPlatform" style="flex:1; min-width:150px; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--hover); color:var(--text-main); font-size:14px;">
+                    <select id="bcPlatform"
+                        style="flex:1; min-width:150px; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--hover); color:var(--text-main); font-size:14px;">
                         <option value="users">Tous les utilisateurs</option>
                         <option value="groups">Groupes uniquement</option>
                         <option value="livreurs">Livreurs uniquement</option>
                     </select>
                 </div>
-                <textarea id="bcMsg" placeholder="Votre message de diffusion..." style="width:100%; height:120px; margin-bottom:15px; padding:12px; border-radius:8px; border:1px solid var(--border); background:var(--hover); color:var(--text-main); font-size:14px; resize:vertical;"></textarea>
-                <div id="bc_media_grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:10px; margin-bottom:15px;"></div>
-                <div style="background:rgba(255,150,0,0.1); padding:12px; border-radius:8px; margin-bottom:16px; font-size:12px; color:#ffa500;">
+                <textarea id="bcMsg" placeholder="Votre message de diffusion..."
+                    style="width:100%; height:120px; margin-bottom:15px; padding:12px; border-radius:8px; border:1px solid var(--border); background:var(--hover); color:var(--text-main); font-size:14px; resize:vertical;"></textarea>
+                <div id="bc_media_grid"
+                    style="display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:10px; margin-bottom:15px;">
+                </div>
+                <div
+                    style="background:rgba(255,150,0,0.1); padding:12px; border-radius:8px; margin-bottom:16px; font-size:12px; color:#ffa500;">
                     💡 Le formatage HTML est supporté. Les médias seront envoyés avec le message.
                 </div>
                 <div style="display:flex; gap:10px; align-items:center;">
                     <label class="btn btn-outline" style="cursor:pointer;">
                         📎 Ajouter des médias
-                        <input type="file" multiple accept="image/*,video/*" onchange="addBcMedia(this)" style="display:none;">
+                        <input type="file" multiple accept="image/*,video/*" onchange="addBcMedia(this)"
+                            style="display:none;">
                     </label>
                     <button class="btn btn-accent" onclick="sendBC()" style="flex:2">🚀 Envoyer la diffusion</button>
-                    <button class="btn btn-outline" onclick="viewDiagnosticLogs()" style="flex:1; font-size:11px;">📋 Logs</button>
+                    <button class="btn btn-outline" onclick="viewDiagnosticLogs()" style="flex:1; font-size:11px;">📋
+                        Logs</button>
                 </div>
             </div>
             <div class="card">
@@ -1116,7 +1159,8 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td colspan="6" style="padding:20px; text-align:center; color:var(--text-muted)">Chargement de l'historique...</td>
+                            <td colspan="6" style="padding:20px; text-align:center; color:var(--text-muted)">Chargement
+                                de l'historique...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -1127,11 +1171,16 @@
         <section class="section" id="section-settings">
             <h1>Paramètres</h1>
             <div style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;">
-                <button class="btn btn-sm btn-outline active" id="btn-stab-general" onclick="switchSettingsTab('general')">Général</button>
-                <button class="btn btn-sm btn-outline" id="btn-stab-security" onclick="switchSettingsTab('security')">Sécurité</button>
-                <button class="btn btn-sm btn-outline" id="btn-stab-fidelity" onclick="switchSettingsTab('fidelity')">Fidélité</button>
-                <button class="btn btn-sm btn-outline" id="btn-stab-ui" onclick="switchSettingsTab('ui')">Interface</button>
-                <button class="btn btn-sm btn-outline" id="btn-stab-danger" onclick="switchSettingsTab('danger')">Zone Danger</button>
+                <button class="btn btn-sm btn-outline active" id="btn-stab-general"
+                    onclick="switchSettingsTab('general')">Général</button>
+                <button class="btn btn-sm btn-outline" id="btn-stab-security"
+                    onclick="switchSettingsTab('security')">Sécurité</button>
+                <button class="btn btn-sm btn-outline" id="btn-stab-fidelity"
+                    onclick="switchSettingsTab('fidelity')">Fidélité</button>
+                <button class="btn btn-sm btn-outline" id="btn-stab-ui"
+                    onclick="switchSettingsTab('ui')">Interface</button>
+                <button class="btn btn-sm btn-outline" id="btn-stab-danger" onclick="switchSettingsTab('danger')">Zone
+                    Danger</button>
             </div>
 
             <!-- Onglet Général -->
@@ -1168,12 +1217,14 @@
                 <h3>Sécurité & Contact</h3>
                 <label>ID(s) Telegram Administrateur(s)</label>
                 <input id="set_admin_tg_id" placeholder="ID1, ID2, ID3">
-                <small style="color:var(--text-muted); display:block; margin-bottom:10px;">Séparez les IDs par une virgule pour plusieurs admins.</small>
+                <small style="color:var(--text-muted); display:block; margin-bottom:10px;">Séparez les IDs par une
+                    virgule pour plusieurs admins.</small>
 
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
                     <div>
                         <label>Mot de passe actuel</label>
-                        <input id="set_current_password" readonly style="background:rgba(255,255,255,0.05); color:var(--accent);">
+                        <input id="set_current_password" readonly
+                            style="background:rgba(255,255,255,0.05); color:var(--accent);">
                     </div>
                     <div>
                         <label>Modifier le mot de passe</label>
@@ -1215,7 +1266,8 @@
                 </div>
 
                 <h3 style="margin-top:25px;">Bonus Paliers de Commandes</h3>
-                <div style="display:flex; flex-wrap:wrap; gap:10px; background:rgba(255,255,255,0.05); padding:15px; border-radius:8px;">
+                <div
+                    style="display:flex; flex-wrap:wrap; gap:10px; background:rgba(255,255,255,0.05); padding:15px; border-radius:8px;">
                     <div style="flex:2; min-width:200px;">
                         <label>Paliers (nb commandes)</label>
                         <input id="set_fidelity_thresholds" placeholder="ex: 5,9,10">
@@ -1233,38 +1285,53 @@
             <!-- Onglet Interface -->
             <div id="sub-settings-ui" class="card" style="display:none;">
                 <h3>Interface du Bot (Boutons & Icônes)</h3>
-                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                <div
+                    style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
                     <div><label>Icône Catalogue</label><input id="set_ui_icon_catalog" placeholder="🍔"></div>
-                    <div><label>Libellé Catalogue</label><input id="set_label_catalog" placeholder="Catalogue Produits"></div>
+                    <div><label>Libellé Catalogue</label><input id="set_label_catalog" placeholder="Catalogue Produits">
+                    </div>
                     <div><label>Icône Commandes</label><input id="set_ui_icon_orders" placeholder="📦"></div>
-                    <div><label>Libellé Commandes</label><input id="set_label_my_orders" placeholder="Mes Commandes"></div>
+                    <div><label>Libellé Commandes</label><input id="set_label_my_orders" placeholder="Mes Commandes">
+                    </div>
                     <div><label>Icône Contact</label><input id="set_ui_icon_contact" placeholder="📱"></div>
-                    <div><label>Libellé Contact</label><input id="set_label_contact" placeholder="Mon contact privé"></div>
+                    <div><label>Libellé Contact</label><input id="set_label_contact" placeholder="Mon contact privé">
+                    </div>
                     <div><label>Icône Canal</label><input id="set_ui_icon_channel" placeholder="📢"></div>
-                    <div><label>Libellé Canal</label><input id="set_label_channel" placeholder="Rejoindre le Canal"></div>
+                    <div><label>Libellé Canal</label><input id="set_label_channel" placeholder="Rejoindre le Canal">
+                    </div>
                     <div><label>Icône Info/Bienvenue</label><input id="set_ui_icon_welcome" placeholder="✨"></div>
-                    <div><label>Libellé Info/Bienvenue</label><input id="set_label_welcome" placeholder="Infos & Bienvenue"></div>
+                    <div><label>Libellé Info/Bienvenue</label><input id="set_label_welcome"
+                            placeholder="Infos & Bienvenue"></div>
                     <div><label>Icône Profil</label><input id="set_ui_icon_profile" placeholder="🎁"></div>
-                    <div><label>Libellé Profil</label><input id="set_label_profile" placeholder="Mon Profil & Parrainage"></div>
+                    <div><label>Libellé Profil</label><input id="set_label_profile"
+                            placeholder="Mon Profil & Parrainage"></div>
                     <div><label>Icône Espace Livreur</label><input id="set_ui_icon_livreur" placeholder="🛵"></div>
-                    <div><label>Libellé Espace Livreur</label><input id="set_label_livreur" placeholder="Espace Livreur"></div>
+                    <div><label>Libellé Espace Livreur</label><input id="set_label_livreur"
+                            placeholder="Espace Livreur"></div>
                     <div><label>Icône Admin Bot</label><input id="set_ui_icon_admin" placeholder="⚙️"></div>
-                    <div><label>Libellé Admin Bot</label><input id="set_label_admin_bot" placeholder="Gestion Bot"></div>
+                    <div><label>Libellé Admin Bot</label><input id="set_label_admin_bot" placeholder="Gestion Bot">
+                    </div>
                     <div><label>Icône Admin Web</label><input id="set_ui_icon_web" placeholder="🌐"></div>
-                    <div><label>Libellé Admin Web</label><input id="set_label_admin_web" placeholder="Dashboard Web"></div>
+                    <div><label>Libellé Admin Web</label><input id="set_label_admin_web" placeholder="Dashboard Web">
+                    </div>
                     <div><label>Icône Portefeuille</label><input id="set_ui_icon_wallet" placeholder="💳"></div>
                     <div><label>Icône Points</label><input id="set_ui_icon_points" placeholder="⭐️"></div>
                 </div>
 
                 <h3 style="margin-top:25px;">Statuts des Commandes</h3>
-                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
-                    <div><label>Libellé 'En Attente'</label><input id="set_status_pending_label" placeholder="EN ATTENTE"></div>
+                <div
+                    style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                    <div><label>Libellé 'En Attente'</label><input id="set_status_pending_label"
+                            placeholder="EN ATTENTE"></div>
                     <div><label>Icône 'En Attente'</label><input id="set_ui_icon_pending" placeholder="⏳"></div>
-                    <div><label>Libellé 'Pris en Charge'</label><input id="set_status_taken_label" placeholder="PRIS EN CHARGE"></div>
+                    <div><label>Libellé 'Pris en Charge'</label><input id="set_status_taken_label"
+                            placeholder="PRIS EN CHARGE"></div>
                     <div><label>Icône 'Pris en Charge'</label><input id="set_ui_icon_taken" placeholder="🚚"></div>
-                    <div><label>Libellé 'Livrée'</label><input id="set_status_delivered_label" placeholder="LIVRÉE"></div>
+                    <div><label>Libellé 'Livrée'</label><input id="set_status_delivered_label" placeholder="LIVRÉE">
+                    </div>
                     <div><label>Icône 'Succès / Livré'</label><input id="set_ui_icon_success" placeholder="✅"></div>
-                    <div><label>Libellé 'Annulée'</label><input id="set_status_cancelled_label" placeholder="ANNULÉE"></div>
+                    <div><label>Libellé 'Annulée'</label><input id="set_status_cancelled_label" placeholder="ANNULÉE">
+                    </div>
                     <div><label>Icône 'Erreur / Annulée'</label><input id="set_ui_icon_error" placeholder="❌"></div>
                 </div>
 
@@ -1273,7 +1340,8 @@
 
             <!-- Onglet Zone Danger -->
             <div id="sub-settings-danger" class="card" style="display:none;">
-                <div style="border: 1px solid #ff4444; border-radius: 12px; padding: 20px; background: rgba(255,0,0,0.05);">
+                <div
+                    style="border: 1px solid #ff4444; border-radius: 12px; padding: 20px; background: rgba(255,0,0,0.05);">
                     <h3 style="color: #ff4444; margin-top: 0;">ZONE DE DANGER (IRRÉVERSIBLE)</h3>
                     <p style="color: #ffaaaa; margin-bottom: 15px; font-size: 14px;">
                         <strong>Attention :</strong> Ce bouton va supprimer DÉFINITIVEMENT tous les utilisateurs
@@ -1281,7 +1349,8 @@
                         l'historique des diffusions. Vous allez <strong>TOUT PERDRE</strong>. À utiliser uniquement
                         pour remettre le bot complètement à zéro.
                     </p>
-                    <button class="btn btn-danger" onclick="nukeEntireDatabase()">SUPPRIMER TOUTE LA BASE DE DONNÉES</button>
+                    <button class="btn btn-danger" onclick="nukeEntireDatabase()">SUPPRIMER TOUTE LA BASE DE
+                        DONNÉES</button>
                 </div>
             </div>
         </section>
@@ -1672,6 +1741,9 @@
                     const avgEl = document.getElementById('avg-delivery-time');
                     if (avgEl) avgEl.innerText = (data.avgDeliveryTime || 0) + ' min';
 
+                    const totalOrdEl = document.getElementById('insights-total-orders');
+                    if (totalOrdEl) totalOrdEl.innerText = data.totalOrders || 0;
+
                     // 1. Chart CA par Ville
                     if (chartInstances.cities) chartInstances.cities.destroy();
                     const cityEntries = Object.entries(data.byCity).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -1831,7 +1903,7 @@
         async function deleteBC(id) {
             if (!await showModal('Suppression', 'Supprimer ce log de diffusion ?')) return;
             try {
-                await api('/broadcasts/' + id, { method: 'DELETE' });
+                await api('/broadcasts/' + id, 'DELETE');
                 showToast('Log supprimé', 'success');
                 loadData('broadcast');
             } catch (err) {
@@ -2546,4 +2618,4 @@
     </script>
 </body>
 
-</html>Upload to Agent
+</html>

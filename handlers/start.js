@@ -318,7 +318,7 @@ function getLivreurMenuKeyboard(settings, user) {
 
     const buttons = [
         [dispoBtn],
-        [Markup.button.callback(`${settings.ui_icon_orders || '📦'} Commandes disponibles`, 'show_city_orders')],
+        [Markup.button.callback(`${settings.ui_icon_orders || '📦'} Dans mon secteur`, 'show_city_orders'), Markup.button.callback('🌍 Toutes les villes', 'show_all_orders')],
         [Markup.button.callback('📍 Changer de secteur', 'change_city')],
         [Markup.button.callback('📡 Tracking Live (Aide)', 'tracking_info')],
         [Markup.button.callback(`${settings.ui_icon_stats || '📈'} Mon historique livraisons`, 'my_deliveries')],

@@ -210,27 +210,20 @@ async function setLivreurStatus(userId, platform, isLivreur) {
 async function setLivreurAvailability(docId, isAvailable) {
     const user = await getUser(docId);
     let meta = user ? (user.data || {}) : {};
-    meta.is_available = isAvailable;
+    meta.is_available = !!isAvailable;
 
-    // 1. On tente l'update complet (Colonne + JSONB)
     const updates = {
         is_available: !!isAvailable,
+        data: meta,
         updated_at: ts()
     };
-
-    // On synchronise 'data' pour le fallback futur
-    if (user && user.data && typeof user.data === 'object') {
-        updates.data = { ...user.data, is_available: !!isAvailable };
-    } else {
-        updates.data = { is_available: !!isAvailable };
-    }
 
     const { error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId);
 
     if (fullError) {
         console.warn(`⚠️ Colonne is_available absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);
         await supabase.from(COL_USERS).update({
-            data: updates.data,
+            data: meta,
             updated_at: ts()
         }).eq('id', docId);
     }
@@ -249,16 +242,9 @@ async function updateLivreurPosition(docId, input) {
     meta.current_city = city;
     meta.last_position_update = ts();
 
-    // On préserve l'état de disponibilité existant (Colonne ou JSONB)
-    const currentAvail = (user.is_available !== null && user.is_available !== undefined)
-        ? user.is_available
-        : (user.data?.is_available ?? false);
-    meta.is_available = !!currentAvail;
-
-    // 1. Tentative d'update complet (Colonne current_city + JSONB)
+    // 1. On ne touche plus à is_available ici pour les séparer
     const updates = {
         current_city: city,
-        is_available: !!currentAvail,
         data: meta,
         updated_at: ts()
     };
@@ -386,12 +372,12 @@ async function getOrder(orderId) {
     return data && data.length > 0 ? data[0] : null;
 }
 
-async function getAvailableOrdersByCity(city) {
-    const { data } = await supabase.from(COL_ORDERS)
-        .select('*')
-        .eq('status', 'pending')
-        .eq('city', city.toLowerCase())
-        .order('created_at', { ascending: false });
+async function getAvailableOrders(city = null) {
+    let q = supabase.from(COL_ORDERS).select('*').eq('status', 'pending');
+    if (city && city !== 'all' && city !== 'non défini') {
+        q = q.eq('city', city.toLowerCase());
+    }
+    const { data } = await q.order('created_at', { ascending: false });
     return data || [];
 }
 
@@ -813,7 +799,7 @@ module.exports = {
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers, searchLivreurs,
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,
-    createOrder, updateOrderStatus, assignOrderLivreur, getOrder, getAvailableOrdersByCity, getAllOrders,
+    createOrder, updateOrderStatus, assignOrderLivreur, getOrder, getAvailableOrders, getAllOrders,
     saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,

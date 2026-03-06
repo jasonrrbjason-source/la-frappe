@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
 const {
     getProducts, createOrder, getUser, setLivreurStatus,
-    updateLivreurPosition, getAvailableOrdersByCity, updateOrderStatus,
+    updateLivreurPosition, getAvailableOrders, updateOrderStatus,
     getOrder, getAppSettings, getAllOrders, setLivreurAvailability,
     incrementOrderCount, getAvailableLivreurs, getLastMenuId, _userCache
 } = require('../services/database');
@@ -403,21 +403,30 @@ function setupOrderSystem(bot) {
         return await safeEdit(ctx, text, opts);
     });
 
-    bot.action('show_city_orders', async (ctx) => {
+    bot.action(/^show_(city|all)_orders$/, async (ctx) => {
+        const type = ctx.match[1];
         await ctx.answerCbQuery();
         const user = await getUser(`telegram_${ctx.from.id}`);
-        const city = user?.current_city || user?.data?.current_city;
-        if (!city || city === 'non défini') {
-            return safeEdit(ctx, '❌ Vous n\'avez pas défini de secteur. Utilisez "Changer de secteur".', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
-        }
+        const city = type === 'all' ? null : (user?.current_city || user?.data?.current_city);
 
-        const orders = await getAvailableOrdersByCity(city);
+        const orders = await getAvailableOrders(city);
+        const settings = await getAppSettings();
+
         if (orders.length === 0) {
-            return safeEdit(ctx, `📭 Aucune commande disponible à ${city.toUpperCase()}.`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
+            const emptyText = type === 'all'
+                ? '📭 Aucune commande disponible dans toutes les villes.'
+                : `📭 Aucune commande disponible à ${city?.toUpperCase() || 'votre secteur'}.`;
+
+            const emptyButtons = [[Markup.button.callback('◀️ Retour', 'livreur_menu')]];
+            if (type === 'city') emptyButtons.unshift([Markup.button.callback('🌍 Voir toutes les villes', 'show_all_orders')]);
+
+            return safeEdit(ctx, emptyText, Markup.inlineKeyboard(emptyButtons));
         }
 
-        let text = `📦 <b>Commandes à ${city.toUpperCase()}</b>\n\n`;
-        const buttons = orders.map(o => [Markup.button.callback(`${o.product_name} - ${o.total_price}€`, `take_order_${o.id}`)]);
+        let text = `📦 <b>Commandes ${type === 'all' ? 'disponibles (Global)' : 'à ' + city.toUpperCase()}</b>\n\n`;
+        const buttons = orders.map(o => [Markup.button.callback(`${o.product_name} - ${o.total_price}€ (${o.city.toUpperCase()})`, `take_order_${o.id}`)]);
+
+        if (type === 'city') buttons.push([Markup.button.callback('🌍 Voir toutes les villes', 'show_all_orders')]);
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
 
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));

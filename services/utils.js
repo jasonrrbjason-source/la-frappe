@@ -14,22 +14,24 @@ async function safeEdit(ctx, text, opts = {}) {
     const video = opts.video || null;
     const mediaGroup = opts.mediaGroup || null;
 
-    // Résolution automatique des URLs locales (Telegram ne supporte pas les chemins relatifs)
-    const settings = ctx.state?.settings || {};
-    if (photo && !photo.startsWith('http') && !photo.startsWith('data:')) {
-        // En cas de JSON array ["v", "v2"] ou csv "v1, v2"
+    if (photo && typeof photo === 'string') {
+        // 1. Extraction si c'est une liste (JSON ou CSV)
         if (photo.startsWith('[') && photo.endsWith(']')) {
             try {
                 const arr = JSON.parse(photo);
-                if (arr.length > 0) photo = typeof arr[0] === 'string' ? arr[0] : arr[0].url;
+                if (arr.length > 0) photo = typeof arr[0] === 'string' ? arr[0] : (arr[0].url || arr[0].path || '');
             } catch (e) { }
-        } else if (photo.includes(',')) {
+        } else if (photo.includes(',') && !photo.startsWith('http')) {
+            // Cas CSV type "uploads/123.jpg, uploads/456.jpg"
+            photo = photo.split(',')[0].trim();
+        } else if (photo.includes(',') && photo.startsWith('http')) {
+            // Cas CSV type "https://site.com/1.jpg, https://site.com/2.jpg"
             photo = photo.split(',')[0].trim();
         }
 
-        if (photo && !photo.startsWith('http')) {
+        // 2. Résolution des chemins relatifs
+        if (photo && !photo.startsWith('http') && !photo.startsWith('data:')) {
             const baseUrl = settings.dashboard_url ? settings.dashboard_url.replace(/\/$/, '') : '';
-            // Forcer le slash de début si manquant
             const cleanPath = photo.startsWith('/') ? photo : '/' + photo;
             photo = baseUrl + cleanPath;
         }

@@ -93,39 +93,32 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
 
     // Si l'utilisateur existe déjà
     if (existing) {
-        const lastActiveMs = existing.last_active ? new Date(existing.last_active).getTime() : 0;
+        // Toujours mettre à jour last_active s'il vient de ctx
+        const updateData = {
+            last_active: ts(),
+            updated_at: ts(),
+            is_active: true
+        };
 
-        // Optimisation: Mise à jour DB seulement si inactif depuis > 5 min
-        if (nowMs - lastActiveMs > 300000) {
-            const updateData = {
-                last_active: ts(),
-                updated_at: ts(),
-                username: !isGroup ? encryption.encrypt(platformUser.username || '') : (platformUser.username || ''),
-                first_name: !isGroup ? encryption.encrypt(platformUser.first_name || '') : (platformUser.title || ''),
-                last_name: !isGroup ? encryption.encrypt(platformUser.last_name || '') : '',
-                language_code: platformUser.language_code || 'fr',
-                is_active: true
-            };
+        // Si on a des infos fraîches sur le nom/username
+        if (platformUser.username) updateData.username = !isGroup ? encryption.encrypt(platformUser.username) : platformUser.username;
+        if (platformUser.first_name) updateData.first_name = !isGroup ? encryption.encrypt(platformUser.first_name) : platformUser.first_name;
 
-            await supabase.from(COL_USERS).update(updateData).eq('id', docId);
-            _userCache.set(docId, { data: { ...existing, ...updateData }, expire: nowMs + 300000 });
-        } else {
-            // Toucher au cache sans toucher à la DB
-            _userCache.set(docId, { data: existing, expire: nowMs + 300000 });
-        }
+        await supabase.from(COL_USERS).update(updateData).eq('id', docId);
+        _userCache.set(docId, { data: { ...existing, ...updateData }, expire: nowMs + 300000 });
 
-        return { isNew: false, user: decryptUser(existing) };
+        return { isNew: false, user: decryptUser({ ...existing, ...updateData }) };
     }
 
-    // Nouvel utilisateur : on chiffre ici (une seule fois à l'inscription)
+    // Nouvel utilisateur
     const newUser = {
         id: docId,
         doc_id: docId,
         platform,
-        platform_id: String(platformUser.id),
+        platform_id: String(platformUser.id || ''),
         type: isGroup ? 'group' : 'user',
         username: !isGroup ? encryption.encrypt(platformUser.username || '') : (platformUser.username || ''),
-        first_name: !isGroup ? encryption.encrypt(platformUser.first_name || '') : (platformUser.title || ''),
+        first_name: !isGroup ? encryption.encrypt(platformUser.first_name || 'Utilisateur') : (platformUser.first_name || 'Utilisateur'),
         last_name: !isGroup ? encryption.encrypt(platformUser.last_name || '') : '',
         language_code: platformUser.language_code || 'fr',
         date_inscription: ts(),
@@ -141,41 +134,49 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         is_available: false,
         current_city: null,
         data: {},
-        referral_code: generateReferralCode(platform, platformUser.id),
+        referral_code: generateReferralCode(platform, platformUser.id || Date.now()),
     };
 
     const { error: insertError } = await supabase.from(COL_USERS).insert([newUser]);
     if (insertError) {
-        // Si erreur de doublon (code 23505), on récupère l'existant
         if (insertError.code === '23505') {
             const { data: updatedArray } = await supabase.from(COL_USERS).select('*').eq('id', docId).limit(1);
             if (updatedArray && updatedArray.length > 0) {
-                _userCache.set(docId, { data: updatedArray[0], expire: Date.now() + 300000 });
                 return { isNew: false, user: decryptUser(updatedArray[0]) };
             }
         }
-        // Autres erreurs → on lance l'exception pour notifier l'appelant
         console.error(`❌ Échec INSERT user ${docId}:`, insertError.message);
         throw new Error(`Impossible d'enregistrer l'utilisateur : ${insertError.message}`);
     }
 
-    await incrementStat('total_users');
-    await incrementDailyStat('new_users');
+    // Statistiques
+    await incrementStat('total_users').catch(() => { });
+    await incrementDailyStat('new_users').catch(() => { });
 
-    _userCache.set(docId, { data: newUser, expire: Date.now() + 300000 });
+    _userCache.set(docId, { data: newUser, expire: nowMs + 300000 });
 
     if (referrerId) {
         try {
             const { data: refDocs } = await supabase.from(COL_USERS).select('*').eq('referral_code', referrerId).limit(1);
             if (refDocs && refDocs.length > 0) {
                 const referrerDoc = refDocs[0];
-                await supabase.from(COL_USERS).update({ referral_count: referrerDoc.referral_count + 1 }).eq('id', referrerDoc.id);
+                await supabase.from(COL_USERS).update({
+                    referral_count: (referrerDoc.referral_count || 0) + 1
+                }).eq('id', referrerDoc.id);
                 _userCache.delete(referrerDoc.id);
-                await supabase.from(COL_REFERRALS).insert([{ id: `${Date.now()}-${Math.random()}`, referrer_id: referrerDoc.id, referred_id: docId, created_at: ts() }]);
-                await incrementStat('total_referrals');
+                await supabase.from(COL_REFERRALS).insert([{
+                    id: `${Date.now()}-${Math.round(Math.random() * 1000)}`,
+                    referrer_id: referrerDoc.id,
+                    referred_id: docId,
+                    created_at: ts()
+                }]).catch(() => { });
+                await incrementStat('total_referrals').catch(() => { });
             }
-        } catch (e) { console.error("Error processing referral:", e.message); }
+        } catch (e) {
+            console.error("Error processing referral:", e.message);
+        }
     }
+
     return { isNew: true, user: decryptUser(newUser) };
 }
 

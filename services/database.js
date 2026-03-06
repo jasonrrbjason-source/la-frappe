@@ -217,8 +217,8 @@ async function setLivreurAvailability(docId, isAvailable) {
     };
 
     // On synchronise 'data' pour le fallback futur
-    if (userData.data && typeof userData.data === 'object') {
-        updates.data = { ...userData.data, is_available: !!isAvailable };
+    if (user && user.data && typeof user.data === 'object') {
+        updates.data = { ...user.data, is_available: !!isAvailable };
     } else {
         updates.data = { is_available: !!isAvailable };
     }
@@ -246,11 +246,15 @@ async function updateLivreurPosition(docId, input) {
     meta.sectors = sectors;
     meta.current_city = city;
     meta.last_position_update = ts();
-    meta.is_available = !!(user.is_available);
+
+    // On préserve l'état de disponibilité existant (Colonne ou JSONB)
+    const currentAvail = user.is_available ?? user.data?.is_available ?? false;
+    meta.is_available = !!currentAvail;
 
     // 1. Tentative d'update complet (Colonne current_city + JSONB)
     const updates = {
         current_city: city,
+        is_available: !!currentAvail,
         data: meta,
         updated_at: ts()
     };

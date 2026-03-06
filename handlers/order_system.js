@@ -196,17 +196,21 @@ function setupOrderSystem(bot) {
             user_id: `telegram_${userId}`,
             username: ctx.from.username || 'Inconnu',
             first_name: ctx.from.first_name || 'Inconnu',
-            product_id: product.id,
             product_name: product.name,
             quantity: pending.qty,
             total_price: finalPrice,
             address: pending.address,
+            platform: 'telegram',
             status: 'pending',
             discount_applied: discount
         };
 
         const { order, error } = await createOrder(orderData);
-        if (error) return ctx.reply('❌ Erreur lors de la création de la commande.');
+        if (error) {
+            console.error('Order creation error:', error);
+            // On affiche un message explicite pour aider le debug
+            return ctx.reply(`❌ Erreur lors de la création de la commande.\n\nNote: Vérifiez que la colonne SQL "address" existe bien dans la table bot_orders.`).catch(() => { });
+        }
 
         // Si crédit utilisé -> Déduire du wallet
         if (discount > 0) {
@@ -385,16 +389,17 @@ function setupOrderSystem(bot) {
     bot.action('show_city_orders', async (ctx) => {
         await ctx.answerCbQuery();
         const user = await getUser(`telegram_${ctx.from.id}`);
-        if (!user || !user.current_city) {
+        const city = user?.current_city || user?.data?.current_city;
+        if (!city || city === 'non défini') {
             return safeEdit(ctx, '❌ Vous n\'avez pas défini de secteur. Utilisez "Changer de secteur".', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
         }
 
-        const orders = await getAvailableOrdersByCity(user.current_city);
+        const orders = await getAvailableOrdersByCity(city);
         if (orders.length === 0) {
-            return safeEdit(ctx, `📭 Aucune commande disponible à ${user.current_city.toUpperCase()}.`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
+            return safeEdit(ctx, `📭 Aucune commande disponible à ${city.toUpperCase()}.`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]]));
         }
 
-        let text = `📦 <b>Commandes à ${user.current_city.toUpperCase()}</b>\n\n`;
+        let text = `📦 <b>Commandes à ${city.toUpperCase()}</b>\n\n`;
         const buttons = orders.map(o => [Markup.button.callback(`${o.product_name} - ${o.total_price}€`, `take_order_${o.id}`)]);
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
 

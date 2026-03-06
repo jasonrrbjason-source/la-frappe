@@ -6,7 +6,7 @@ const {
     getUserCount, getActiveUserCount, getRecentUsers,
     getAllOrders, searchUsers, searchLivreurs,
     getUser, setLivreurStatus, setLivreurAvailability, markUserBlocked,
-    getProducts, saveProduct, getAllLivreurs, getOrderAnalytics
+    getProducts, saveProduct, getAllLivreurs, getOrderAnalytics, registerUser
 } = require('../services/database');
 const { safeEdit } = require('../services/utils');
 require('dotenv').config();

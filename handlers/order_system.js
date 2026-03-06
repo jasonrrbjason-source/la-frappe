@@ -385,15 +385,12 @@ function setupOrderSystem(bot) {
         const addrState = awaitingAddressDetails.get(userId);
         if (addrState) addrState.step = 2;
 
-        return await ctx.reply(`🏢 <b>Détails de livraison (Optionnel)</b>\n\nIndiquez votre <b>digicode, étage, numéro d'appartement</b> ou toute info utile pour le livreur.\n\nSinon, cliquez sur le bouton ci-dessous :`,
-            {
-                parse_mode: 'HTML',
-                ...Markup.inlineKeyboard([
-                    [Markup.button.callback('⏭ Passer cette étape', 'address_details_skip')],
-                    [Markup.button.callback('◀️ Modifier l\'adresse', 'start_checkout')]
-                ])
-            }
-        );
+        const text = `🏢 <b>Détails de livraison (Optionnel)</b>\n\nIndiquez votre <b>digicode, étage, numéro d'appartement</b> ou toute info utile pour le livreur.\n\nSinon, cliquez sur le bouton ci-dessous :`;
+        const buttons = [
+            [Markup.button.callback('⏭ Passer cette étape', 'address_details_skip')],
+            [Markup.button.callback('◀️ Modifier l\'adresse', 'start_checkout')]
+        ];
+        return await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     }
 
     bot.action('scheduling_plan', async (ctx) => {
@@ -431,12 +428,10 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const text = `🕒 <b>À quelle heure ?</b>\n\nSélectionnez un créneau horaire :`;
 
-        // Génération automatique des créneaux (de 00h à 23h, toutes les 30m ou 15m)
+        // Génération automatique des créneaux (de 00h à 23h, heures pleines uniquement)
         const slots = [];
         for (let h = 0; h < 24; h++) {
-            const hStr = h.toString().padStart(2, '0');
-            // On peut mettre 00, 15, 30, 45 ou juste 00, 30
-            slots.push(`${hStr}h00`, `${hStr}h15`, `${hStr}h30`, `${hStr}h45`);
+            slots.push(`${h.toString().padStart(2, '0')}h00`);
         }
 
         const buttons = [];
@@ -985,6 +980,36 @@ function setupOrderSystem(bot) {
             const { orderId, rate } = pending;
             const text = ctx.message.text;
             await saveFeedback(orderId, parseInt(rate), text);
+
+            // Alerte aux admins et au livreur
+            try {
+                const { getAppSettings, getOrder } = require('../services/database');
+                const [settings, order] = await Promise.all([getAppSettings(), getOrder(orderId)]);
+
+                if (settings && order) {
+                    const stars = '⭐'.repeat(parseInt(rate));
+                    const feedbackMsg = `💬 <b>NOUVEAU FEEDBACK !</b>\n\n` +
+                        `👤 Client : ${ctx.from.first_name}\n` +
+                        `🔑 Commande ID : <code>${orderId}</code>\n` +
+                        `🌟 Note : ${stars} (${rate}/5)\n` +
+                        `📝 Commentaire : <i>${text}</i>`;
+
+                    // Notifier les admins
+                    if (settings.admin_telegram_id) {
+                        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
+                        for (const adminId of adminIds) {
+                            ctx.telegram.sendMessage(adminId, feedbackMsg, { parse_mode: 'HTML' }).catch(() => { });
+                        }
+                    }
+
+                    // Notifier le livreur si assigné
+                    if (order.livreur_id) {
+                        ctx.telegram.sendMessage(order.livreur_id, `👏 <b>Félicitations !</b>\n\nUn client a laissé une note pour votre livraison :\n\n${stars}\n"<i>${text}</i>"`, { parse_mode: 'HTML' }).catch(() => { });
+                    }
+                }
+            } catch (e) {
+                console.error("Error notifying feedback:", e.message);
+            }
 
             const thankMsg = await ctx.reply('🙏 Merci pour votre retour ! Votre avis a bien été enregistré.');
 

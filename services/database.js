@@ -433,12 +433,13 @@ async function getOrdersByUser(userId) {
 }
 
 async function assignOrderLivreur(orderId, livreurId, livreurName) {
-    await supabase.from(COL_ORDERS).update({
-        livreur_id: livreurId,
-        livreur_name: livreurName,
-        status: 'taken',
+    const update = {
+        livreur_id: livreurId || null,
+        livreur_name: livreurName || null,
+        status: livreurId ? 'taken' : 'pending',
         updated_at: ts()
-    }).eq('id', orderId);
+    };
+    await supabase.from(COL_ORDERS).update(update).eq('id', orderId);
 }
 
 async function saveFeedback(orderId, rating, text) {
@@ -537,13 +538,19 @@ async function getActiveUserCount(platform = null) {
     return count || 0;
 }
 async function getRecentUsers(limit = 20) {
-    const { data } = await supabase.from(COL_USERS).select('*').order('date_inscription', { ascending: false }).limit(limit);
+    const { data } = await supabase.from(COL_USERS).select('*').order('last_active', { ascending: false }).limit(limit);
     return (data || []).map(decryptUser);
 }
 async function searchUsers(query) {
-    // Note: Since username/first_name are ENCRYPTED in DB, SQL 'ilike' won't work perfectly.
-    // We fetch a larger batch and filter in memory.
-    const { data } = await supabase.from(COL_USERS).select('*').order('date_inscription', { ascending: false }).limit(500);
+    // Exact match by ID first (snappy)
+    if (query && (query.startsWith('telegram_') || !isNaN(query))) {
+        const idToSearch = query.startsWith('telegram_') ? query : `telegram_${query}`;
+        const { data: exact } = await supabase.from(COL_USERS).select('*').or(`id.eq.${idToSearch},platform_id.eq.${query}`).limit(5);
+        if (exact && exact.length > 0) return exact.map(decryptUser);
+    }
+
+    // Otherwise fetch a larger batch and filter in memory (for encrypted names)
+    const { data } = await supabase.from(COL_USERS).select('*').order('last_active', { ascending: false }).limit(1000);
     const decrypted = (data || []).map(decryptUser);
 
     if (!query) return decrypted.slice(0, 50);

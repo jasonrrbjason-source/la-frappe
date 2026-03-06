@@ -122,10 +122,13 @@ function createServer() {
     app.post('/api/users/add', authMiddleware, async (req, res) => {
         try {
             const { telegram_id, first_name, username } = req.body;
-            if (!telegram_id) return res.status(400).json({ error: 'ID Telegram manquant' });
+
+            // Nettoyage de l'ID (on enlève le préfixe si l'admin l'a mis par erreur)
+            const cleanId = String(telegram_id || '').replace('telegram_', '').trim();
+            if (!cleanId) return res.status(400).json({ error: 'ID Telegram manquant ou invalide' });
 
             const { user, isNew } = await registerUser({
-                id: telegram_id,
+                id: cleanId,
                 first_name: first_name || 'Utilisateur Manuel',
                 username: username || '',
                 type: 'user'

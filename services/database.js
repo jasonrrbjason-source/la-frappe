@@ -710,17 +710,6 @@ async function getOrderAnalytics() {
         const city = (order.city || 'Inconnue').split(',')[0].trim().toUpperCase();
         analytics.byCity[city] = (analytics.byCity[city] || 0) + price;
 
-        if (order.livreur_id) {
-            analytics.byLivreur[order.livreur_id] = (analytics.byLivreur[order.livreur_id] || 0) + price;
-        }
-
-        const prodName = order.product_name || 'Inconnu';
-        if (!analytics.byProduct[prodName]) {
-            analytics.byProduct[prodName] = { ca: 0, qty: 0 };
-        }
-        analytics.byProduct[prodName].ca += price;
-        analytics.byProduct[prodName].qty += (parseFloat(order.quantity) || 0);
-
         analytics.rawDelivered.push({
             id: order.id,
             date: order.created_at ? new Date(order.created_at).toLocaleString('fr-FR') : '?',

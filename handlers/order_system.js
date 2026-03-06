@@ -64,20 +64,70 @@ function setupOrderSystem(bot) {
         const totalPrice = (product.price * qty).toFixed(2);
         pendingOrders.set(ctx.from.id, { productId, qty, totalPrice });
 
+        if (product.unit && product.unit.length > 0 && !(['unité', 'unite', 'piece', 'pce'].includes(product.unit.toLowerCase()))) {
+            return askUnit(ctx, product, qty);
+        }
+
+        await promptAddress(ctx, product, qty, totalPrice);
+    });
+
+    async function askUnit(ctx, product, qty) {
+        const unit = product.unit;
+        const baseVal = parseFloat(product.unit_value) || 1;
+        const text = `⚖️ <b>Sélecton du format pour ${product.name}</b>\n\n` +
+            `L'unité de base est de <b>${baseVal}${unit}</b> au prix de <b>${product.price}€</b>.\n\n` +
+            `Choisissez le poids/volume souhaité :`;
+
+        const options = [1, 2, 5, 10, 20].map(m => {
+            const amount = baseVal * m;
+            return Markup.button.callback(`${amount}${unit}`, `unitselect_${product.id}_${qty}_${amount}`);
+        });
+
+        const rows = [];
+        for (let i = 0; i < options.length; i += 2) rows.push(options.slice(i, i + 2));
+        rows.push([Markup.button.callback('◀️ Retour', `product_${product.id}`)]);
+
+        await safeEdit(ctx, text, Markup.inlineKeyboard(rows));
+    }
+
+    bot.action(/^unitselect_(.+)_(.+)_(.+)$/, async (ctx) => {
+        await ctx.answerCbQuery();
+        const [pId, qtyStr, amountStr] = ctx.match.slice(1);
+        const qty = parseInt(qtyStr);
+        const amount = parseFloat(amountStr);
+        const products = await getProducts();
+        const product = products.find(p => p.id === pId);
+
+        if (!product) return ctx.reply("Produit non trouvé.");
+
+        const baseVal = parseFloat(product.unit_value) || 1;
+        const finalPrice = ((product.price / baseVal) * amount * qty).toFixed(2);
+
+        const pending = pendingOrders.get(ctx.from.id);
+        if (pending) {
+            pending.totalPrice = finalPrice;
+            pending.chosen_unit_amount = `${amount}${product.unit}`;
+        }
+
+        await promptAddress(ctx, product, qty, finalPrice);
+    });
+
+    async function promptAddress(ctx, product, qty, totalPrice) {
+        const settings = ctx.state.settings;
         await safeEdit(ctx,
             `✅ <b>${qty}x ${product.name}</b> ajouté au panier.\n` +
             `💰 Total : <b>${totalPrice}€</b>\n\n` +
-            `📍 Veuillez nous envoyer votre <b>adresse de livraison</b> précise (ou utilisez l'autocomplétion) :`,
+            `📍 Veuillez nous envoyer votre <b>adresse de livraison</b> précise :`,
             {
                 ...Markup.inlineKeyboard([
                     ...(settings.dashboard_url ? [[Markup.button.webApp("📍 Choisir sur la carte", `${settings.dashboard_url.replace('/dashboard', '/address_picker')}`)]] : []),
-                    [Markup.button.callback('◀️ Changer quantité', `product_${productId}`)],
+                    [Markup.button.callback('◀️ Changer quantité', `product_${product.id}`)],
                     [Markup.button.callback('❌ Annuler', 'view_catalog')]
                 ]),
                 photo: product.image_url || null
             }
         );
-    });
+    }
 
     // Capture de l'adresse (message texte)
     bot.on('message', async (ctx, next) => {
@@ -241,8 +291,11 @@ function setupOrderSystem(bot) {
     });
 
     async function showOrderSummary(ctx, product, qty, address, finalPrice, discount, scheduledAt = null) {
+        const pending = pendingOrderConfirmation.get(ctx.from.id) || pendingOrders.get(ctx.from.id);
+        const unitInfo = pending && pending.chosen_unit_amount ? `(${pending.chosen_unit_amount}) ` : '';
+
         const text = `🛒 <b>Récapitulatif de Commande</b>\n\n` +
-            `📦 Produit : ${product.name} (x${qty})\n` +
+            `📦 Produit : ${product.name} ${unitInfo}(x${qty})\n` +
             `📍 Adresse : ${address}\n` +
             (scheduledAt ? `🕒 Planifié pour : <b>${scheduledAt}</b>\n` : `🚀 Livraison : Dès que possible\n`) +
             `💰 Prix : ${qty * product.price}€\n` +
@@ -286,7 +339,7 @@ function setupOrderSystem(bot) {
             user_id: `telegram_${userId}`,
             username: ctx.from.username || 'Inconnu',
             first_name: ctx.from.first_name || 'Inconnu',
-            product_name: product.name,
+            product_name: pending.chosen_unit_amount ? `${product.name} (${pending.chosen_unit_amount})` : product.name,
             quantity: pending.qty,
             total_price: finalPrice,
             address: pending.address,
@@ -307,7 +360,7 @@ function setupOrderSystem(bot) {
 
         await safeEdit(ctx,
             `${successText}\n\n` +
-            `📦 Produit : ${product.name} (x${pending.qty})\n` +
+            `📦 Produit : ${product.name} ${pending.chosen_unit_amount ? `(${pending.chosen_unit_amount}) ` : ''}(x${pending.qty})\n` +
             `📍 Adresse : ${pending.address}\n` +
             (pending.scheduled_at ? `🕒 Prévu pour : <b>${pending.scheduled_at}</b>\n` : `🚀 Livraison rapide demandée\n`) +
             `💰 Total : <b>${finalPrice.toFixed(2)}€</b>\n\n` +
@@ -322,7 +375,7 @@ function setupOrderSystem(bot) {
                 bot.telegram.sendMessage(adminId,
                     `🚨 <b>NOUVELLE COMMANDE !</b>\n\n` +
                     `👤 Client : ${ctx.from.first_name} (@${ctx.from.username})\n` +
-                    `📦 Produit : ${product.name} (x${pending.qty})\n` +
+                    `📦 Produit : ${product.name} ${pending.chosen_unit_amount ? `(${pending.chosen_unit_amount}) ` : ''}(x${pending.qty})\n` +
                     `📍 Adresse : ${pending.address}\n` +
                     (pending.scheduled_at ? `🕒 <b>PLANIFIÉ : ${pending.scheduled_at}</b>\n` : `🚀 <b>ASAP</b>\n`) +
                     `💰 Total : ${finalPrice.toFixed(2)}€\n` +

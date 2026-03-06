@@ -1583,14 +1583,19 @@
                                 <option value="delivered" ${o.status === 'delivered' ? 'selected' : ''}>${s.status_delivered_label || 'LIVRÉE'}</option>
                                 <option value="cancelled" ${o.status === 'cancelled' ? 'selected' : ''}>${s.status_cancelled_label || 'ANNULÉE'}</option>
                             </select>
-                            ${o.status === 'pending' ? `
-                                <select onchange="assignDriver('${o.id}', this.value, this.options[this.selectedIndex].text)" style="margin:0; padding:4px; font-size:10px; background:rgba(255,255,255,0.05);">
-                                    <option value="">👤 Assigner...</option>
-                                    ${livreurOptions}
-                                </select>
-                            ` : `
-                                <small style="font-size:9px; color:var(--text-muted)">${o.livreur_name ? '👤 ' + o.livreur_name : ''}</small>
-                            `}
+                            <div style="margin-top:4px;">
+                                ${!o.livreur_name ? `
+                                    <select onchange="assignDriver('${o.id}', this.value, this.options[this.selectedIndex].text)" style="margin:0; padding:4px; font-size:10px; background:rgba(255,165,0,0.1); border:1px solid orange;">
+                                        <option value="">👤 Assigner livreur...</option>
+                                        ${livreurOptions}
+                                    </select>
+                                ` : `
+                                    <div style="display:flex; align-items:center; gap:4px;">
+                                        <small style="font-size:10px; color:var(--accent); font-weight:bold;">👤 ${o.livreur_name}</small>
+                                        <button class="btn btn-sm" style="padding:0 4px; font-size:9px; background:transparent; border:1px solid var(--border);" onclick="assignDriver('${o.id}', '', '')" title="Réassigner">✏️</button>
+                                    </div>
+                                `}
+                            </div>
                         </div>
                     </td>
                 </tr>

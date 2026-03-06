@@ -48,12 +48,6 @@ function setupOrderSystem(bot) {
         });
     });
 
-    // Stockage temporaire des commandes en cours (in-memory simple)
-    const pendingOrders = new Map();
-    const userCarts = new Map(); // { userId: [ { productId, qty, unit, price, name } ] }
-    const awaitingAddressDetails = new Map(); // { userId: { address, ... } }
-    const pendingOrderConfirmation = new Map();
-
     bot.action(/^qty_(.+)_(.+)$/, async (ctx) => {
         await ctx.answerCbQuery();
         const productId = ctx.match[1];
@@ -77,6 +71,7 @@ function setupOrderSystem(bot) {
     async function showAddToCartChoice(ctx, product, qty, totalPrice, unitAmount = null) {
         const userId = ctx.from.id;
         const pending = pendingOrders.get(userId);
+        if (!pending) return ctx.reply("Session expirée."); // Sécurité
         if (unitAmount) pending.chosen_unit_amount = unitAmount;
 
         const text = `🛒 <b>Sélection : ${qty}x ${product.name}${unitAmount ? ` (${unitAmount})` : ''}</b>\n` +
@@ -89,7 +84,11 @@ function setupOrderSystem(bot) {
             [Markup.button.callback('◀️ Retour', `product_${product.id}`)]
         ];
 
-        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+        // Snappiness: Pass photo to avoid delete/re-send cycle in safeEdit
+        await safeEdit(ctx, text, {
+            ...Markup.inlineKeyboard(buttons),
+            photo: product.image_url
+        });
     }
 
     bot.action('add_to_cart', async (ctx) => {
@@ -206,7 +205,10 @@ function setupOrderSystem(bot) {
         rows.push([Markup.button.callback('◀️ Retour Quantité', `product_${product.id}`)]);
         rows.push([Markup.button.callback('❌ Annuler', 'view_catalog')]);
 
-        await safeEdit(ctx, text, Markup.inlineKeyboard(rows));
+        await safeEdit(ctx, text, {
+            ...Markup.inlineKeyboard(rows),
+            photo: product.image_url
+        });
     }
 
     bot.action(/^unitselect_(.+)_(.+)_(.+)$/, async (ctx) => {
@@ -255,10 +257,9 @@ function setupOrderSystem(bot) {
 
         const addrState = awaitingAddressDetails.get(userId);
 
-        // Step 1: Address Validation
+        // Step 1: Address Validation -> Suite vers SCHEDULING
         if (addrState && addrState.step === 1) {
             const addr = ctx.message.text.trim();
-            // Validation : au moins 8 caractères, un chiffre (numéro de rue) ET un code postal (5 chiffres)
             const hasNumber = /\d/.test(addr);
             const hasPostalCode = /\b\d{5}\b/.test(addr);
 
@@ -271,26 +272,25 @@ function setupOrderSystem(bot) {
                 return;
             }
 
-            // Passer à l'étape 2 (Détails)
+            // On sauve l'adresse et on passe au Scheduling
             addrState.address = addr;
-            addrState.step = 2; // On utilise maintenant le même objet d'état
+
+            // On prépare le pending order pour le scheduling
+            const cart = userCarts.get(userId) || [];
+            const total = cart.reduce((acc, item) => acc + parseFloat(item.totalPrice), 0);
+            pendingOrders.set(userId, { address: addr, totalPrice: total, isCart: true });
 
             await ctx.deleteMessage().catch(() => { });
-            return await ctx.reply(`🏢 <b>Détails de livraison (Optionnel)</b>\n\nIndiquez votre <b>digicode, étage, numéro d'appartement</b> ou toute info utile pour le livreur.\n\nSinon, cliquez sur le bouton ci-dessous :`,
-                Markup.inlineKeyboard([
-                    [Markup.button.callback('⏭ Passer cette étape', 'address_details_skip')],
-                    [Markup.button.callback('◀️ Modifier l\'adresse', 'start_checkout')]
-                ])
-            );
+            return await askScheduling(ctx);
         }
 
-        // Step 2: Details Capture (if user sends text instead of clicking skip)
+        // Step 2: Details Capture -> FINALISATION
         if (addrState && addrState.step === 2 && !addrState.finalized) {
             const details = ctx.message.text.trim();
             addrState.address += ` (Infos : ${details})`;
             addrState.finalized = true;
             await ctx.deleteMessage().catch(() => { });
-            return finalizeAddressFlow(ctx, addrState.address);
+            return await finalizeCheckoutFlow(ctx, addrState.address);
         }
 
         return next();
@@ -302,19 +302,23 @@ function setupOrderSystem(bot) {
         const data = awaitingAddressDetails.get(userId);
         if (!data) return;
         data.finalized = true;
-        await finalizeAddressFlow(ctx, data.address);
+        await finalizeCheckoutFlow(ctx, data.address);
     });
 
-    async function finalizeAddressFlow(ctx, fullAddress) {
+    async function finalizeCheckoutFlow(ctx, fullAddress) {
         const userId = ctx.from.id;
         const cart = userCarts.get(userId) || [];
         const total = cart.reduce((acc, item) => acc + parseFloat(item.totalPrice), 0);
 
-        // On transfère vers pending pour la suite (fidelité / scheduling)
+        // Récupérer les donées de scheduling
+        const pending = pendingOrders.get(userId);
+        const scheduled_at = pending ? pending.scheduled_at : null;
+
         const checkoutData = {
             isCart: true,
             address: fullAddress,
             totalPrice: total,
+            scheduled_at: scheduled_at,
             userId: userId
         };
         pendingOrders.set(userId, checkoutData);
@@ -322,7 +326,7 @@ function setupOrderSystem(bot) {
         const settings = ctx.state.settings;
         const user = await getUser(`telegram_${userId}`);
 
-        // SI CRÉDIT DISPONIBLE → ON DEMANDE
+        // SI CRÉDIT DISPONIBLE → ON DEMANDE (Step Finale)
         if (user && user.wallet_balance > 0) {
             const maxPct = settings.fidelity_wallet_max_pct || 50;
             const minSpend = settings.fidelity_min_spend || 0;
@@ -345,7 +349,7 @@ function setupOrderSystem(bot) {
             }
         }
 
-        await askScheduling(ctx);
+        await showCartSummary(ctx, fullAddress, total, 0, scheduled_at);
     }
 
     async function askScheduling(ctx) {
@@ -362,11 +366,29 @@ function setupOrderSystem(bot) {
     bot.action('scheduling_now', async (ctx) => {
         await ctx.answerCbQuery();
         const userId = ctx.from.id;
-        const pending = pendingOrderConfirmation.get(userId) || pendingOrders.get(userId);
+        const pending = pendingOrders.get(userId);
         if (!pending) return ctx.reply("Session expirée.");
         pending.scheduled_at = null;
-        await showCartSummary(ctx, pending.address, pending.totalPrice - (pending.possibleDiscount || 0), pending.possibleDiscount || 0, null);
+
+        // Après le scheduling, on demande les détails facultatifs
+        await promptAddressDetails(ctx);
     });
+
+    async function promptAddressDetails(ctx) {
+        const userId = ctx.from.id;
+        const addrState = awaitingAddressDetails.get(userId);
+        if (addrState) addrState.step = 2;
+
+        return await ctx.reply(`🏢 <b>Détails de livraison (Optionnel)</b>\n\nIndiquez votre <b>digicode, étage, numéro d'appartement</b> ou toute info utile pour le livreur.\n\nSinon, cliquez sur le bouton ci-dessous :`,
+            {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('⏭ Passer cette étape', 'address_details_skip')],
+                    [Markup.button.callback('◀️ Modifier l\'adresse', 'start_checkout')]
+                ])
+            }
+        );
+    }
 
     bot.action('scheduling_plan', async (ctx) => {
         await ctx.answerCbQuery();
@@ -424,13 +446,13 @@ function setupOrderSystem(bot) {
         const [date, hour] = [ctx.match[1], ctx.match[2]];
         await ctx.answerCbQuery();
         const userId = ctx.from.id;
-        const pending = pendingOrderConfirmation.get(userId) || pendingOrders.get(userId);
+        const pending = pendingOrders.get(userId);
         if (!pending) return ctx.reply("Session expirée.");
 
         pending.scheduled_at = `${date} ${hour}`;
-        const discount = pending.possibleDiscount || 0;
-        const finalPrice = parseFloat(pending.totalPrice) - discount;
-        await showCartSummary(ctx, pending.address, finalPrice, discount, pending.scheduled_at);
+
+        // On demande les détails facultatifs avant de finir
+        await promptAddressDetails(ctx);
     });
 
     bot.action('back_to_address', async (ctx) => {
@@ -1143,4 +1165,4 @@ function setupOrderSystem(bot) {
     });
 }
 
-module.exports = { setupOrderSystem };
+module.exports = { setupOrderSystem, userCarts };

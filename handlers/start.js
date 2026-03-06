@@ -291,6 +291,15 @@ function getMainMenuKeyboard(settings, user = null) {
         [Markup.button.callback(`${settings.ui_icon_profile} ${settings.label_profile}`, 'my_referrals')],
     ];
 
+    // Vérifier si un panier existe pour proposer de le reprendre
+    const { userCarts } = require('./order_system');
+    const userId = user ? (String(user.platform_id || user.id).replace('telegram_', '')) : null;
+    const cart = userId ? userCarts.get(parseInt(userId)) : null;
+
+    if (cart && cart.length > 0) {
+        buttons.unshift([Markup.button.callback('➡️ 🛒 REPRENDRE MON PANIER', 'view_cart')]);
+    }
+
     if (user && user.is_livreur) {
         buttons.push([Markup.button.callback(`${settings.ui_icon_livreur} ${settings.label_livreur}`, 'livreur_menu')]);
     }

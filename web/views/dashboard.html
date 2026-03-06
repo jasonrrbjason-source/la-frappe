@@ -1498,10 +1498,10 @@
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
+            // Spécial Logistique : s'assurer qu'on affiche le bon sous-onglet
             if (id === 'logistique') {
                 const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');
                 switchLogisticsTab(isLivreurs ? 'livreurs' : 'orders');
-                return; // switchLogisticsTab calls loadData
             }
 
             const target = document.getElementById('section-' + id);

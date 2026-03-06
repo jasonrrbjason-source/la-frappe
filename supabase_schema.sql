@@ -205,16 +205,19 @@ ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS referral_code TEXT;
 ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS tracked_messages JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS last_menu_id NUMERIC;
 
--- bot_orders : adresse et feedback
+-- bot_orders : adresse, feedback et planification
 ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS livreur_name TEXT;
 ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS feedback_text TEXT;
 ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS feedback_rating NUMERIC;
+ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS scheduled_at TEXT;
 
 -- bot_settings : fidélité et nouveaux champs UI
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_thresholds TEXT DEFAULT '5,9,10';
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_amount NUMERIC DEFAULT 10;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS points_credit_value NUMERIC DEFAULT 5;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_wallet_max_pct NUMERIC DEFAULT 50;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_min_spend NUMERIC DEFAULT 0;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS private_contact_url TEXT;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS channel_url TEXT;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS label_livreur TEXT;

@@ -94,7 +94,7 @@ function setupOrderSystem(bot) {
 
         const products = await getProducts();
         const product = products.find(p => p.id === pending.productId);
-        const settings = ctx.state.settings;
+        const settings = ctx.state?.settings || {}; // Changed this line
         const user = await getUser(`telegram_${userId}`);
 
         // Calcul du prix final et de la règle de fidélité
@@ -262,6 +262,22 @@ function setupOrderSystem(bot) {
         );
     });
 
+    // Helper menu livreur additionnel si besoin
+    bot.action('tracking_info', async (ctx) => {
+        await ctx.answerCbQuery();
+        const settings = await getAppSettings();
+        await safeEdit(ctx,
+            `${settings.ui_icon_livreur} <b>Suivi en direct</b>\n\n` +
+            `Pour que le client puisse suivre votre arrivée :\n\n` +
+            `1. Cliquez sur le trombone (📎) ou (+) dans cette conversation\n` +
+            `2. Sélectionnez <b>Lieu</b> ou <b>Position</b>\n` +
+            `3. Choisissez <b>Partager ma position en direct</b> (Live Location)\n` +
+            `4. Sélectionnez la durée (ex: 1 heure)\n\n` +
+            `Le bot détectera automatiquement vos déplacements pour informer le client.`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]])
+        );
+    });
+
     bot.command('dispo', async (ctx) => {
         const user = await getUser(`telegram_${ctx.from.id}`);
         if (!user || !user.is_livreur) return ctx.reply('❌ Vous n\'êtes pas livreur.');
@@ -302,13 +318,14 @@ function setupOrderSystem(bot) {
         }
 
         const { getLivreurMenuKeyboard } = require('./start');
+        const city = user?.current_city || user?.data?.current_city || 'Non défini';
         const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur || 'Espace Livreur'}</b>\n\n` +
             `👤 ${user ? (user.first_name || 'Inconnu') : ctx.from.first_name}\n` +
-            `📍 Secteur : <b>${user?.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
+            `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
             `🔘 Statut : <b>${isAvailable ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n` +
             `Que voulez-vous faire ?`;
 
-        const keyboard = getLivreurMenuKeyboard(settings, user || { is_available: isAvailable });
+        const keyboard = getLivreurMenuKeyboard(settings, user || { is_available: isAvailable, data: { is_available: isAvailable } });
         await safeEdit(ctx, text, keyboard);
 
         // 5. Cleanup bouton "Démarrer"
@@ -370,19 +387,19 @@ function setupOrderSystem(bot) {
 
         await updateLivreurPosition(`telegram_${ctx.from.id}`, cityName.toLowerCase());
 
-        // Rafraichir le menu livreur
         const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
         const { getLivreurMenuKeyboard } = require('./start');
 
-        const isAvail = user.is_available || (user.data && user.data.is_available);
-        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
-            `👤 ${user.first_name}\n` +
-            `📍 Secteur : <b>${cityName.toUpperCase()}</b>\n` +
-            `🔘 Statut : <b>${isAvail ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
+        const city = user?.current_city || user?.data?.current_city || cityName || 'Non défini';
+        const isAvail = user?.is_available || user?.data?.is_available;
+        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur || 'Espace Livreur'}</b>\n\n` +
+            `👤 ${user?.first_name || ctx.from.first_name}\n` +
+            `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
+            `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n` +
             `Que voulez-vous faire ?`;
 
-        const opts = { parse_mode: 'HTML', ...getLivreurMenuKeyboard(settings, user) };
+        const opts = getLivreurMenuKeyboard(settings, user);
         return await safeEdit(ctx, text, opts);
     });
 
@@ -498,19 +515,17 @@ function setupOrderSystem(bot) {
         if (!user || !user.is_livreur) return safeEdit(ctx, '❌ Accès refusé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
         const { getLivreurMenuKeyboard } = require('./start');
-        const isAvail = user.is_available || (user.data && user.data.is_available);
-        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
-            `👤 ${user.first_name}\n` +
-            `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
-            `🔘 Statut : <b>${isAvail ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
-            `Que voulez-vous faire ?`;
-        const opts = { parse_mode: 'HTML', ...getLivreurMenuKeyboard(settings, user) };
+        const city = user.current_city || user.data?.current_city || 'Non défini';
+        const isAvail = user.is_available || user.data?.is_available;
 
-        try {
-            await safeEdit(ctx, text, opts);
-        } catch (e) {
-            await ctx.replyWithHTML(text, getLivreurMenuKeyboard(settings, user));
-        }
+        const text = `${settings.ui_icon_livreur} <b>${settings.label_livreur || 'Espace Livreur'}</b>\n\n` +
+            `👤 ${user.first_name || ctx.from.first_name}\n` +
+            `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
+            `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n` +
+            `Que voulez-vous faire ?`;
+
+        const opts = getLivreurMenuKeyboard(settings, user);
+        await safeEdit(ctx, text, opts);
     });
 
     // Mode client pour les livreurs

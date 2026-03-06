@@ -40,9 +40,15 @@ function setupStartHandler(bot) {
 
                 if (!referrerId) pendingReferralInput.set(docId, true);
             } else {
-                welcomeText = registeredUser.is_livreur
-                    ? `${settings.ui_icon_livreur} <b>Bienvenue, livreur ${user.first_name} !</b>\n\n📍 Secteur : <b>${registeredUser.current_city ? registeredUser.current_city.toUpperCase() : 'Non défini'}</b>\n🔘 Statut : <b>${registeredUser.is_available ? 'DISPONIBLE' : 'INDISPONIBLE'}</b>`
-                    : `👋 <b>Ravi de vous revoir, ${user.first_name} !</b>\n\nVous êtes déjà membre du ${settings.bot_name}.`;
+                if (registeredUser.is_livreur) {
+                    const city = registeredUser.current_city || registeredUser.data?.current_city || 'Non défini';
+                    const isAvail = registeredUser.is_available || registeredUser.data?.is_available;
+                    welcomeText = `${settings.ui_icon_livreur} <b>Bienvenue, ${user.first_name} !</b>\n\n` +
+                        `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
+                        `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>`;
+                } else {
+                    welcomeText = `👋 <b>Ravi de vous revoir, ${user.first_name} !</b>\n\nVous êtes déjà membre du ${settings.bot_name}.`;
+                }
             }
 
             const keyboard = registeredUser.is_livreur ? getLivreurMenuKeyboard(settings, registeredUser) : getMainMenuKeyboard(settings, registeredUser);
@@ -188,9 +194,12 @@ function setupStartHandler(bot) {
 
         // Si livreur → menu spécial
         if (user && user.is_livreur) {
-            text = `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
-                `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
-                `🔘 Statut : <b>${user.is_available ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>`;
+            const city = user?.current_city || user?.data?.current_city || 'Non défini';
+            const isAvail = user?.is_available || user?.data?.is_available;
+            text = `${settings.ui_icon_livreur} <b>${settings.label_livreur || 'Espace Livreur'}</b>\n\n` +
+                `👤 ${user.first_name || ctx.from.first_name}\n` +
+                `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
+                `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n`;
             keyboard = getLivreurMenuKeyboard(settings, user);
         }
 

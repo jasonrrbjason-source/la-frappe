@@ -16,10 +16,23 @@ async function safeEdit(ctx, text, opts = {}) {
 
     // Résolution automatique des URLs locales (Telegram ne supporte pas les chemins relatifs)
     const settings = ctx.state?.settings || {};
-    if (photo && photo.startsWith('/') && !photo.startsWith('http') && settings.dashboard_url) {
-        // Enlever le dernier slash du dashboard_url s'il existe
-        const baseUrl = settings.dashboard_url.replace(/\/$/, '');
-        photo = baseUrl + photo;
+    if (photo && !photo.startsWith('http') && !photo.startsWith('data:')) {
+        // En cas de JSON array ["v", "v2"] ou csv "v1, v2"
+        if (photo.startsWith('[') && photo.endsWith(']')) {
+            try {
+                const arr = JSON.parse(photo);
+                if (arr.length > 0) photo = typeof arr[0] === 'string' ? arr[0] : arr[0].url;
+            } catch (e) { }
+        } else if (photo.includes(',')) {
+            photo = photo.split(',')[0].trim();
+        }
+
+        if (photo && !photo.startsWith('http')) {
+            const baseUrl = settings.dashboard_url ? settings.dashboard_url.replace(/\/$/, '') : '';
+            // Forcer le slash de début si manquant
+            const cleanPath = photo.startsWith('/') ? photo : '/' + photo;
+            photo = baseUrl + cleanPath;
+        }
     }
 
     delete opts.photo;

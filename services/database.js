@@ -26,11 +26,13 @@ function decryptUser(userData) {
 
     // Proxy vital fields from JSONB data to root for easy JS access (Backward compatibility)
     if (userData.data && typeof userData.data === 'object') {
-        if (!decrypted.current_city && userData.data.current_city) {
-            decrypted.current_city = userData.data.current_city;
+        const cityInside = userData.data.current_city;
+        if ((!decrypted.current_city || decrypted.current_city === 'non défini') && cityInside) {
+            decrypted.current_city = cityInside;
         }
+
         // Si la racine est null/undefined, on prend dans data
-        if (decrypted.is_available == null && userData.data.is_available !== undefined) {
+        if ((decrypted.is_available === null || decrypted.is_available === undefined) && userData.data.is_available !== undefined) {
             decrypted.is_available = userData.data.is_available;
         }
     }
@@ -248,7 +250,9 @@ async function updateLivreurPosition(docId, input) {
     meta.last_position_update = ts();
 
     // On préserve l'état de disponibilité existant (Colonne ou JSONB)
-    const currentAvail = user.is_available ?? user.data?.is_available ?? false;
+    const currentAvail = (user.is_available !== null && user.is_available !== undefined)
+        ? user.is_available
+        : (user.data?.is_available ?? false);
     meta.is_available = !!currentAvail;
 
     // 1. Tentative d'update complet (Colonne current_city + JSONB)

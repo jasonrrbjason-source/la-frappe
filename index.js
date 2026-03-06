@@ -227,33 +227,29 @@ function startAutomatedTimer(bot) {
     setInterval(async () => {
         try {
             console.log('🕒 Exécution du timer automatique et nettoyage (6h)...');
-            const { getAppSettings, getAllActiveUsers, db } = require('./services/database');
+            const { getAppSettings, getAllActiveUsers, updateUserData } = require('./services/database');
             const { broadcastMessage } = require('./services/broadcast');
 
             // 1. Nettoyage du "flux" (suppression des messages traqués)
-            const users = await getAllActiveUsers();
-            for (const user of users) {
-                if (user.tracked_messages && user.tracked_messages.length > 0) {
-                    const chatId = user.platform_id;
-                    // Supprimer un par un (avec délai leger pour éviter rate limit)
-                    for (const msgId of user.tracked_messages) {
-                        try { await bot.telegram.deleteMessage(chatId, msgId); } catch (e) { }
-                    }
+            const users = await getAllActiveUsers('telegram', 'user');
 
-                    // Notifier et forcer le /start
-                    await bot.telegram.sendMessage(chatId,
-                        "⏳ <b>Session expirée (6h)</b>\n\n" +
-                        "Par mesure de sécurité et pour garder le flux propre, votre session a été réinitialisée.\n\n" +
-                        "➡ Veuillez taper /start pour continuer.", { parse_mode: 'HTML' }
-                    ).catch(() => { });
-
-                    // Reset dans la DB
-                    const { supabase } = require('./config/supabase');
-                    await supabase.from('bot_users').update({
-                        tracked_messages: [],
-                        last_session_reset: new Date().toISOString()
-                    }).eq('id', user.doc_id);
-                }
+            // On traite par petits lots pour ne pas tout bloquer
+            const BATCH_SIZE = 10;
+            for (let i = 0; i < users.length; i += BATCH_SIZE) {
+                const batch = users.slice(i, i + BATCH_SIZE);
+                await Promise.all(batch.map(async (user) => {
+                    try {
+                        if (user.data?.tracked_messages && user.data.tracked_messages.length > 0) {
+                            const chatId = user.platform_id;
+                            for (const msgId of user.data.tracked_messages) {
+                                await bot.telegram.deleteMessage(chatId, msgId).catch(() => { });
+                            }
+                            await bot.telegram.sendMessage(chatId, "⏳ <b>Session expirée (6h)</b>\n\n➡ Veuillez taper /start pour continuer.", { parse_mode: 'HTML' }).catch(() => { });
+                            await updateUserData(user.id, { tracked_messages: [] }).catch(() => { });
+                        }
+                    } catch (e) { }
+                }));
+                if (i + BATCH_SIZE < users.length) await new Promise(r => setTimeout(r, 1000));
             }
 
             // 2. Broadcast Optionnel

@@ -974,8 +974,11 @@
         <section class="section" id="section-users">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                 <h1 style="margin:0;">Utilisateurs</h1>
-                <span id="usersTotalCounter"
-                    style="background:var(--accent); color:white; padding:4px 12px; border-radius:20px; font-size:14px; font-weight:700;">Chargement...</span>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button class="btn btn-sm btn-accent" onclick="addUserManually()">➕ Ajouter</button>
+                    <span id="usersTotalCounter"
+                        style="background:var(--accent); color:white; padding:4px 12px; border-radius:20px; font-size:14px; font-weight:700;">Chargement...</span>
+                </div>
             </div>
             <div class="search-container">
                 <span class="search-icon">🔍</span>
@@ -1984,6 +1987,26 @@
             }).join('');
 
             grid.innerHTML = html;
+        }
+
+        async function addUserManually() {
+            const id = prompt("ID Telegram de l'utilisateur (obligatoire) :");
+            if (!id) return;
+            const name = prompt("Prénom / Nom (facultatif) :");
+            const user = prompt("Username Telegram (facultatif, sans @) :");
+
+            try {
+                await api('/users/add', 'POST', {
+                    telegram_id: id,
+                    first_name: name || '',
+                    username: user || ''
+                });
+                showToast("Utilisateur ajouté avec succès !");
+                loadData('users');
+                loadData('overview');
+            } catch (e) {
+                showToast("Erreur : " + e.message, 'error');
+            }
         }
 
         async function republishBC(id) {

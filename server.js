@@ -118,6 +118,25 @@ function createServer() {
         } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
+    app.post('/api/users/add', authMiddleware, async (req, res) => {
+        try {
+            const { telegram_id, first_name, username } = req.body;
+            if (!telegram_id) return res.status(400).json({ error: 'ID Telegram manquant' });
+
+            const { user, isNew } = await registerUser({
+                id: telegram_id,
+                first_name: first_name || 'Utilisateur Manuel',
+                username: username || '',
+                type: 'user'
+            });
+
+            res.json({ success: true, user, isNew });
+        } catch (e) {
+            console.error('Add user error:', e.message);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     app.post('/api/users/order', authMiddleware, async (req, res) => {
         try {
             await incrementOrderCount(req.body.id);
@@ -473,6 +492,12 @@ function createServer() {
 
     app.use('/api/*', (req, res) => {
         res.status(404).json({ error: 'Route API non trouvée' });
+    });
+
+    // Global error handler for Express
+    app.use((err, req, res, next) => {
+        console.error('❌ [EXPRESS ERROR]', err);
+        res.status(500).json({ error: 'Erreur interne du serveur' });
     });
 
     return app;

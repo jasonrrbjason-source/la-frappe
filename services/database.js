@@ -61,14 +61,15 @@ function decryptUser(userData) {
 }
 function makeDocId(platform, platformId) { return `${platform}_${platformId}`; }
 
-async function activeUsersQuery(platform, type = null) {
-    let q = supabase.from(COL_USERS).select('*').eq('is_blocked', false);
+async function activeUsersQuery(platform, type = null, limit = null) {
+    let q = supabase.from(COL_USERS).select('id, platform, platform_id, type, username, first_name, last_name, order_count, wallet_balance, points, date_inscription, is_livreur, is_available, is_blocked, current_city, data').eq('is_blocked', false);
     if (platform) q = q.eq('platform', platform);
     if (type === 'livreurs') {
         q = q.eq('is_livreur', true);
     } else if (type) {
         q = q.eq('type', type);
     }
+    if (limit) q = q.limit(limit);
     const { data } = await q;
     return data || [];
 }
@@ -145,8 +146,14 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
 
     const { error: insertError } = await supabase.from(COL_USERS).insert([newUser]);
     if (insertError) {
-        console.error(`❌ Échec INSERT user ${docId}:`, insertError.message);
         // Si erreur de doublon, on ré-essaye en récupérant l'existant
+        if (insertError.code === '23505') {
+            const { data: updatedArray } = await supabase.from(COL_USERS).select('*').eq('id', docId).limit(1);
+            if (updatedArray && updatedArray.length > 0) {
+                return { isNew: false, user: decryptUser(updatedArray[0]) };
+            }
+        }
+        console.error(`❌ Échec INSERT user ${docId}:`, insertError.message);
         return { isNew: false, user: decryptUser(newUser) };
     }
 
@@ -318,6 +325,19 @@ async function getLastMenuId(docId) {
 
 // --- Orders ---
 async function createOrder(orderData) {
+    // SÉCURITÉ : On s'assure que l'utilisateur est bien enregistré avant de créer la commande
+    // Cela règle le problème des "utilisateurs qui n'apparaissent pas"
+    try {
+        const tgId = orderData.user_id.replace('telegram_', '');
+        await registerUser({
+            id: tgId,
+            username: orderData.username || 'inconnu',
+            first_name: orderData.first_name || 'Inconnu'
+        });
+    } catch (e) {
+        console.error("registerUser failed during createOrder:", e.message);
+    }
+
     const id = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
     const { data, error } = await supabase.from(COL_ORDERS).insert([{
         id: id,
@@ -397,6 +417,14 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
         }
     }
     await supabase.from(COL_ORDERS).update({ status, ...extraData, updated_at: ts() }).eq('id', orderId);
+
+    if (status === 'delivered') {
+        const order = await getOrder(orderId);
+        if (order) {
+            const price = parseFloat(order.total_price) || 0;
+            await addToStat('total_ca', price);
+        }
+    }
 }
 
 async function getOrdersByUser(userId) {
@@ -582,6 +610,13 @@ async function incrementStat(name) {
     const { data } = await supabase.from(COL_STATS).select('*').eq('id', 'global').limit(1);
     const globalStats = data && data.length > 0 ? data[0] : { id: 'global' };
     const val = (globalStats[name] || 0) + 1;
+    await supabase.from(COL_STATS).upsert({ ...globalStats, [name]: incr(val), id: 'global' });
+}
+
+async function addToStat(name, amount) {
+    const { data } = await supabase.from(COL_STATS).select('*').eq('id', 'global').limit(1);
+    const globalStats = data && data.length > 0 ? data[0] : { id: 'global' };
+    const val = (parseFloat(globalStats[name]) || 0) + parseFloat(amount);
     await supabase.from(COL_STATS).upsert({ ...globalStats, [name]: val, id: 'global' });
 }
 
@@ -620,8 +655,6 @@ async function getStatsOverview() {
 
     const { data: bcSnap } = await supabase.from(COL_BROADCASTS).select('id, created_at, success, failed, message').order('created_at', { ascending: false }).limit(5);
 
-    // Only select delivered orders for CA calculation to avoid huge data transfer
-    const { data: ordersSnap } = await supabase.from(COL_ORDERS).select('status, total_price').eq('status', 'delivered');
     // Optimized count for active drivers (direct query, no memory decryption needed)
     const { count: activeLivreurs } = await supabase.from(COL_USERS)
         .select('*', { count: 'exact', head: true })
@@ -632,10 +665,7 @@ async function getStatsOverview() {
         .select('*', { count: 'exact', head: true })
         .eq('is_livreur', true);
 
-    let totalCA = 0;
-    (ordersSnap || []).forEach(order => {
-        totalCA += (parseFloat(order.total_price) || 0);
-    });
+    const totalCA = parseFloat(stats.global?.total_ca || 0);
 
     // Get total count of all orders separately if needed, or just delivered
     const { count: totalOrdersCount } = await supabase.from(COL_ORDERS).select('*', { count: 'exact', head: true });
@@ -662,11 +692,11 @@ async function getOrderAnalytics() {
         return _statsCache.analytics;
     }
 
-    // Limit to last 3000 orders to keep it snappy. Analytics are mostly for recent trends.
+    // Limit to last 1000 orders to keep it snappy.
     const { data: ordersSnap } = await supabase.from(COL_ORDERS)
         .select('id, status, total_price, created_at, delivered_at, user_id, first_name, username, city, livreur_id, livreur_name, product_name, quantity')
         .order('created_at', { ascending: false })
-        .limit(3000);
+        .limit(1000);
 
     const analytics = {
         totalCA: 0,
@@ -912,6 +942,7 @@ module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
     db, admin, incr, ts, makeDocId, decryptUser,
     registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
+    getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers, searchLivreurs,
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,
@@ -920,6 +951,6 @@ module.exports = {
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getOrdersByUser, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,
-    getUpcomingPlannedOrders, markNotifSent,
+    getUpcomingPlannedOrders, markNotifSent, registerUser, addToStat,
     _userCache
 };

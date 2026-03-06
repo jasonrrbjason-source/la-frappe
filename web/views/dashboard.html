@@ -1473,18 +1473,29 @@
         }
 
         // --- AUTO-REFRESH L'AFFICHAGE (SYNC) ---
-        // On rafraîchit la section actuelle toutes les 15 secondes pour voir les nouveaux livreurs/commandes
+        let lastUserActivity = Date.now();
+        let isRefreshing = false;
+
+        // Détecte l'activité utilisateur pour suspendre l'auto-refresh
+        ['click', 'keydown', 'scroll'].forEach(evt => {
+            document.addEventListener(evt, () => { lastUserActivity = Date.now(); }, { passive: true });
+        });
+
+        // Refresh toutes les 60s si l'utilisateur n'a pas interagi depuis 10s
         setInterval(() => {
+            if (isRefreshing) return;
+            const timeSinceActivity = Date.now() - lastUserActivity;
+            if (timeSinceActivity < 10000) return; // Skip si activité récente
+
             const activeSection = document.querySelector('.section.active');
-            if (activeSection) {
+            if (activeSection && !document.body.classList.contains('loading')) {
                 const id = activeSection.id.replace('section-', '');
                 if (id === 'overview' || id === 'logistique' || id === 'livreurs' || id === 'orders' || id === 'users') {
-                    if (!document.body.classList.contains('loading')) {
-                        loadData(id, true);
-                    }
+                    isRefreshing = true;
+                    loadData(id, true).finally(() => { isRefreshing = false; });
                 }
             }
-        }, 30000);
+        }, 60000);
 
         function safeDate(val) {
             if (!val) return new Date();
@@ -1663,6 +1674,9 @@
         }
 
         async function loadData(id, silent = false) {
+            // Évite les chargements concurrents
+            if (document.body.classList.contains('loading') && !silent) return;
+
             if (id === 'logistique') {
                 const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');
                 id = isLivreurs ? 'livreurs' : 'orders';

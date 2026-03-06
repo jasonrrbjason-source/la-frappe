@@ -31,13 +31,15 @@ async function main() {
     bot.telegram.setMyDescription('').catch(() => { });
     bot.telegram.setMyShortDescription('').catch(() => { });
 
-    // 2. Middleware Global : Tracking & Nettoyage
+    // 2. Middleware Global : Tracking & Nettoyage (optimisé pour callback_query)
     const { registerUser } = require('./services/database');
     bot.use(async (ctx, next) => {
         try {
-            // Enregistrement automatique de la cible (user ou group)
-            if (ctx.chat) {
-                // Pour ctx.from on garde platformUser, mais on passe aussi le type de chat
+            const isCallback = !!ctx.callbackQuery;
+
+            // Pour les callback_query (clics boutons), skip les opérations lourdes
+            if (!isCallback && ctx.chat) {
+                // Enregistrement automatique (uniquement pour les messages, pas les clics)
                 const platformUser = {
                     id: ctx.chat.id,
                     type: ctx.chat.type,
@@ -47,18 +49,24 @@ async function main() {
                     language_code: ctx.from?.language_code
                 };
                 await registerUser(platformUser);
+
+                // Pré-chargement des données (uniquement pour les messages)
+                const { getAppSettings, getUser } = require('./services/database');
+                const trackId = ctx.chat?.type === 'private' ? `telegram_${ctx.from?.id}` : `telegram_${ctx.chat?.id}`;
+                const [settings, userProfile] = await Promise.all([
+                    getAppSettings(),
+                    getUser(trackId)
+                ]);
+
+                ctx.state.settings = settings;
+                ctx.state.user = userProfile;
+            } else if (isCallback) {
+                // Pour les callbacks, charge juste les settings/user (déjà en cache)
+                const { getAppSettings, getUser } = require('./services/database');
+                const trackId = `telegram_${ctx.from?.id}`;
+                ctx.state.settings = await getAppSettings();
+                ctx.state.user = await getUser(trackId);
             }
-
-            // Pré-chargement des données pour la rapidité
-            const { getAppSettings, getUser } = require('./services/database');
-            const trackId = ctx.chat?.type === 'private' ? `telegram_${ctx.from?.id}` : `telegram_${ctx.chat?.id}`;
-            const [settings, userProfile] = await Promise.all([
-                getAppSettings(),
-                getUser(trackId)
-            ]);
-
-            ctx.state.settings = settings;
-            ctx.state.user = userProfile;
 
             if (ctx.message && !ctx.message.from?.is_bot) {
                 await next();

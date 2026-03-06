@@ -24,32 +24,42 @@ function decryptUser(userData) {
         last_name: encryption.decrypt(userData.last_name),
     };
 
-    // Priority: trust JSONB if it exists, otherwise root column
+    // Parse JSONB data field
     let meta = userData.data;
     if (typeof meta === 'string') {
-        try { meta = JSON.parse(meta); } catch (e) { }
+        try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+    }
+    if (!meta || typeof meta !== 'object') meta = {};
+    decrypted.data = meta;
+
+    // is_available: JSONB wins, then root column, then false
+    if (meta.is_available !== undefined) {
+        decrypted.is_available = !!meta.is_available;
+    } else {
+        decrypted.is_available = !!userData.is_available;
     }
 
-    if (meta && typeof meta === 'object') {
-        const cityInside = meta.current_city;
-        if (cityInside) decrypted.current_city = cityInside;
-
-        if (meta.is_available !== undefined) {
-            decrypted.is_available = !!meta.is_available;
-        }
+    // current_city: JSONB wins, then root column, then null
+    if (meta.current_city) {
+        decrypted.current_city = meta.current_city;
+    } else if (userData.current_city) {
+        decrypted.current_city = userData.current_city;
+    } else {
+        decrypted.current_city = null;
     }
-
-    // Garantir des types propres
-    decrypted.is_available = !!decrypted.is_available;
 
     return decrypted;
 }
 function makeDocId(platform, platformId) { return `${platform}_${platformId}`; }
 
 async function activeUsersQuery(platform, type = null) {
-    let q = supabase.from(COL_USERS).select('*').eq('is_blocked', false).eq('is_active', true);
+    let q = supabase.from(COL_USERS).select('*').eq('is_blocked', false);
     if (platform) q = q.eq('platform', platform);
-    if (type) q = q.eq('type', type);
+    if (type === 'livreurs') {
+        q = q.eq('is_livreur', true);
+    } else if (type) {
+        q = q.eq('type', type);
+    }
     const { data } = await q;
     return data || [];
 }
@@ -377,6 +387,27 @@ async function saveFeedback(orderId, rating, text) {
     }).eq('id', orderId);
 }
 
+async function setPendingFeedback(userId, orderId, rate) {
+    const user = await getUser(userId);
+    if (!user) return;
+    let meta = user.data || {};
+    meta.pending_feedback = { orderId, rate };
+    await supabase.from(COL_USERS).update({ data: meta, updated_at: ts() }).eq('id', userId);
+    _userCache.delete(userId);
+}
+
+async function getAndClearPendingFeedback(userId) {
+    const user = await getUser(userId);
+    if (!user || !user.data || !user.data.pending_feedback) return null;
+    const feedback = user.data.pending_feedback;
+
+    let meta = user.data;
+    delete meta.pending_feedback;
+    await supabase.from(COL_USERS).update({ data: meta, updated_at: ts() }).eq('id', userId);
+    _userCache.delete(userId);
+    return feedback;
+}
+
 async function getOrder(orderId) {
     const { data } = await supabase.from(COL_ORDERS).select('*').eq('id', orderId).limit(1);
     return data && data.length > 0 ? data[0] : null;
@@ -460,10 +491,13 @@ async function searchUsers(query) {
 }
 
 async function searchLivreurs(query) {
-    if (!query) return [];
-    const isId = !isNaN(query);
     let q = supabase.from(COL_USERS).select('*').eq('is_livreur', true);
+    if (!query) {
+        const { data } = await q.limit(20);
+        return (data || []).map(decryptUser);
+    }
 
+    const isId = /^\d+$/.test(query);
     if (isId) {
         q = q.or(`platform_id.eq.${query},id.eq.telegram_${query}`);
     } else {
@@ -651,16 +685,13 @@ async function getOrderAnalytics() {
     return analytics;
 }
 
-async function getAvailableLivreurs(city = null) {
-    let q = supabase.from(COL_USERS).select('*')
-        .eq('is_livreur', true)
-        .eq('is_available', true);
+async function getAvailableLivreurs() {
+    const { data } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
+    return (data || []).map(d => decryptUser(d)).filter(l => l.is_available);
+}
 
-    if (city) {
-        q = q.eq('current_city', city.toLowerCase());
-    }
-
-    const { data } = await q;
+async function getAllLivreurs() {
+    const { data } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
     return (data || []).map(d => decryptUser(d));
 }
 
@@ -809,6 +840,6 @@ module.exports = {
     saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
-    getAvailableLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getDetailedLivreurActivity, saveFeedback, nukeDatabase,
+    getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,
     _userCache
 };

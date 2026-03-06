@@ -9,7 +9,7 @@ const {
     getAllOrders, updateOrderStatus, setLivreurStatus, getOrder, assignOrderLivreur,
     setLivreurAvailability, getAppSettings, updateAppSettings,
     deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics, searchLivreurs,
-    getBroadcastHistory, getDetailedLivreurActivity,
+    getBroadcastHistory, deleteBroadcast, getDetailedLivreurActivity,
     db, admin, nukeDatabase, decryptUser, supabase, COL_USERS
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');

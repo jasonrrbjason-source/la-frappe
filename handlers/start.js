@@ -310,21 +310,25 @@ function getMainMenuKeyboard(settings, user = null) {
     return Markup.inlineKeyboard(buttons);
 }
 
-function getLivreurMenuKeyboard(settings, user) {
+function getLivreurMenuKeyboard(settings, user, hasActiveOrders = false) {
     const isAvail = user?.is_available || user?.data?.is_available;
     const dispoBtn = isAvail
         ? Markup.button.callback(`${settings.ui_icon_error || '❌'} Passer Indisponible`, 'set_dispo_false')
         : Markup.button.callback(`${settings.ui_icon_success || '✅'} Passer Disponible`, 'set_dispo_true');
 
     const buttons = [
-        [dispoBtn],
-        [Markup.button.callback(`${settings.ui_icon_orders || '📦'} Dans mon secteur`, 'show_city_orders'), Markup.button.callback('🌍 Toutes les villes', 'show_all_orders')],
-        [Markup.button.callback('📍 Changer de secteur', 'change_city')],
-        [Markup.button.callback('📡 Tracking Live (Aide)', 'tracking_info')],
-        [Markup.button.callback(`${settings.ui_icon_stats || '📈'} Mon historique livraisons`, 'my_deliveries')],
-        [Markup.button.callback('🛒 Mode Client (commander)', 'client_menu')],
-        [Markup.button.callback('◀️ Retour au menu principal', 'main_menu')],
+        [dispoBtn]
     ];
+
+    if (hasActiveOrders) {
+        buttons.push([Markup.button.callback('🚚 MES LIVRAISONS EN COURS 🔥', 'active_deliveries')]);
+    }
+
+    buttons.push([Markup.button.callback(`${settings.ui_icon_orders || '📦'} Commandes disponibles`, 'show_available_orders')]);
+    buttons.push([Markup.button.callback('📡 Tracking Live (Aide)', 'tracking_info')]);
+    buttons.push([Markup.button.callback(`${settings.ui_icon_stats || '📈'} Mon historique livraisons`, 'my_deliveries')]);
+    buttons.push([Markup.button.callback('🛒 Mode Client (commander)', 'client_menu')]);
+    buttons.push([Markup.button.callback('◀️ Retour au menu principal', 'main_menu')]);
 
     // Bouton Admin si le livreur est aussi admin
     if (user && settings.admin_telegram_id) {

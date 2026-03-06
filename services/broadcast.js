@@ -24,21 +24,33 @@ async function broadcastMessage(platform, message, options = {}) {
     debugLog(`[BC-START] Plateforme: ${platform}, Médias: ${mediaFiles.length}, URLs: ${existingUrls.length}, Message: "${(message || '').substring(0, 30)}..."`);
 
     // Récupérer toutes les cibles (users + groups)
-    const targets = await getAllActiveUsers(platform === 'all' ? null : 'telegram');
+    let bType = null;
+    if (platform === 'users') bType = 'user';
+    else if (platform === 'groups') bType = 'group';
+    else if (platform === 'livreurs') bType = 'livreurs';
+
+    const targets = await getAllActiveUsers('telegram', bType);
     const totalTargets = targets.length;
-    debugLog(`[BC-TARGETS] ${totalTargets} cibles trouvées.`);
+    debugLog(`[BC-TARGETS] ${totalTargets} cibles trouvées (Platform: ${platform}, InternalType: ${bType}).`);
 
     if (totalTargets === 0) {
         return { success: 0, failed: 0, blocked: 0, total: 0 };
     }
 
     // 1. Upload des nouveaux médias vers Supabase Storage
-    const unifiedMediaList = [...existingUrls]; // Start with existing if any
+    const normalizedExistingUrls = existingUrls.map(u => typeof u === 'string' ? { url: u, type: (u.match(/\.(mp4|mov|avi|wmv)$/) ? 'video' : 'photo') } : u);
+    const unifiedMediaList = [...normalizedExistingUrls];
     const { supabase } = require('../config/supabase');
     for (let f of mediaFiles) {
         try {
             const fileName = `bc-${Date.now()}-${Math.round(Math.random() * 1E9)}-${f.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
-            const { error } = await supabase.storage.from('uploads').upload(fileName, f.data, {
+
+            let fileBuffer = f.data;
+            if (!fileBuffer && f.tempFilePath) {
+                fileBuffer = fs.readFileSync(f.tempFilePath);
+            }
+
+            const { error } = await supabase.storage.from('uploads').upload(fileName, fileBuffer, {
                 contentType: f.mimetype,
                 upsert: true
             });
@@ -47,11 +59,13 @@ async function broadcastMessage(platform, message, options = {}) {
                 unifiedMediaList.push({ url: publicData.publicUrl, type: f.mimetype.includes('video') ? 'video' : 'photo' });
             } else {
                 debugLog(`[BC-UPLOAD-WARN] Supabase error: ${error.message}. Fallback to buffer.`);
-                unifiedMediaList.push({ source: f.data, filename: f.name, type: f.mimetype.includes('video') ? 'video' : 'photo' });
+                unifiedMediaList.push({ source: fileBuffer, filename: f.name, type: f.mimetype.includes('video') ? 'video' : 'photo' });
             }
         } catch (e) {
             debugLog(`[BC-UPLOAD-ERR] ${e.message}`);
-            unifiedMediaList.push({ source: f.data, filename: f.name, type: f.mimetype.includes('video') ? 'video' : 'photo' });
+            let fallbackBuffer = f.data;
+            try { if (!fallbackBuffer && f.tempFilePath) fallbackBuffer = fs.readFileSync(f.tempFilePath); } catch (err) { }
+            unifiedMediaList.push({ source: fallbackBuffer, filename: f.name, type: f.mimetype.includes('video') ? 'video' : 'photo' });
         }
     }
 
@@ -134,7 +148,7 @@ async function broadcastMessage(platform, message, options = {}) {
         failed: failedCount,
         blocked: blockedCount,
         completed_at: new Date().toISOString()
-    });
+    }).catch(e => debugLog(`[BC-LOG-ERR] ${e.message}`));
 
     debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Bloqués: ${blockedCount}`);
     return { success: successCount, failed: failedCount, blocked: blockedCount, total: totalTargets, broadcastId };

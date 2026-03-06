@@ -1,12 +1,12 @@
 const { Markup } = require('telegraf');
 const { broadcastMessage } = require('../services/broadcast');
 const {
-    getReferralLeaderboard, getGlobalStats, getAppSettings,
+    getReferralLeaderboard, getGlobalStats, getAppSettings, updateAppSettings,
     getStatsOverview, getOrder, updateOrderStatus,
     getUserCount, getActiveUserCount, getRecentUsers,
     getAllOrders, searchUsers, searchLivreurs,
-    getUser, setLivreurStatus, markUserBlocked,
-    getProducts, saveProduct
+    getUser, setLivreurStatus, setLivreurAvailability, markUserBlocked,
+    getProducts, saveProduct, getAllLivreurs, getOrderAnalytics
 } = require('../services/database');
 const { safeEdit } = require('../services/utils');
 require('dotenv').config();
@@ -42,12 +42,13 @@ async function showAdminMenu(ctx, isEdit = false) {
         `Choisissez une section pour gérer votre bot :`;
 
     const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('📊 Statistiques Détaillées', 'admin_stats')],
+        [Markup.button.callback('📊 Statistiques', 'admin_stats'), Markup.button.callback('📈 Analytiques', 'admin_analytics')],
         [Markup.button.callback('📦 Commandes Récentes', 'admin_orders')],
         [Markup.button.callback('🚴 Gestion Livreurs', 'admin_livreurs')],
         [Markup.button.callback('👥 Gestion Utilisateurs', 'admin_users')],
         [Markup.button.callback('🛒 Gestion Produits', 'admin_products')],
         [Markup.button.callback('📢 Diffusion Message', 'admin_broadcast')],
+        [Markup.button.callback('⚙️ Paramètres', 'admin_settings')],
         [Markup.button.callback('◀️ Quitter la console', 'main_menu')]
     ]);
 
@@ -134,8 +135,9 @@ function setupAdminHandlers(bot) {
         const msg = `📑 <b>Commande #${orderId.slice(-8)}</b>\n\n` +
             `👤 Client : ${order.first_name} (@${order.username})\n` +
             `🛒 Produit : ${order.product_name} x${order.quantity}\n` +
-            `📍 Lieu : ${order.city}\n` +
+            `📍 Adresse : ${order.address || 'Non renseignée'}\n` +
             `💰 Total : ${order.total_price}€\n` +
+            (order.livreur_name ? `🚴 Livreur : ${order.livreur_name}\n` : '') +
             `🔘 Statut : <b>${order.status.toUpperCase()}</b>`;
 
         const buttons = [
@@ -227,6 +229,7 @@ function setupAdminHandlers(bot) {
 
         const buttons = [
             [Markup.button.callback(u.is_livreur ? '🚫 Retirer Livreur' : '🚴 Passer Livreur', `admin_user_toggle_livreur_${u.id}`)],
+            [Markup.button.callback(u.is_blocked ? '✅ Débloquer' : '🚫 Bloquer', `admin_user_block_${u.id}`)],
             [Markup.button.callback('◀️ Retour', 'admin_users')]
         ];
         await safeEdit(ctx, msg, Markup.inlineKeyboard(buttons));
@@ -243,14 +246,48 @@ function setupAdminHandlers(bot) {
         }
     });
 
-    // Livreurs
+    // Livreurs — vue détaillée avec actions
     bot.action('admin_livreurs', async (ctx) => {
         await ctx.answerCbQuery();
-        const livreurs = await searchLivreurs('');
+        const livreurs = await getAllLivreurs();
         if (livreurs.length === 0) return safeEdit(ctx, '🚴 Aucun livreur.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]]));
 
-        const list = livreurs.map(l => `${l.is_available ? '🟢' : '🔴'} ${l.first_name} (${l.current_city || '?'})`).join('\n');
-        await safeEdit(ctx, `🚴 <b>Liste des Livreurs</b>\n\n${list}`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]]));
+        let text = `🚴 <b>Gestion des Livreurs (${livreurs.length})</b>\n\n`;
+        const buttons = livreurs.map(l => {
+            const icon = l.is_available ? '🟢' : '🔴';
+            return [Markup.button.callback(`${icon} ${l.first_name} — ${l.order_count || 0} livraisons`, `admin_livreur_view_${l.id}`)];
+        });
+        buttons.push([Markup.button.callback('◀️ Retour', 'admin_menu')]);
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action(/^admin_livreur_view_(.+)$/, async (ctx) => {
+        const lid = ctx.match[1];
+        const l = await getUser(lid);
+        if (!l) return ctx.answerCbQuery('❌ Introuvable');
+        await ctx.answerCbQuery();
+
+        const msg = `🚴 <b>${l.first_name}</b> (@${l.username || '?'})\n\n` +
+            `🆔 <code>${l.platform_id}</code>\n` +
+            `🔘 Statut : ${l.is_available ? '🟢 DISPONIBLE' : '🔴 INDISPONIBLE'}\n` +
+            `📦 Livraisons : ${l.order_count || 0}\n` +
+            `💰 Solde : ${l.wallet_balance || 0}€`;
+
+        const buttons = [
+            [Markup.button.callback(l.is_available ? '🔴 Rendre Indisponible' : '🟢 Rendre Disponible', `admin_livreur_toggle_${lid}`)],
+            [Markup.button.callback('🚫 Retirer statut livreur', `admin_user_toggle_livreur_${lid}`)],
+            [Markup.button.callback('◀️ Retour', 'admin_livreurs')]
+        ];
+        await safeEdit(ctx, msg, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action(/^admin_livreur_toggle_(.+)$/, async (ctx) => {
+        const lid = ctx.match[1];
+        const l = await getUser(lid);
+        if (!l) return ctx.answerCbQuery('❌ Erreur');
+        await setLivreurAvailability(lid, !l.is_available);
+        await ctx.answerCbQuery(`✅ ${l.first_name} est maintenant ${!l.is_available ? 'disponible' : 'indisponible'}`);
+        return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `admin_livreur_view_${lid}` } });
     });
 
     // Produits
@@ -279,10 +316,31 @@ function setupAdminHandlers(bot) {
         }
     });
 
-    // Broadcast
+    // Broadcast — inline prompt
+    const pendingBroadcasts = new Set();
+
     bot.action('admin_broadcast', async (ctx) => {
         await ctx.answerCbQuery();
-        await safeEdit(ctx, `📢 <b>Diffusion de message</b>\n\nPour envoyer un message à tous les utilisateurs :\nUtilisez la commande <code>/broadcast Votre Message</code>`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]]));
+        pendingBroadcasts.add(ctx.from.id);
+        await safeEdit(ctx,
+            `📢 <b>Diffusion de message</b>\n\n` +
+            `Envoyez votre message maintenant dans le chat.\n` +
+            `Il sera diffusé à tous les utilisateurs actifs.\n\n` +
+            `<i>Ou utilisez /broadcast Votre Message</i>`,
+            Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler', 'admin_menu')]])
+        );
+    });
+
+    bot.on('text', async (ctx, next) => {
+        if (pendingBroadcasts.has(ctx.from.id) && authenticatedAdmins.has(ctx.from.id)) {
+            pendingBroadcasts.delete(ctx.from.id);
+            const msg = ctx.message.text.trim();
+            if (!msg) return ctx.reply('❌ Message vide.');
+            await ctx.reply('🚀 Diffusion en cours...');
+            const res = await broadcastMessage(msg);
+            return ctx.reply(`✅ Diffusion terminée !\n\n📊 Cibles : ${res.total}\n✅ Succès : ${res.success}\n❌ Échecs : ${res.failed}`);
+        }
+        return next();
     });
 
     bot.command('broadcast', async (ctx) => {
@@ -290,7 +348,52 @@ function setupAdminHandlers(bot) {
         const msg = ctx.message.text.split(' ').slice(1).join(' ');
         if (!msg) return ctx.reply('❌ Message vide. Usage: /broadcast Hello');
         const res = await broadcastMessage(msg);
-        ctx.reply(`🚀 Diffusion lancée vers ${res.total} membres.`);
+        ctx.reply(`✅ Diffusion terminée vers ${res.total} membres.`);
+    });
+
+    // Bloquer un utilisateur
+    bot.action(/^admin_user_block_(.+)$/, async (ctx) => {
+        const uid = ctx.match[1];
+        await markUserBlocked(uid);
+        await ctx.answerCbQuery('✅ Utilisateur bloqué');
+        return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `admin_user_view_${uid}` } });
+    });
+
+    // Paramètres — vue depuis Telegram
+    bot.action('admin_settings', async (ctx) => {
+        await ctx.answerCbQuery();
+        const s = await getAppSettings();
+        const msg = `⚙️ <b>Paramètres Actuels</b>\n\n` +
+            `📛 Bot : ${s.bot_name}\n` +
+            `🔑 Admin IDs : <code>${s.admin_telegram_id || 'Non défini'}</code>\n` +
+            `🌐 Dashboard : ${s.dashboard_url || 'Non défini'}\n` +
+            `📱 Contact : ${s.private_contact_url || 'Non défini'}\n` +
+            `📢 Canal : ${s.channel_url || 'Non défini'}\n\n` +
+            `⭐ Points/€ : ${s.points_ratio || 1}\n` +
+            `🔄 Seuil conversion : ${s.points_exchange || 100} pts\n` +
+            `💰 Valeur crédit : ${s.points_credit_value || 5}€\n` +
+            `🎁 Bonus parrainage : ${s.ref_bonus || 5}€\n\n` +
+            `<i>Pour modifier les paramètres, utilisez le dashboard web.</i>`;
+
+        await safeEdit(ctx, msg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]]));
+    });
+
+    // Analytics rapide
+    bot.action('admin_analytics', async (ctx) => {
+        await ctx.answerCbQuery();
+        const analytics = await getOrderAnalytics();
+
+        const topProducts = Object.entries(analytics.byProduct || {})
+            .sort((a, b) => b[1].qty - a[1].qty).slice(0, 5)
+            .map(([name, d]) => `  • ${name} : ${d.qty} vendus (${d.ca.toFixed(2)}€)`).join('\n');
+
+        const msg = `📈 <b>Analytiques</b>\n\n` +
+            `💰 CA Total : <b>${analytics.totalCA.toFixed(2)}€</b>\n` +
+            `📦 Commandes livrées : ${analytics.totalOrders}\n` +
+            `⏱ Temps moyen : ${analytics.avgDeliveryTime} min\n\n` +
+            (topProducts ? `🏆 <b>Top Produits :</b>\n${topProducts}` : '');
+
+        await safeEdit(ctx, msg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]]));
     });
 }
 

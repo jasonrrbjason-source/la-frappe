@@ -31,6 +31,7 @@ async function safeEdit(ctx, text, opts = {}) {
 
         // 2. Résolution des chemins relatifs
         if (photo && !photo.startsWith('http') && !photo.startsWith('data:')) {
+            const settings = ctx.state?.settings || {};
             const baseUrl = settings.dashboard_url ? settings.dashboard_url.replace(/\/$/, '') : '';
             const cleanPath = photo.startsWith('/') ? photo : '/' + photo;
             photo = baseUrl + cleanPath;

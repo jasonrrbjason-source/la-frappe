@@ -190,12 +190,32 @@ ON storage.objects FOR ALL
 USING (auth.role() = 'service_role');
 
 -- =========================================================================
--- MIGRATIONS (SI LES TABLES EXISTENT DÉJÀ)
+-- MIGRATIONS (IDEMPOTENT — À EXÉCUTER SI LES TABLES EXISTENT DÉJÀ)
 -- =========================================================================
--- ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS current_city TEXT;
--- ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}'::jsonb;
--- ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS address TEXT;
--- ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_thresholds TEXT DEFAULT '5,9,10';
--- ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_amount NUMERIC DEFAULT 10;
--- ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS feedback_text TEXT;
--- ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS feedback_rating NUMERIC;
+
+-- bot_users : colonnes essentielles livreur
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT false;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS current_city TEXT;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS is_livreur BOOLEAN DEFAULT false;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS wallet_balance NUMERIC DEFAULT 0;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS points NUMERIC DEFAULT 0;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS referral_code TEXT;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS tracked_messages JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS last_menu_id NUMERIC;
+
+-- bot_orders : adresse et feedback
+ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS livreur_name TEXT;
+ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS feedback_text TEXT;
+ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS feedback_rating NUMERIC;
+
+-- bot_settings : fidélité et nouveaux champs UI
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_thresholds TEXT DEFAULT '5,9,10';
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_amount NUMERIC DEFAULT 10;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS points_credit_value NUMERIC DEFAULT 5;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS private_contact_url TEXT;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS channel_url TEXT;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS label_livreur TEXT;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ui_icon_taken TEXT;

@@ -1129,6 +1129,20 @@
                         </div>
                     </div>
 
+                    <h3 style="margin-top:20px;">🎁 Bonus Paliers de Commandes</h3>
+                    <div
+                        style="display:flex; flex-wrap:wrap; gap:10px; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;">
+                        <div style="flex:2; min-width:200px;">
+                            <label>Paliers (nb commandes)</label>
+                            <input id="set_fidelity_thresholds" placeholder="ex: 5,9,10">
+                            <small style="color:var(--text-muted)">Offre un bonus lors de ces commandes.</small>
+                        </div>
+                        <div style="flex:1; min-width:100px;">
+                            <label>Bonus (€)</label>
+                            <input type="number" id="set_fidelity_bonus_val" placeholder="ex: 10">
+                        </div>
+                    </div>
+
                     <h3 style="margin-top:20px;">Langues</h3>
                     <label>Langues du bot (séparées par des virgules)</label>
                     <input id="set_lang" placeholder="ex: fr, en, es">
@@ -1709,6 +1723,8 @@
                     document.getElementById('set_pts_exchange').value = s.points_exchange || 100;
                     document.getElementById('set_pts_credit_val').value = s.points_credit_value || 5;
                     document.getElementById('set_ref_bonus').value = s.ref_bonus || 5;
+                    document.getElementById('set_fidelity_thresholds').value = s.fidelity_bonus_thresholds || '5,9,10';
+                    document.getElementById('set_fidelity_bonus_val').value = s.fidelity_bonus_amount || 10;
                     document.getElementById('set_lang').value = s.languages || 'fr';
 
                     // Composants UI
@@ -2217,6 +2233,8 @@
                 points_exchange: parseFloat(document.getElementById('set_pts_exchange').value) || 100,
                 points_credit_value: parseFloat(document.getElementById('set_pts_credit_val').value) || 5,
                 ref_bonus: parseFloat(document.getElementById('set_ref_bonus').value) || 5,
+                fidelity_bonus_thresholds: document.getElementById('set_fidelity_thresholds').value || '5,9,10',
+                fidelity_bonus_amount: parseFloat(document.getElementById('set_fidelity_bonus_val').value) || 10,
                 languages: document.getElementById('set_lang').value || 'fr',
 
                 // UI

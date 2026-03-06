@@ -123,6 +123,8 @@ CREATE TABLE IF NOT EXISTS bot_settings (
   points_ratio NUMERIC,
   points_exchange NUMERIC,
   ref_bonus NUMERIC,
+  fidelity_bonus_thresholds TEXT DEFAULT '5,9,10',
+  fidelity_bonus_amount NUMERIC DEFAULT 10,
   
   -- UI / Boutons / Labels
   status_pending_label TEXT,
@@ -191,3 +193,5 @@ USING (auth.role() = 'service_role');
 -- ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS current_city TEXT;
 -- ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}'::jsonb;
 -- ALTER TABLE bot_orders ADD COLUMN IF NOT EXISTS address TEXT;
+-- ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_thresholds TEXT DEFAULT '5,9,10';
+-- ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS fidelity_bonus_amount NUMERIC DEFAULT 10;

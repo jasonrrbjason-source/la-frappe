@@ -347,7 +347,19 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
                 }
 
                 await updateUserPoints(user.id, (user.points || 0) + pointsToAdd);
-                await supabase.from(COL_USERS).update({ order_count: (user.order_count || 0) + 1 }).eq('id', user.id);
+                const newOrderCount = (user.order_count || 0) + 1;
+                await supabase.from(COL_USERS).update({ order_count: newOrderCount }).eq('id', user.id);
+
+                // --- Système de Bonus Fidélité ---
+                const thresholds = (settings.fidelity_bonus_thresholds || "5,9,10").split(',').map(t => parseInt(t.trim())).filter(t => !isNaN(t));
+                const bonusAmount = parseFloat(settings.fidelity_bonus_amount) || 10;
+
+                if (thresholds.includes(newOrderCount)) {
+                    await updateUserWallet(user.id, (user.wallet_balance || 0) + bonusAmount);
+                    // On pourrait aussi notifier le client via bot.telegram.sendMessage ici si on avait accès à bot
+                    console.log(`🎁 Bonus fidélité de ${bonusAmount}€ accordé à ${user.id} pour sa ${newOrderCount}ème commande.`);
+                }
+
                 _userCache.delete(user.id);
                 extraData.points_awarded = true;
             }

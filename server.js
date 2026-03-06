@@ -268,11 +268,12 @@ function createServer() {
     });
 
     app.post('/api/livreurs/availability', authMiddleware, async (req, res) => {
-        const { userId, platform, isAvailable } = req.body;
+        const { platform, userId, isAvailable, id: directId } = req.body;
         try {
-            await setLivreurAvailability(makeDocId(platform, userId), isAvailable);
+            const docId = directId || makeDocId(platform, userId);
+            await setLivreurAvailability(docId, isAvailable);
             res.json({ success: true });
-        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+        } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
     app.post('/api/admin/nuke', authMiddleware, async (req, res) => {

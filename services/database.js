@@ -224,13 +224,15 @@ async function setLivreurAvailability(docId, isAvailable) {
     let meta = user ? (user.data || {}) : {};
     meta.is_available = !!isAvailable;
 
+    console.log(`[DB] Setting availability for ${docId} to ${isAvailable}`);
     const updates = {
         is_available: !!isAvailable,
         data: meta,
         updated_at: ts()
     };
 
-    const { error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId);
+    const { data: updated, error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId).select();
+    if (updated) console.log(`[DB] Updated row count: ${updated.length}`);
 
     if (fullError) {
         console.warn(`⚠️ Colonne is_available absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);
@@ -261,7 +263,8 @@ async function updateLivreurPosition(docId, input) {
         updated_at: ts()
     };
 
-    const { error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId);
+    const { data: updated, error: fullError } = await supabase.from(COL_USERS).update(updates).eq('id', docId).select();
+    if (updated) console.log(`[DB] Updated row count: ${updated.length} for ID: ${docId}`);
 
     if (fullError) {
         console.warn(`⚠️ Colonne current_city absente ou erreur ? Fallback JSONB seul. [${fullError.message}]`);

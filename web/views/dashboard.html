@@ -480,7 +480,7 @@
         }
 
         .loading {
-            opacity: 0.8;
+            opacity: 0.6;
             cursor: wait;
         }
 
@@ -1502,6 +1502,8 @@
             if (id === 'logistique') {
                 const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');
                 switchLogisticsTab(isLivreurs ? 'livreurs' : 'orders');
+                if (window.innerWidth <= 768) toggleSidebar();
+                return; // Early return because switchLogisticsTab calls loadData
             }
 
             const target = document.getElementById('section-' + id);
@@ -1518,9 +1520,6 @@
             });
 
             await loadData(id);
-            if (id === 'livreurs' || id === 'orders' || id === 'logistique') {
-                console.log("[Dashboard] Manuel Refresh Done");
-            }
             if (window.innerWidth <= 768) toggleSidebar();
         }
 

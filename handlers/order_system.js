@@ -439,6 +439,32 @@ function setupOrderSystem(bot) {
         await showCartSummary(ctx, pending.address, parseFloat(pending.totalPrice), 0, pending.scheduled_at);
     });
 
+    bot.action('my_orders', async (ctx) => {
+        await ctx.answerCbQuery();
+        const userId = `telegram_${ctx.from.id}`;
+        const { getOrdersByUser } = require('../services/database');
+
+        try {
+            const orders = await getOrdersByUser(userId);
+            if (orders.length === 0) {
+                return safeEdit(ctx, '📭 Vous n\'avez pas encore de commandes.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+            }
+
+            let text = `📦 <b>Mes Commandes</b>\n\n`;
+            orders.slice(0, 10).forEach((o, i) => {
+                const date = o.created_at ? new Date(o.created_at).toLocaleDateString('fr-FR') : 'Inconnue';
+                const statusLabel = o.status === 'delivered' ? '✅ Livrée' : (o.status === 'cancelled' ? '❌ Annulée' : '⏳ En cours');
+                text += `${i + 1}. #${o.id.substring(0, 5)} - ${o.product_name}\n` +
+                    `💰 ${o.total_price}€ - ${statusLabel} (${date})\n\n`;
+            });
+
+            await safeEdit(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+        } catch (e) {
+            console.error('Error fetching user orders:', e);
+            await safeEdit(ctx, '❌ Erreur lors de la récupération de vos commandes.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+        }
+    });
+
     async function showCartSummary(ctx, address, finalPrice, discount, scheduledAt = null) {
         const userId = ctx.from.id;
         const cart = userCarts.get(userId) || [];

@@ -1035,9 +1035,28 @@
 
                     <div
                         style="display:flex; align-items:center; gap:10px; margin: 15px 0; background:rgba(255,165,0,0.1); padding:10px; border-radius:10px; border:1px solid rgba(255,165,0,0.2);">
-                        <input type="checkbox" id="prod_is_bundle" style="width:20px; height:20px; cursor:pointer">
+                        <input type="checkbox" id="prod_is_bundle" onchange="toggleBundleArea()"
+                            style="width:20px; height:20px; cursor:pointer">
                         <label for="prod_is_bundle" style="margin:0; cursor:pointer; font-weight:bold; color:orange;">🎁
-                            Activer Offre Bundle (1 acheté = 1 offert)</label>
+                            Activer Offre Bundle (Ex: 1 acheté = 1 offert)</label>
+                    </div>
+
+                    <div id="bundle_config_area"
+                        style="display:none; background:rgba(255,165,0,0.05); padding:15px; border-radius:10px; border:1px dashed rgba(255,165,0,0.3); margin-bottom:20px;">
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                            <div>
+                                <label style="font-size:11px">Si achat de (qté)</label>
+                                <input type="number" id="bundle_trigger_qty" value="1" min="1">
+                            </div>
+                            <div>
+                                <label style="font-size:11px">Offert (qté)</label>
+                                <input type="number" id="bundle_offered_qty" value="1" min="1">
+                            </div>
+                        </div>
+                        <label style="margin-top:10px; font-size:11px">Produit offert gratuitement :</label>
+                        <select id="bundle_offered_id" style="margin-bottom:0">
+                            <option value="">-- Ce produit même --</option>
+                        </select>
                     </div>
 
                     <label>Média du produit (Photos ou Vidéos - Glisser-déposer)</label>
@@ -1976,6 +1995,16 @@
                 if (id === 'products') {
                     const products = await api('/products', 'GET', null, silent);
                     window._cachedProducts = products;
+
+                    // Update Bundle Select
+                    const bundleSelect = document.getElementById('bundle_offered_id');
+                    if (bundleSelect) {
+                        const currentVal = bundleSelect.value;
+                        bundleSelect.innerHTML = '<option value="">-- Ce produit même --</option>' +
+                            products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                        bundleSelect.value = currentVal;
+                    }
+
                     document.querySelector('#productTable tbody').innerHTML = products.map((p, idx) => {
                         let mediaHtml = '';
                         if (p.image_url && p.image_url.length > 5) {
@@ -2645,6 +2674,12 @@
             const image_url = document.getElementById('prod_image_url').value;
             const is_bundle = document.getElementById('prod_is_bundle').checked;
 
+            const bundle_config = {
+                trigger_qty: parseInt(document.getElementById('bundle_trigger_qty').value) || 1,
+                offered_qty: parseInt(document.getElementById('bundle_offered_qty').value) || 1,
+                offered_id: document.getElementById('bundle_offered_id').value || null
+            };
+
             if (!name || isNaN(price)) return showToast('Veuillez remplir le nom et le prix', 'error');
 
             try {
@@ -2656,6 +2691,7 @@
                     unit_value,
                     promo,
                     is_bundle,
+                    bundle_config,
                     image_url: image_url || ''
                 });
                 showToast('Produit sauvegardé !', 'success');
@@ -2670,10 +2706,10 @@
         function editProdByIndex(idx) {
             const p = window._cachedProducts && window._cachedProducts[idx];
             if (!p) return;
-            editProd(p.id, p.name, p.price, p.image_url || '', p.promo || '', p.unit || '', p.unit_value || '', p.is_bundle || false);
+            editProd(p.id, p.name, p.price, p.image_url || '', p.promo || '', p.unit || '', p.unit_value || '', p.is_bundle || false, p.bundle_config);
         }
 
-        function editProd(id, name, price, image_url, promo, unit, unit_value, is_bundle = false) {
+        function editProd(id, name, price, image_url, promo, unit, unit_value, is_bundle = false, bundle_config = null) {
             document.getElementById('prod_id').value = id;
             document.getElementById('prod_name').value = name;
             document.getElementById('prod_price').value = price;
@@ -2683,7 +2719,22 @@
             document.getElementById('prod_image_url').value = image_url;
             document.getElementById('prod_is_bundle').checked = is_bundle;
 
+            if (bundle_config) {
+                document.getElementById('bundle_trigger_qty').value = bundle_config.trigger_qty || 1;
+                document.getElementById('bundle_offered_qty').value = bundle_config.offered_qty || 1;
+                document.getElementById('bundle_offered_id').value = bundle_config.offered_id || '';
+            } else {
+                document.getElementById('bundle_trigger_qty').value = 1;
+                document.getElementById('bundle_offered_qty').value = 1;
+                document.getElementById('bundle_offered_id').value = '';
+            }
+            toggleBundleArea();
             renderPreview('prod');
+        }
+
+        function toggleBundleArea() {
+            const isBundle = document.getElementById('prod_is_bundle').checked;
+            document.getElementById('bundle_config_area').style.display = isBundle ? 'block' : 'none';
         }
 
         function clearProdForm() {
@@ -2695,6 +2746,10 @@
             document.getElementById('prod_promo').value = '';
             document.getElementById('prod_image_url').value = '';
             document.getElementById('prod_is_bundle').checked = false;
+            document.getElementById('bundle_trigger_qty').value = 1;
+            document.getElementById('bundle_offered_qty').value = 1;
+            document.getElementById('bundle_offered_id').value = '';
+            toggleBundleArea();
             renderPreview('prod');
         }
 

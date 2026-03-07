@@ -135,7 +135,23 @@ function setupOrderSystem(bot) {
         if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
 
         const totalPrice = (product.price * qty).toFixed(2);
-        let bundleText = product.is_bundle ? ` (+ ${qty} offert(s) 🎁)` : "";
+
+        let bundleText = "";
+        if (product.is_bundle) {
+            const config = product.bundle_config || { trigger_qty: 1, offered_qty: 1, offered_id: null };
+            const trigger = config.trigger_qty || 1;
+            const offered = config.offered_qty || 1;
+            const numGifts = Math.floor(qty / trigger) * offered;
+
+            if (numGifts > 0) {
+                if (config.offered_id) {
+                    const offeredProd = products.find(p => p.id === String(config.offered_id));
+                    bundleText = ` (+ ${numGifts} ${offeredProd ? offeredProd.name : 'cadeau'} offert(s) 🎁)`;
+                } else {
+                    bundleText = ` (+ ${numGifts} offert(s) 🎁)`;
+                }
+            }
+        }
 
         pendingOrders.set(userId, {
             productId,

@@ -586,8 +586,8 @@ function setupOrderSystem(bot) {
         await showCartSummary(ctx, pending.address, parseFloat(pending.totalPrice), 0, pending.scheduled_at);
     });
 
-    bot.action('my_orders', async (ctx) => {
-        await ctx.answerCbQuery();
+    async function showMyOrders(ctx) {
+        if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => { });
         const userId = `telegram_${ctx.from.id}`;
         const { getOrdersByUser } = require('../services/database');
 
@@ -610,7 +610,12 @@ function setupOrderSystem(bot) {
             console.error('Error fetching user orders:', e);
             await safeEdit(ctx, '❌ Erreur lors de la récupération de vos commandes.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
         }
+    }
+
+    bot.action('my_orders', async (ctx) => {
+        await showMyOrders(ctx);
     });
+
 
     async function showCartSummary(ctx, address, finalPrice, discount, scheduledAt = null) {
         const userId = ctx.from.id;
@@ -1478,9 +1483,23 @@ function setupOrderSystem(bot) {
         );
     });
 
-    // --- Système d'Aide ---
-    bot.action('help_menu', async (ctx) => {
-        await ctx.answerCbQuery();
+    // --- Commandes Directes ---
+    bot.command('menu', async (ctx) => {
+        await displayCatalog(ctx);
+    });
+
+    bot.command('orders', async (ctx) => {
+        // Redirige vers my_orders
+        await showMyOrders(ctx);
+    });
+
+    bot.command('help', async (ctx) => {
+        await showHelpMenu(ctx);
+    });
+
+    // --- Fonctions Partagées ---
+    async function showHelpMenu(ctx) {
+        if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => { });
         const settings = await getAppSettings();
         const activeOrders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
 
@@ -1496,12 +1515,23 @@ function setupOrderSystem(bot) {
         buttons.push([Markup.button.callback('◀️ Retour Menu', 'main_menu')]);
 
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    }
+
+
+    // --- Système d'Aide ---
+    bot.action('help_menu', async (ctx) => {
+        await showHelpMenu(ctx);
     });
+
 
     bot.action('help_where_is_my_order', async (ctx) => {
         await ctx.answerCbQuery();
         const orders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
-        if (orders.length === 0) return ctx.reply("Vous n'avez pas de commande en cours.");
+        if (orders.length === 0) {
+            return safeEdit(ctx, "📭 <b>Vous n'avez pas de commande en cours.</b>\n\nSi vous venez de commander, attendez que l'admin valide votre commande.",
+                Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'help_menu')]])
+            );
+        }
 
         const latest = orders[0];
         const shortId = latest.id.substring(0, 5);
@@ -1549,6 +1579,7 @@ function setupOrderSystem(bot) {
             );
         }
     });
+
 
     // Mode client pour les livreurs
     bot.action('client_menu', async (ctx) => {

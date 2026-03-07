@@ -939,10 +939,11 @@ async function getAllLivreurs() {
 // --- Settings ---
 const SETTINGS_DEFAULTS = {
     bot_name: 'La Frappe IDF',
+    dashboard_title: 'La Frappe IDF - Admin',
     welcome_message: 'Bienvenue ! Vous faites partie de la famille.',
-    admin_password: process.env.ADMIN_PASSWORD || 'admin123456',
+    admin_password: process.env.ADMIN_PASSWORD || 'lafrappe2024',
     admin_telegram_id: String(process.env.ADMIN_TELEGRAM_ID || ''),
-    ui_icon_catalog: '🍔',
+    ui_icon_catalog: '👟',
     ui_icon_orders: '📦',
     ui_icon_contact: '📱',
     ui_icon_channel: '📢',
@@ -958,38 +959,40 @@ const SETTINGS_DEFAULTS = {
     ui_icon_wallet: '💰',
     ui_icon_points: '⭐',
     ui_icon_stats: '📊',
-    ui_icon_broadcast: '📢',
+    ui_icon_broadcast: '📣',
     ui_icon_logout: '🚪',
+    ui_icon_taken: '🚚',
+    ui_icon_help: '❓',
     label_catalog: 'Catalogue Produits',
     label_my_orders: 'Mes Commandes',
-    label_contact: 'Mon contact privé',
-    label_channel: 'Lien canal Telegram',
+    label_contact: 'Contact Admin',
+    label_channel: 'Canal Telegram',
     label_welcome: 'Message d\'accueil',
-    label_profile: 'Mon Profil & Parrainage',
-    label_admin_bot: 'Console Admin (Bot)',
+    label_profile: 'Mon Profil / Parrainage',
+    label_admin_bot: 'Gestion Bot',
     label_admin_web: 'Dashboard Web',
     label_livreur: 'Espace Livreur',
     label_livreur_space: 'Espace Livreur',
-    status_pending_label: 'EN ATTENTE',
-    status_taken_label: 'PRIS EN CHARGE',
-    status_delivered_label: 'LIVRÉE',
-    status_cancelled_label: 'ANNULÉE',
+    label_help: 'Aide / Support',
+    status_pending_label: 'Attente Validation',
+    status_taken_label: 'En cours de livraison',
+    status_delivered_label: 'Livré ✅',
+    status_cancelled_label: 'Annulé ❌',
     msg_auto_timer: '🔥 <b>Le catalogue est à jour !</b>\nProfitez de nos nouveaux produits et de nos promos en cours. 🚀',
-    ui_icon_taken: '🚚',
-    msg_choose_qty: 'Choisissez la quantité :',
+    msg_choose_qty: 'Choisissez la quantité souhaitée :',
     msg_search_livreur: '⏳ Recherche d\'un livreur en cours...',
     msg_order_success: '✅ <b>Commande enregistrée !</b>',
-    points_credit_value: 5,
+    msg_help_intro: 'Besoin d\'aide ? Choisissez une option ci-dessous :',
+    points_exchange: 100,
+    points_ratio: 1,
+    ref_bonus: 5,
+    points_credit_value: 10,
     fidelity_wallet_max_pct: 50,
     fidelity_min_spend: 50,
-    list_admins: [], // Liste JSON des IDs admin
-    msg_help_intro: 'Besoin d\'aide ? Choisissez une option ci-dessous :',
-    msg_help_where_order: 'Où en est ma commande ?',
-    msg_help_contact_admin: 'Parler à l\'Admin',
-    msg_help_return: 'Retour au Menu',
+    list_admins: [],
     dashboard_url: process.env.DASHBOARD_URL || '',
-    private_contact_url: '',
-    channel_url: ''
+    private_contact_url: 'https://t.me/lafrappex',
+    channel_url: 'https://t.me/lafrappe_canal'
 };
 
 let _settingsCache = null;
@@ -1001,7 +1004,7 @@ async function getAppSettings() {
     }
 
     const { data } = await supabase.from(COL_SETTINGS).select('*').eq('id', 'config').limit(1);
-    let settings = SETTINGS_DEFAULTS;
+    let settings = { ...SETTINGS_DEFAULTS };
 
     if (!data || data.length === 0) {
         await supabase.from(COL_SETTINGS).insert([{ id: 'config', ...SETTINGS_DEFAULTS }]);
@@ -1009,30 +1012,31 @@ async function getAppSettings() {
         settings = { ...SETTINGS_DEFAULTS, ...data[0] };
     }
 
-    // Auto-réparation : si un champ icône contient du texte brut (ex: "test") au lieu d'un emoji, on restaure le défaut
+    // Auto-réparation agressive : remplacer tout ce qui contient "test"
     const repairs = {};
     for (const key of Object.keys(SETTINGS_DEFAULTS)) {
-        if (key.startsWith('ui_icon_') && settings[key] && typeof settings[key] === 'string') {
-            const val = settings[key].trim();
-            if (/^[a-zA-Z0-9_\s]+$/.test(val)) {
-                settings[key] = SETTINGS_DEFAULTS[key];
-                repairs[key] = SETTINGS_DEFAULTS[key];
-            }
+        const val = settings[key];
+        if (typeof val === 'string' && val.toLowerCase().includes('test')) {
+            settings[key] = SETTINGS_DEFAULTS[key];
+            repairs[key] = SETTINGS_DEFAULTS[key];
+        }
+        // Pour les icônes vide ou non-emoji (fallback securisé)
+        if (key.startsWith('ui_icon_') && (!val || val.length > 5 || /^[a-zA-Z0-9]+$/.test(val))) {
+            settings[key] = SETTINGS_DEFAULTS[key];
+            repairs[key] = SETTINGS_DEFAULTS[key];
         }
     }
-    // Synchroniser label_livreur et label_livreur_space
-    if (settings.label_livreur && /^test\s/i.test(settings.label_livreur)) {
-        settings.label_livreur = SETTINGS_DEFAULTS.label_livreur;
-        repairs.label_livreur = SETTINGS_DEFAULTS.label_livreur;
+
+    // Synchronisation label_livreur
+    if (!settings.label_livreur || settings.label_livreur === '') {
+        settings.label_livreur = settings.label_livreur_space || SETTINGS_DEFAULTS.label_livreur;
     }
-    if (!settings.label_livreur && settings.label_livreur_space) {
-        settings.label_livreur = settings.label_livreur_space;
-    }
-    // Persister les réparations en base
+
     if (Object.keys(repairs).length > 0) {
-        console.log('🔧 Auto-repair settings:', Object.keys(repairs).join(', '));
+        console.log(`🔧 [DB] Auto-réparation de ${Object.keys(repairs).length} champs :`, Object.keys(repairs).join(', '));
         supabase.from(COL_SETTINGS).update(repairs).eq('id', 'config').then(() => { }).catch(() => { });
     }
+
 
     _settingsCache = settings;
     _settingsExpire = Date.now() + 10000; // Cache valid for 10 seconds

@@ -1437,8 +1437,9 @@ function setupOrderSystem(bot) {
                 username: ctx.from.username || '?',
                 first_name: ctx.from.first_name || 'Anonyme',
                 text,
-                rating: data.rate,
-                photos: photoUrls
+                rating: parseInt(data.rate),
+                photos: photoUrls,
+                is_public: true
             });
 
             // Notify Admin

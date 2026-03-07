@@ -15,10 +15,11 @@ const authenticatedAdmins = new Set();
 const pendingAdminLogins = new Set();
 
 async function isAdmin(ctx) {
-    const settings = ctx.state.settings;
-    if (!settings || !settings.admin_telegram_id) return false;
-    const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
-    return adminIds.includes(String(ctx.from.id));
+    const settings = ctx.state.settings || {};
+    const adminIds = String(settings.admin_telegram_id || '').split(/[\s,]+/).map(id => id.trim());
+    const extraAdmins = Array.isArray(settings.list_admins) ? settings.list_admins : [];
+    const allAdmins = [...adminIds, ...extraAdmins];
+    return allAdmins.includes(String(ctx.from.id));
 }
 
 async function handleAdminLogin(ctx, password) {
@@ -48,7 +49,7 @@ async function showAdminMenu(ctx, isEdit = false) {
         [Markup.button.callback('👥 Gestion Utilisateurs', 'admin_users')],
         [Markup.button.callback('🛒 Gestion Produits', 'admin_products')],
         [Markup.button.callback('📢 Diffusion Message', 'admin_broadcast')],
-        [Markup.button.callback('⚙️ Paramètres', 'admin_settings')],
+        [Markup.button.callback('✨ Fonctionnalités', 'admin_features'), Markup.button.callback('⚙️ Paramètres', 'admin_settings')],
         [Markup.button.callback('◀️ Quitter la console', 'main_menu')]
     ]);
 
@@ -383,19 +384,96 @@ function setupAdminHandlers(bot) {
     bot.action('admin_settings', async (ctx) => {
         await ctx.answerCbQuery();
         const s = await getAppSettings();
-        const msg = `⚙️ <b>Paramètres Actuels</b>\n\n` +
-            `📛 Bot : ${s.bot_name}\n` +
-            `🔑 Admin IDs : <code>${s.admin_telegram_id || 'Non défini'}</code>\n` +
-            `🌐 Dashboard : ${s.dashboard_url || 'Non défini'}\n` +
-            `📱 Contact : ${s.private_contact_url || 'Non défini'}\n` +
-            `📢 Canal : ${s.channel_url || 'Non défini'}\n\n` +
-            `⭐ Points/€ : ${s.points_ratio || 1}\n` +
-            `🔄 Seuil conversion : ${s.points_exchange || 100} pts\n` +
-            `💰 Valeur crédit : ${s.points_credit_value || 5}€\n` +
-            `🎁 Bonus parrainage : ${s.ref_bonus || 5}€\n\n` +
-            `<i>Pour modifier les paramètres, utilisez le dashboard web.</i>`;
+        const msg = `⚙️ <b>Paramètres Généraux</b>\n\n` +
+            `📛 Nom Bot : ${s.bot_name}\n` +
+            `🔑 Admin Root : <code>${s.admin_telegram_id || 'Non défini'}</code>\n` +
+            `👥 Admins supplémentaires : <b>${(s.list_admins || []).length}</b>\n\n` +
+            `💰 Bonus Parrainage : ${s.ref_bonus || 5}€\n` +
+            `🔄 Fidelity : ${s.fidelity_bonus_amount || 10}€ dès ${s.fidelity_bonus_thresholds || '?'} achats\n\n` +
+            `<i>Utilisez les boutons ci-dessous pour gérer les admins ou voir la config web complète.</i>`;
 
-        await safeEdit(ctx, msg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'admin_menu')]]));
+        await safeEdit(ctx, msg, Markup.inlineKeyboard([
+            [Markup.button.callback('👥 Gérer les Admins (+/-)', 'admin_manage_list')],
+            [Markup.button.url('🌐 Dashboard Web Complet', s.dashboard_url || 'https://google.com')],
+            [Markup.button.callback('◀️ Retour', 'admin_menu')]
+        ]));
+    });
+
+    // Gestion list_admins (+/-)
+    bot.action('admin_manage_list', async (ctx) => {
+        await ctx.answerCbQuery();
+        const s = await getAppSettings();
+        const admins = Array.isArray(s.list_admins) ? s.list_admins : [];
+
+        let msg = `👥 <b>Gestion des administrateurs</b>\n\n` +
+            `Cliquez sur <b>(-)</b> pour supprimer un admin,\nou sur <b>(+)</b> pour en ajouter un nouveau via son ID.\n\n`;
+
+        const buttons = admins.map(id => [
+            Markup.button.callback(`👤 Admin ${id}`, 'none'),
+            Markup.button.callback('❌ (-)', `admin_remove_${id}`)
+        ]);
+
+        buttons.push([Markup.button.callback('➕ AJOUTER UN ADMIN (+)', 'admin_add_prompt')]);
+        buttons.push([Markup.button.callback('◀️ Retour', 'admin_settings')]);
+
+        await safeEdit(ctx, msg, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action('admin_add_prompt', async (ctx) => {
+        await ctx.answerCbQuery();
+        pendingAdminAdd.set(ctx.from.id, true);
+        await safeEdit(ctx, `📌 <b>Ajout Administrateur</b>\n\nEnvoyez l'ID Telegram de la personne (ex: 12345678) :`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', 'admin_manage_list')]]));
+    });
+
+    // Suppression d'admin
+    bot.action(/^admin_remove_(.+)$/, async (ctx) => {
+        const targetId = ctx.match[1];
+        const s = await getAppSettings();
+        let admins = Array.isArray(s.list_admins) ? s.list_admins : [];
+        admins = admins.filter(id => id !== targetId);
+        await updateAppSettings({ list_admins: admins });
+        await ctx.answerCbQuery('✅ Admin supprimé');
+        return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: 'admin_manage_list' } });
+    });
+
+    // Handler texte pour ADD ADMIN
+    const pendingAdminAdd = new Map();
+    bot.on('text', async (ctx, next) => {
+        if (pendingAdminAdd.has(ctx.from.id)) {
+            pendingAdminAdd.delete(ctx.from.id);
+            const newId = ctx.message.text.trim();
+            if (!/^\d+$/.test(newId)) return ctx.reply("❌ L'ID doit être composé uniquement de chiffres. Annulé.");
+
+            const s = await getAppSettings();
+            let admins = Array.isArray(s.list_admins) ? s.list_admins : [];
+            if (admins.includes(newId)) return ctx.reply("⚠️ Cet admin est déjà dans la liste.");
+
+            admins.push(newId);
+            await updateAppSettings({ list_admins: admins });
+            await ctx.reply(`✅ <b>ID ${newId} ajouté</b> aux administrateurs !`, { parse_mode: 'HTML' });
+            return bot.handleUpdate({
+                ...ctx.update,
+                callback_query: { id: '0', from: ctx.from, data: 'admin_manage_list', message: ctx.message }
+            });
+        }
+        return next();
+    });
+
+    // On-onglet des fonctionnalités
+    bot.action('admin_features', async (ctx) => {
+        await ctx.answerCbQuery();
+        const msg = `✨ <b>GUIDE DES FONCTIONNALITÉS BOT</b>\n\n` +
+            `• <b>🛒 Catalogue</b> : Affiche les produits par ville. Gestion des stocks en 1 clic.\n` +
+            `• <b>🚴 Système Livreur</b> : Chaque livreur a son bouton "Espace Livreur". Il voit ses commandes prises, son solde et gère ses dispos.\n` +
+            `• <b>💬 Communication Directe</b> : Client et Livreur peuvent chatter (limite 3 messages) pour les détails de livraison.\n` +
+            `• <b>⚠️ Signalement Retard</b> : Le livreur peut prévenir d'un retard; le client peut alors annuler si trop long.\n` +
+            `• <b>🎁 Fidélité & Parrainage</b> : Wallet intégré, bonus toutes les X commandes, crédit automatique.\n` +
+            `• <b>📊 Dashboard Admin</b> : Stats en temps réel, diffusion de masse, gestion des bannissements et des accès admins.\n` +
+            `• <b>❓ Menu Aide</b> : Intégré aux commandes pour traquer la position ou contacter l'admin.\n\n` +
+            `<i>Chaque bouton du menu admin permet de gérer une de ces briques.</i>`;
+
+        await safeEdit(ctx, msg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu Admin', 'admin_menu')]]));
     });
 
     // Analytics rapide

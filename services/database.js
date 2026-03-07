@@ -946,7 +946,12 @@ const SETTINGS_DEFAULTS = {
     msg_order_success: '✅ <b>Commande enregistrée !</b>',
     points_credit_value: 5,
     fidelity_wallet_max_pct: 50,
-    fidelity_min_spend: 50
+    fidelity_min_spend: 50,
+    list_admins: [], // Liste JSON des IDs admin
+    msg_help_intro: 'Besoin d\'aide ? Choisissez une option ci-dessous :',
+    msg_help_where_order: 'Où en est ma commande ?',
+    msg_help_contact_admin: 'Parler à l\'Admin',
+    msg_help_return: 'Retour au Menu'
 };
 
 let _settingsCache = null;

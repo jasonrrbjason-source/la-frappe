@@ -4,7 +4,8 @@ const {
     updateLivreurPosition, getAvailableOrders, updateOrderStatus,
     getOrder, getAppSettings, setLivreurAvailability,
     incrementOrderCount, getAllLivreurs, _userCache,
-    getClientActiveOrders, logHelpRequest, saveClientReply, incrementChatCount
+    getClientActiveOrders, logHelpRequest, saveClientReply, incrementChatCount,
+    getAndClearPendingFeedback, saveFeedback
 } = require('../services/database');
 const { safeEdit, debugLog } = require('../services/utils');
 
@@ -1150,7 +1151,6 @@ function setupOrderSystem(bot) {
 
     // Capture des messages spéciaux (Feedback, Retard, Chat)
     bot.on('message', async (ctx, next) => {
-        const { getAndClearPendingFeedback, saveFeedback, getOrder } = require('../services/database');
         const userId = `telegram_${ctx.from.id}`;
 
         // 1. Feedback
@@ -1162,7 +1162,6 @@ function setupOrderSystem(bot) {
 
             // Alerte aux admins et au livreur
             try {
-                const { getAppSettings, getOrder } = require('../services/database');
                 const [settings, order] = await Promise.all([getAppSettings(), getOrder(orderId)]);
 
                 if (settings && order) {

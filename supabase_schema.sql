@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS bot_products (
   promo TEXT,
   image_url TEXT,
   is_active BOOLEAN DEFAULT true,
+  is_bundle BOOLEAN DEFAULT false,
+  bundle_config JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -99,11 +101,26 @@ CREATE TABLE IF NOT EXISTS bot_daily_stats (
   id TEXT PRIMARY KEY,
   date TEXT,
   users NUMERIC DEFAULT 0,
-  orders NUMERIC DEFAULT 0,
-  revenue NUMERIC DEFAULT 0
+  total_orders NUMERIC DEFAULT 0,
+  total_users NUMERIC DEFAULT 0,
+  total_ca NUMERIC DEFAULT 0
 );
 
--- 6. Table Parrainages (bot_referrals)
+-- 6. Table Avis & Commentaires (bot_reviews)
+CREATE TABLE IF NOT EXISTS bot_reviews (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  username TEXT,
+  first_name TEXT,
+  text TEXT,
+  rating NUMERIC,
+  photos JSONB DEFAULT '[]'::jsonb,
+  is_public BOOLEAN DEFAULT true,
+  order_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. Table Parrainages (bot_referrals)
 CREATE TABLE IF NOT EXISTS bot_referrals (
   id TEXT PRIMARY KEY,
   referrer_id TEXT,
@@ -222,3 +239,11 @@ ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS private_contact_url TEXT;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS channel_url TEXT;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS label_livreur TEXT;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ui_icon_taken TEXT;
+
+-- bot_products : bundles
+ALTER TABLE bot_products ADD COLUMN IF NOT EXISTS is_bundle BOOLEAN DEFAULT false;
+ALTER TABLE bot_products ADD COLUMN IF NOT EXISTS bundle_config JSONB DEFAULT '{}'::jsonb;
+
+-- bot_stats : CA global
+ALTER TABLE bot_stats ADD COLUMN IF NOT EXISTS total_ca NUMERIC DEFAULT 0;
+

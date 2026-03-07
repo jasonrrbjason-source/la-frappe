@@ -321,6 +321,8 @@ function getMainMenuKeyboard(settings, user = null) {
     const buttons = [
         [Markup.button.callback(`${settings.ui_icon_catalog} ${settings.label_catalog}`, 'view_catalog')],
         [Markup.button.callback(`${settings.ui_icon_orders} ${settings.label_my_orders}`, 'my_orders')],
+        [Markup.button.callback(`⭐️ Laisser un avis / Commentaire`, 'leave_review')],
+        [Markup.button.callback(`👥 Consulter les avis`, 'view_reviews')],
         [Markup.button.callback(`${settings.ui_icon_contact} ${settings.label_contact}`, 'private_contact')],
         [Markup.button.callback(`${settings.ui_icon_channel} ${settings.label_channel}`, 'channel_link')],
         [Markup.button.callback(`${settings.ui_icon_welcome} ${settings.label_welcome}`, 'welcome_message')],

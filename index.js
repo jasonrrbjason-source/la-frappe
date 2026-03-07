@@ -39,29 +39,29 @@ async function main() {
     bot.use(async (ctx, next) => {
         try {
             const settings = await getAppSettings();
-            
+
             // Check if maintenance mode is enabled
             if (settings.maintenance_mode === true || settings.maintenance_mode === 'true') {
                 const adminContact = settings.maintenance_contact || 'https://t.me/lafrappex';
                 const maintenanceMessage = settings.maintenance_message || '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @lafrappex';
-                
+
                 if (ctx.callbackQuery) {
                     await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
                     return;
                 }
-                
+
                 if (ctx.message) {
                     await ctx.reply(maintenanceMessage + `\n\n📱 Contact : ${adminContact}`, { parse_mode: 'HTML' }).catch(() => { });
                     await ctx.deleteMessage().catch(() => { });
                     return;
                 }
-                
+
                 // Pour les autres types de updates, on répond aussi
                 if (ctx.updateType === 'callback_query') {
                     await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
                     return;
                 }
-                
+
                 return;
             }
 
@@ -174,6 +174,10 @@ async function main() {
 
             // Lancement de la vérification des commandes planifiées (toutes les minutes)
             setInterval(() => checkPlannedOrders(bot), 60000);
+
+            // Lancement de la vérification des paniers abandonnés (toutes les 30 minutes)
+            const { checkAbandonedCarts } = require('./handlers/order_system');
+            setInterval(() => checkAbandonedCarts(bot), 1800000);
 
         } catch (err) {
             console.error('❌ Erreur au démarrage du bot:', err.message);

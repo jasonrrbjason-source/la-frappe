@@ -11,11 +11,13 @@ const { safeEdit, debugLog } = require('../services/utils');
 
 // ======= ÉTAT EN MÉMOIRE (PERSISTANT PENDANT RUNTIME) =======
 const userCarts = new Map();
+const userLastActivity = new Map();
 const pendingOrders = new Map();
 const awaitingAddressDetails = new Map();
 const pendingOrderConfirmation = new Map();
 const awaitingDelayReason = new Map();
 const awaitingChatReply = new Map();
+const awaitingReviewText = new Map();
 
 function setupOrderSystem(bot) {
     // Helper universel pour relayer un message à tous les admins
@@ -72,7 +74,13 @@ function setupOrderSystem(bot) {
         const catalogIcon = settings.ui_icon_catalog || '📦';
         const botName = settings.bot_name || 'Bot';
         let text = `${catalogIcon} <b>Catalogue ${botName}</b>\n\nChoisissez un produit :`;
-        const buttons = products.map(p => [Markup.button.callback(`${p.name} - ${p.price}€`, `product_${p.id}`)]);
+
+        const buttons = products.map(p => {
+            let label = `${p.name} - ${p.price}€`;
+            if (p.is_bundle) label = `🎁 ${p.name} (BOGO) - ${p.price}€`;
+            else if (p.promo) label = `🔥 ${p.name} - ${p.price}€`;
+            return [Markup.button.callback(label, `product_${p.id}`)];
+        });
         buttons.push([Markup.button.callback('◀️ Retour', 'main_menu')]);
 
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
@@ -92,8 +100,16 @@ function setupOrderSystem(bot) {
 
         if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', [Markup.button.callback('◀️ Retour', 'view_catalog')]);
 
+        let promoText = "";
+        if (product.is_bundle) {
+            promoText = `\n🎁 <b>OFFRE BUNDLE : 1 ACHETÉ = 1 OFFERT !</b>\n<i>(Le produit offert est inclus automatiquement dans votre commande)</i>\n`;
+        } else if (product.promo) {
+            promoText = `\n🔥 <b>PROMO : ${product.promo}</b>\n`;
+        }
+
         let text = `📦 <b>${product.name}</b>\n\n` +
             `💰 Prix : <b>${product.price}€</b>\n` +
+            promoText +
             `📝 Description : ${product.description || 'Aucune'}\n\n` +
             `Combien en voulez-vous ?`;
 
@@ -109,6 +125,7 @@ function setupOrderSystem(bot) {
 
     bot.action(/^qty_(.+)_(.+)$/, async (ctx) => {
         await ctx.answerCbQuery();
+        const userId = ctx.from.id;
         const productId = ctx.match[1];
         const qty = parseInt(ctx.match[2]);
         const products = await getProducts();
@@ -118,7 +135,15 @@ function setupOrderSystem(bot) {
         if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
 
         const totalPrice = (product.price * qty).toFixed(2);
-        pendingOrders.set(ctx.from.id, { productId, qty, totalPrice, productName: product.name });
+        let bundleText = product.is_bundle ? ` (+ ${qty} offert(s) 🎁)` : "";
+
+        pendingOrders.set(userId, {
+            productId,
+            qty,
+            totalPrice,
+            productName: product.name + bundleText,
+            is_bundle: product.is_bundle
+        });
 
         if (product.unit && product.unit.length > 0 && !(['unité', 'unite', 'piece', 'pce'].includes(product.unit.toLowerCase()))) {
             return askUnit(ctx, product, qty);
@@ -140,6 +165,7 @@ function setupOrderSystem(bot) {
         const buttons = [
             [Markup.button.callback('🛒 Ajouter au panier', 'add_to_cart')],
             [Markup.button.callback('💳 Régler maintenant', 'checkout_now')],
+            [Markup.button.callback('⭐️ Laisser un avis / Commentaire', 'leave_review')],
             [Markup.button.callback('◀️ Retour', `product_${product.id}`)]
         ];
 
@@ -159,6 +185,7 @@ function setupOrderSystem(bot) {
         let cart = userCarts.get(userId) || [];
         cart.push(pending);
         userCarts.set(userId, cart);
+        userLastActivity.set(userId, Date.now()); // Update activity
         pendingOrders.delete(userId);
 
         const products = await getProducts();
@@ -180,6 +207,7 @@ function setupOrderSystem(bot) {
         let cart = userCarts.get(userId) || [];
         cart.push(pending);
         userCarts.set(userId, cart);
+        userLastActivity.set(userId, Date.now()); // Update activity
         pendingOrders.delete(userId);
 
         await startCheckout(ctx);
@@ -323,15 +351,21 @@ function setupOrderSystem(bot) {
         if (!product) return ctx.reply("Produit non trouvé.");
 
         const baseVal = parseFloat(product.unit_value) || 1;
-        const finalPrice = ((product.price / baseVal) * amount * qty).toFixed(2);
+        let finalPrice = ((product.price / baseVal) * amount * qty).toFixed(2);
+
+        let bundleText = "";
+        if (product.is_bundle) {
+            bundleText = ` (+ ${qty} offert(s) 🎁)`;
+        }
 
         const pending = pendingOrders.get(ctx.from.id);
         if (pending) {
             pending.totalPrice = finalPrice;
-            pending.chosen_unit_amount = `${amount}${product.unit}`;
+            pending.chosen_unit_amount = `${amount}${product.unit}${bundleText}`;
+            if (product.is_bundle) pending.is_bundle = true;
         }
 
-        await showAddToCartChoice(ctx, product, qty, finalPrice, `${amount}${product.unit}`);
+        await showAddToCartChoice(ctx, product, qty, finalPrice, `${amount}${product.unit}${bundleText}`);
     });
 
     async function promptAddress(ctx, product, qty, totalPrice) {
@@ -1083,15 +1117,15 @@ function setupOrderSystem(bot) {
 
         const order = await getOrder(orderId);
         const count = parseInt(order?.chat_count) || 0;
-        if (count >= 3) {
-            return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nVous avez déjà utilisé les 3 messages autorisés pour cette commande.", { parse_mode: 'HTML' });
+        if (count >= 6) {
+            return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nVous avez déjà utilisé les 6 messages autorisés pour cette commande.", { parse_mode: 'HTML' });
         }
 
         // Nettoyage des autres états
         awaitingChatReply.delete(userId);
         awaitingDelayReason.set(userId, orderId);
 
-        await safeEdit(ctx, `⚠️ <b>SIGNALEMENT DE RETARD (${3 - count} restants)</b>\n\nIndiquez la raison ou le temps estimé (ex: "10 min de retard, bouchons") :`,
+        await safeEdit(ctx, `⚠️ <b>SIGNALEMENT DE RETARD (${6 - count} restants)</b>\n\nIndiquez la raison ou le temps estimé (ex: "10 min de retard, bouchons") :`,
             Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', `view_active_${orderId}`)]])
         );
     });
@@ -1105,19 +1139,19 @@ function setupOrderSystem(bot) {
         const count = parseInt(order?.chat_count) || 0;
         const isLivreur = `telegram_${ctx.from.id}` === order.livreur_id;
 
-        // Validation stricte du schéma : 1. Client -> 2. Livreur -> 3. Client
-        if (count >= 3) {
-            return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nLe chat est clôturé (3/3).", { parse_mode: 'HTML' });
+        // Validation stricte du schéma : 1. Client -> 2. Livreur -> 3. Client ... -> 6
+        if (count >= 6) {
+            return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nLe chat est clôturé (6/6).", { parse_mode: 'HTML' });
         }
 
         if (count === 0 && isLivreur) {
             return ctx.reply("⏳ <b>Attendez l'initiative du client.</b>\n\nLe schéma de chat est : Client -> Livreur -> Client.", { parse_mode: 'HTML' });
         }
-        if (count === 1 && !isLivreur) {
-            return ctx.reply("⏳ <b>Attendez la réponse du livreur.</b> (Message 1/3 déjà envoyé)", { parse_mode: 'HTML' });
+        if (count % 2 === 1 && !isLivreur) {
+            return ctx.reply(`⏳ <b>Attendez la réponse du livreur.</b> (Message ${count + 1}/6 déjà envoyé)`, { parse_mode: 'HTML' });
         }
-        if (count === 2 && isLivreur) {
-            return ctx.reply("✅ <b>Vous avez déjà répondu.</b>\n\nLe client a le dernier message de conclusion (3/3).", { parse_mode: 'HTML' });
+        if (count % 2 === 0 && count > 0 && isLivreur) {
+            return ctx.reply(`✅ <b>Vous avez déjà répondu.</b>\n\nLe client doit renvoyer un message (${count}/6).`, { parse_mode: 'HTML' });
         }
 
         // Nettoyage des autres états
@@ -1128,10 +1162,8 @@ function setupOrderSystem(bot) {
 
         awaitingChatReply.set(`telegram_${ctx.from.id}`, { orderId, targetId, role: targetRole });
 
-        let promptText = "";
-        if (count === 0) promptText = "💬 <b>Initier la discussion (Message 1/3)</b>\nEnvoyez votre message pour le livreur :";
-        if (count === 1) promptText = "💬 <b>Répondre au client (Message 2/3)</b>\nEnvoyez votre réponse :";
-        if (count === 2) promptText = "💬 <b>Dernière réponse au livreur (Conclusion 3/3)</b>\nEnvoyez votre message final :";
+        let promptText = `💬 <b>Message (${count + 1}/6)</b>\nEnvoyez votre message :`;
+        if (count === 5) promptText = "💬 <b>Dernier message de conclusion (6/6)</b>\nEnvoyez votre message final :";
 
         await ctx.reply(promptText, { parse_mode: 'HTML' });
     });
@@ -1245,29 +1277,131 @@ function setupOrderSystem(bot) {
         await setPendingFeedback(`telegram_${ctx.from.id}`, orderId, rate);
 
         await safeEdit(ctx,
-            `✍️ <b>Un dernier mot ?</b>\n\nEnvoyez votre commentaire en répondant à ce message (ex: "Livraison rapide, au top !") :`,
+            `✍️ <b>Un dernier mot ?</b>\n\nEnvoyez votre commentaire en répondant à ce message (ex: "Livraison rapide, au top !") :\n\n<i>Vous pouvez aussi joindre une photo 📸</i>`,
             Markup.inlineKeyboard([
                 [Markup.button.callback('⏭ Passer cette étape', `feedback_skip_${orderId}`)]
             ])
         );
     });
 
+    // --- New Review System ---
+    bot.action('leave_review', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `🏮 <b>Laissez votre avis !</b>\n\nNotez votre expérience globale avec nous :`,
+            Markup.inlineKeyboard([
+                [Markup.button.callback('⭐️⭐️⭐️⭐️⭐️ Excellent', 'review_rate_5')],
+                [Markup.button.callback('⭐️⭐️⭐️⭐️ Très bien', 'review_rate_4')],
+                [Markup.button.callback('⭐️⭐️⭐️ Bien', 'review_rate_3')],
+                [Markup.button.callback('⭐️ Moyen', 'review_rate_1')],
+                [Markup.button.callback('◀️ Retour', 'main_menu')]
+            ])
+        );
+    });
+
+    bot.action(/^review_rate_(.+)$/, async (ctx) => {
+        const rate = parseInt(ctx.match[1]);
+        await ctx.answerCbQuery();
+        const userId = `telegram_${ctx.from.id}`;
+        awaitingReviewText.set(userId, { rate });
+
+        await safeEdit(ctx,
+            `✍️ <b>Dites-nous en plus !</b>\n\nÉcrivez votre commentaire (et ajoutez une photo si vous voulez) :`,
+            Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler', 'main_menu')]])
+        );
+    });
+
+    bot.action('view_reviews', async (ctx) => {
+        await ctx.answerCbQuery();
+        const { getPublicReviews } = require('../services/database');
+        const reviews = await getPublicReviews(10);
+
+        if (reviews.length === 0) {
+            return safeEdit(ctx, "📭 Aucun avis pour le moment. Soyez le premier !", Markup.inlineKeyboard([[Markup.button.callback('⭐️ Laisser un avis', 'leave_review')], [Markup.button.callback('◀️ Menu', 'main_menu')]]));
+        }
+
+        let text = `👥 <b>Avis de la famille (10 derniers)</b>\n\n`;
+        reviews.forEach(r => {
+            const stars = '⭐'.repeat(r.rating);
+            const date = new Date(r.created_at).toLocaleDateString('fr-FR');
+            text += `${stars}\n"<i>${r.text || 'Sans commentaire'}</i>"\n👤 <b>Anonyme</b> - ${date}\n\n`;
+        });
+
+        await safeEdit(ctx, text, Markup.inlineKeyboard([
+            [Markup.button.callback('⭐️ Laisser un avis', 'leave_review')],
+            [Markup.button.callback('◀️ Retour', 'main_menu')]
+        ]));
+    });
+
     // Capture des messages spéciaux (Feedback, Retard, Chat)
     bot.on('message', async (ctx, next) => {
         const userId = `telegram_${ctx.from.id}`;
 
-        // 1. Feedback
-        const pending = await getAndClearPendingFeedback(userId);
-        if (pending) {
-            const { orderId, rate } = pending;
+        // 1. Feedback (Orders)
+        const pendingOrderFeedback = await getAndClearPendingFeedback(userId);
+        if (pendingOrderFeedback) {
+            const { orderId, rate } = pendingOrderFeedback;
             const text = ctx.message.text;
+            const photo = ctx.message.photo ? ctx.message.photo[ctx.message.photo.length - 1].file_id : null;
+
+            // Save to bot_orders feedback fields
             await saveFeedback(orderId, parseInt(rate), text);
+            // Also save to generic bot_reviews
+            await saveReview({
+                user_id: userId,
+                username: ctx.from.username || 'Inconnu',
+                first_name: ctx.from.first_name || 'Anonyme',
+                text,
+                rating: parseInt(rate),
+                order_id: orderId,
+                photos: photo ? [photo] : []
+            });
+
             await sendFeedbackNotifications(orderId, rate, text, ctx);
 
-            await safeEdit(ctx,
-                '🙏 <b>Merci pour votre retour !</b>\n\nVotre avis a bien été enregistré.',
-                Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu', 'main_menu')]])
+            await ctx.reply(
+                '🙏 <b>Merci pour votre retour !</b>\n\nVotre avis a bien été enregistré. 🏮',
+                { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu', 'main_menu')]]) }
             );
+            return;
+        }
+
+        // 2. Generic Review (Not tied to order, or from main menu)
+        if (awaitingReviewText.has(userId)) {
+            const data = awaitingReviewText.get(userId);
+            const text = ctx.message.text || "(Photo sans texte)";
+            const photo = ctx.message.photo ? ctx.message.photo[ctx.message.photo.length - 1].file_id : null;
+            awaitingReviewText.delete(userId);
+
+            let photoUrls = [];
+            if (photo) {
+                try {
+                    const link = await ctx.telegram.getFileLink(photo);
+                    photoUrls.push(link.href);
+                } catch (e) { }
+            }
+
+            const { saveReview, getAppSettings } = require('../services/database');
+            await saveReview({
+                user_id: userId,
+                username: ctx.from.username || '?',
+                first_name: ctx.from.first_name || 'Anonyme',
+                text,
+                rating: data.rate,
+                photos: photoUrls
+            });
+
+            // Notify Admin
+            const settings = await getAppSettings();
+            const stars = '⭐'.repeat(data.rate);
+            const msg = `🌟 <b>NOUVEL AVIS GÉNÉRAL !</b>\n\n👤 Client : ${ctx.from.first_name}\n🌟 Note : ${stars}\n💬 Commentaire : ${text}` +
+                (photoUrls.length > 0 ? `\n🖼 Image : <a href="${photoUrls[0]}">Voir</a>` : "");
+            notifyAdmins(settings, msg);
+
+            await ctx.reply('✅ <b>Merci !</b> Votre avis a été publié anonymement. 🏮', {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu', 'main_menu')]])
+            });
             return;
         }
 
@@ -1282,8 +1416,8 @@ function setupOrderSystem(bot) {
                 const order = await getOrder(orderId);
                 if (order) {
                     const count = (parseInt(order.chat_count) || 0);
-                    if (count >= 3) {
-                        await ctx.reply("❌ Impossible d'envoyer : Limite de 3 échanges déjà atteinte.");
+                    if (count >= 6) {
+                        await ctx.reply("❌ Impossible d'envoyer : Limite de 6 échanges déjà atteinte.");
                     } else {
                         const reason = String(ctx.message.text || '');
                         // On ne compte plus le signalement de retard comme un message de chat (notification système)
@@ -1291,11 +1425,11 @@ function setupOrderSystem(bot) {
 
                         const targetId = String(order.user_id).replace('telegram_', '');
                         await bot.telegram.sendMessage(targetId,
-                            `⚠️ <b>Un retard est à prévoir</b>\n\nVotre livreur nous signale un imprévu :\n"<i>${safeHtml(reason)}</i>"\n\nIl fait le maximum pour arriver vite !${count >= 3 ? '\n\n<i>(Limite d\'échanges atteinte)</i>' : ''}`,
+                            `⚠️ <b>Un retard est à prévoir</b>\n\nVotre livreur nous signale un imprévu :\n"<i>${safeHtml(reason)}</i>"\n\nIl fait le maximum pour arriver vite !${count >= 6 ? '\n\n<i>(Limite d\'échanges atteinte)</i>' : ''}`,
                             {
                                 parse_mode: 'HTML',
                                 ...Markup.inlineKeyboard([
-                                    ...(count < 3 ? [[Markup.button.callback(`💬 Répondre (Tour ${count + 1}/3)`, `chat_livreur_${orderId}`)]] : []),
+                                    ...(count < 6 ? [[Markup.button.callback(`💬 Répondre (Tour ${count + 1}/6)`, `chat_livreur_${orderId}`)]] : []),
                                     [Markup.button.callback('❓ Aide & Support', 'help_menu')],
                                     [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]
                                 ])
@@ -1660,6 +1794,47 @@ function setupOrderSystem(bot) {
         }
         await next();
     });
+
+    bot.on('message', async (ctx) => {
+        // Abandoned cart activity update
+        if (userCarts.has(ctx.from.id)) {
+            userLastActivity.set(ctx.from.id, Date.now());
+        }
+    });
+}
+
+/**
+ * Vérifie les paniers abandonnés depuis plus de 30 minutes
+ */
+async function checkAbandonedCarts(bot) {
+    const { Markup } = require('telegraf');
+    const now = Date.now();
+    const TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
+    for (const [userId, lastTime] of userLastActivity.entries()) {
+        const cart = userCarts.get(userId);
+        if (cart && cart.length > 0 && (now - lastTime) > TIMEOUT) {
+            try {
+                const settings = await require('../services/database').getAppSettings();
+                await bot.telegram.sendMessage(userId,
+                    `🛒 <b>Votre panier vous attend !</b>\n\n` +
+                    `Il reste encore <b>${cart.length} article(s)</b> dans votre panier chez <b>${settings.bot_name}</b>.\n\n` +
+                    `Ne manquez pas nos pépites du moment ! 🔥`,
+                    {
+                        parse_mode: 'HTML',
+                        ...Markup.inlineKeyboard([
+                            [Markup.button.callback('💳 Voir mon panier / Commander', 'view_cart')],
+                            [Markup.button.callback('🛍️ Retour au Catalogue', 'view_catalog')]
+                        ])
+                    }
+                );
+                // On marque comme notifié en reculant le temps ou en supprimant l'activité (pour ne pas spammer)
+                userLastActivity.delete(userId);
+            } catch (e) {
+                console.error(`[ABANDONED-CART] Error notifying ${userId}:`, e);
+            }
+        }
+    }
 }
 
 module.exports = {
@@ -1669,5 +1844,6 @@ module.exports = {
     awaitingAddressDetails,
     pendingOrderConfirmation,
     awaitingDelayReason,
-    awaitingChatReply
+    awaitingChatReply,
+    checkAbandonedCarts
 };

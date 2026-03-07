@@ -11,7 +11,7 @@ const {
     deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics, searchLivreurs,
     getBroadcastHistory, deleteBroadcast, getDetailedLivreurActivity,
     nukeDatabase, decryptUser, supabase, COL_USERS,
-    registerUser, getLivreurHistory
+    registerUser, getLivreurHistory, getReviews, deleteReview
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
 const fs = require('fs');
@@ -509,6 +509,18 @@ function createServer() {
     app.get('/api/broadcasts', authMiddleware, async (req, res) => {
         try { res.json(await getBroadcastHistory()); }
         catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.get('/api/reviews', authMiddleware, async (req, res) => {
+        try { res.json(await getReviews(parseInt(req.query.limit) || 100)); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/reviews/delete', authMiddleware, async (req, res) => {
+        try {
+            await deleteReview(req.body.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
     app.delete('/api/broadcasts/:id', authMiddleware, async (req, res) => {

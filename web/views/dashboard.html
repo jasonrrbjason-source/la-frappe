@@ -1033,6 +1033,13 @@
                     <label>Promo (Optionnel)</label>
                     <input type="text" id="prod_promo" placeholder="ex: 10% ou 15€">
 
+                    <div
+                        style="display:flex; align-items:center; gap:10px; margin: 15px 0; background:rgba(255,165,0,0.1); padding:10px; border-radius:10px; border:1px solid rgba(255,165,0,0.2);">
+                        <input type="checkbox" id="prod_is_bundle" style="width:20px; height:20px; cursor:pointer">
+                        <label for="prod_is_bundle" style="margin:0; cursor:pointer; font-weight:bold; color:orange;">🎁
+                            Activer Offre Bundle (1 acheté = 1 offert)</label>
+                    </div>
+
                     <label>Média du produit (Photos ou Vidéos - Glisser-déposer)</label>
                     <div class="drop-zone" id="prod_drop_zone" onclick="document.getElementById('file_prod').click()">
                         <span class="drop-text">Glissez vos médias ici ou cliquez pour choisir</span>
@@ -1074,6 +1081,8 @@
                         onclick="switchLogisticsTab('orders')">📦 Commandes</button>
                     <button class="btn btn-sm btn-outline" id="btn-tab-livreurs"
                         onclick="switchLogisticsTab('livreurs')">🚴 Livreurs</button>
+                    <button class="btn btn-sm btn-outline" id="btn-tab-reviews"
+                        onclick="switchLogisticsTab('reviews')">⭐️ Avis</button>
                 </div>
             </div>
 
@@ -1146,6 +1155,34 @@
                             </tr>
                         </thead>
                         <tbody id="livreursTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Sub-section: Reviews -->
+            <div id="sub-logistics-reviews" style="display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <div class="stat-badge">⭐️ <span id="log-total-reviews">0</span> avis reçus</div>
+                    <button class="btn btn-accent" onclick="loadData('reviews')">🔄 Rafraîchir</button>
+                </div>
+                <div class="card">
+                    <table class="responsive-table" id="reviewsTable">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Client</th>
+                                <th>Note</th>
+                                <th>Commentaire</th>
+                                <th>Photo</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reviews-tbody">
+                            <tr>
+                                <td colspan="6" style="padding:20px; text-align:center; color:var(--text-muted)">
+                                    Chargement des avis...</td>
+                            </tr>
+                        </tbody>
                     </table>
                 </div>
             </div>
@@ -1304,7 +1341,7 @@
                     style="color:var(--text-muted); font-size:14px; margin-left:20px; margin-top:15px; line-height:1.8;">
                     <li><b>Mode Livraison Directe :</b> Les livreurs peuvent voir les commandes "À proximité" et les
                         prendre en charge instantanément.</li>
-                    <li><b>Communication Limitée :</b> Les échanges chat (Livreur/Client) sont limités à 3 messages pour
+                    <li><b>Communication Limitée :</b> Les échanges chat (Livreur/Client) sont limités à 6 messages pour
                         garantir l'efficacité.</li>
                     <li><b>Paliers de Fidélité :</b> Offrez des bonus automatiques à la 5ème, 10ème ou 15ème commande.
                     </li>
@@ -1640,8 +1677,12 @@
                     const onClick = item.getAttribute('onclick');
                     if (onClick && onClick.includes("'logistique'")) item.classList.add('active');
                 });
-                const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');
-                switchLogisticsTab(isLivreurs ? 'livreurs' : 'orders');
+
+                // Get current active tab within logistics
+                const activeTab = document.querySelector('#section-logistique .btn-sm.active');
+                const tabId = activeTab ? activeTab.id.replace('btn-tab-', '') : 'orders';
+                switchLogisticsTab(tabId);
+
                 if (window.innerWidth <= 768) toggleSidebar();
                 return;
             }
@@ -1770,6 +1811,67 @@
                 `;
             }).join('');
         }
+
+        function renderReviewsTable(reviews) {
+            const tbody = document.getElementById('reviews-tbody');
+            if (!tbody) return;
+
+            const totalEl = document.getElementById('log-total-reviews');
+            if (totalEl) totalEl.innerText = reviews.length;
+
+            if (reviews.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:var(--text-muted)">Aucun avis trouvé.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = reviews.map(r => {
+                const d = safeDate(r.created_at);
+                const date = !isNaN(d.getTime()) ? d.toLocaleString('fr-FR') : '—';
+                const stars = '⭐'.repeat(r.rating || 0);
+
+                let photoHtml = '—';
+                if (r.photos && r.photos.length > 0) {
+                    const firstPhoto = r.photos[0];
+                    if (firstPhoto.includes('/') || firstPhoto.startsWith('http')) {
+                        photoHtml = `<img src="${firstPhoto}" style="width:40px; height:40px; cursor:pointer; object-fit:cover; border-radius:6px; border:1px solid var(--border);" onclick="window.open('${firstPhoto}')" title="Agrandir">`;
+                    } else {
+                        photoHtml = `<div style="padding:4px; background:var(--hover); border-radius:6px; font-size:9px; color:var(--text-muted); text-align:center; width:40px;">IMG TG</div>`;
+                    }
+                }
+
+                return `
+                <tr>
+                    <td data-label="Date"><small>${date}</small></td>
+                    <td data-label="Client">
+                        <div style="display:flex; flex-direction:column;">
+                            <b>${r.first_name}</b>
+                            <small style="color:var(--text-muted); font-size:10px;">@${r.username || '?'}</small>
+                        </div>
+                    </td>
+                    <td data-label="Note"><div style="color:orange;">${stars}</div></td>
+                    <td data-label="Commentaire"><div style="max-width:300px; font-size:13px; line-height:1.4;">${r.text || '<span style="color:var(--text-muted); font-style:italic;">Sans texte</span>'}</div></td>
+                    <td data-label="Photo">${photoHtml}</td>
+                    <td data-label="Actions">
+                        <button class="btn btn-danger btn-sm" onclick="delReview('${r.id}')">Supprimer</button>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        async function delReview(id) {
+            if (!confirm("Voulez-vous supprimer cet avis ?")) return;
+            try {
+                const res = await api('/reviews/delete', 'POST', { id });
+                if (res.success) {
+                    showToast("Avis supprimé ✅");
+                    loadData('reviews');
+                }
+            } catch (e) {
+                showToast("Erreur lors de la suppression ❌", "error");
+            }
+        }
+
 
         function filterData(type, period, btn = null) {
             if (type === 'orders') {
@@ -1966,7 +2068,6 @@
                                 h.message = parts[0];
                                 try {
                                     const parsed = JSON.parse(parts[1]);
-                                    // Compatibility: transform strings to objects if needed, though they are stored as strings for streaming
                                     h.media_urls = Array.isArray(parsed) ? parsed.map(url => ({ url, type: url.match(/\.(mp4|mov|webm)$/i) ? 'video' : 'photo' })) : [];
                                 } catch (e) { }
                             }
@@ -1978,28 +2079,36 @@
                             historyTbody.innerHTML = history.map(h => {
                                 const d = safeDate(h.created_at);
                                 const dateStr = !isNaN(d.getTime()) ? d.toLocaleString('fr-FR') : '—';
-                                const msgShort = h.message ? (h.message.length > 80 ? h.message.substring(0, 77) + '...' : h.message) : '(Média uniquement)';
-
                                 return `
-                                <tr>
-                                    <td data-label="Date"><small>${dateStr}</small></td>
-                                    <td data-label="Média">${h.media_urls && h.media_urls.length > 0 ? `<div style="color:var(--accent); font-size:12px; font-weight:bold;">📁 ${h.media_urls.length} média(s)</div>` : '—'}</td>
-                                    <td data-label="Message">
-                                        <div style="font-size:13px; max-width:400px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:80px; overflow-y:auto; padding-right:5px;">${h.message || '<i style="opacity:0.6">(Média uniquement)</i>'}</div>
-                                    </td>
-                                    <td data-label="Cibles"><b>${h.total_target || 0}</b></td>
-                                    <td data-label="Succès"><span style="color:#4caf50; font-weight:bold">${h.success || 0}</span></td>
-                                    <td data-label="Bloqués">${h.blocked ? `<span style="color:#ff453a; font-weight:bold; cursor:pointer" title="${h.blocked_names || 'Inconnu'}">${h.blocked} ⚠️</span>` : '<span style="color:#4caf50">0</span>'}</td>
-                                    <td data-label="Actions" class="action-btns">
-                                        <button class="btn btn-outline btn-sm" onclick="republishBC('${h.id}')" title="Republier">🔄</button>
-                                        <button class="btn btn-outline btn-sm text-danger" onclick="deleteBC('${h.id}')" title="Supprimer">🗑️</button>
-                                    </td>
-                                </tr>
-                                `;
+                                    <tr>
+                                        <td data-label="Date"><small>${dateStr}</small></td>
+                                        <td data-label="Média">${h.media_urls && h.media_urls.length > 0 ? `<div style="color:var(--accent); font-size:12px; font-weight:bold;">📁 ${h.media_urls.length} média(s)</div>` : '—'}</td>
+                                        <td data-label="Message">
+                                            <div style="font-size:13px; max-width:400px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:80px; overflow-y:auto; padding-right:5px;">${h.message || '<i style="opacity:0.6">(Média uniquement)</i>'}</div>
+                                        </td>
+                                        <td data-label="Cibles"><b>${h.total_target || 0}</b></td>
+                                        <td data-label="Succès"><span style="color:#4caf50; font-weight:bold">${h.success || 0}</span></td>
+                                        <td data-label="Bloqués">${h.blocked ? `<span style="color:#ff453a; font-weight:bold; cursor:pointer" title="${h.blocked_names || 'Inconnu'}">${h.blocked} ⚠️</span>` : '<span style="color:#4caf50">0</span>'}</td>
+                                        <td data-label="Actions" class="action-btns">
+                                            <button class="btn btn-outline btn-sm" onclick="republishBC('${h.id}')" title="Republier">🔄</button>
+                                            <button class="btn btn-outline btn-sm text-danger" onclick="deleteBC('${h.id}')" title="Supprimer">🗑️</button>
+                                        </td>
+                                    </tr>
+                                    `;
                             }).join('');
                         }
                     } catch (e) {
                         console.error("BC load error", e);
+                    }
+                }
+
+                if (id === 'reviews') {
+                    try {
+                        const reviews = await api('/reviews', 'GET', null, silent);
+                        renderReviewsTable(reviews);
+                    } catch (e) {
+                        console.error('Reviews load error:', e);
+                        document.getElementById('reviews-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--danger);padding:20px">Erreur de chargement des avis.</td></tr>';
                     }
                 }
                 if (id === 'insights') {
@@ -2534,10 +2643,11 @@
             const promo = document.getElementById('prod_promo').value;
             const unit_value = document.getElementById('prod_unit_value').value;
             const image_url = document.getElementById('prod_image_url').value;
+            const is_bundle = document.getElementById('prod_is_bundle').checked;
+
             if (!name || isNaN(price)) return showToast('Veuillez remplir le nom et le prix', 'error');
 
             try {
-                console.log("[SAVE-PROD] Payload:", { id, name, price, unit, unit_value, image_url });
                 await api('/products', 'POST', {
                     id: id || undefined,
                     name,
@@ -2545,6 +2655,7 @@
                     unit,
                     unit_value,
                     promo,
+                    is_bundle,
                     image_url: image_url || ''
                 });
                 showToast('Produit sauvegardé !', 'success');
@@ -2559,10 +2670,10 @@
         function editProdByIndex(idx) {
             const p = window._cachedProducts && window._cachedProducts[idx];
             if (!p) return;
-            editProd(p.id, p.name, p.price, p.image_url || '', p.promo || '', p.unit || '', p.unit_value || '');
+            editProd(p.id, p.name, p.price, p.image_url || '', p.promo || '', p.unit || '', p.unit_value || '', p.is_bundle || false);
         }
 
-        function editProd(id, name, price, image_url, promo, unit, unit_value) {
+        function editProd(id, name, price, image_url, promo, unit, unit_value, is_bundle = false) {
             document.getElementById('prod_id').value = id;
             document.getElementById('prod_name').value = name;
             document.getElementById('prod_price').value = price;
@@ -2570,8 +2681,8 @@
             document.getElementById('prod_unit_value').value = unit_value || '';
             document.getElementById('prod_promo').value = promo || '';
             document.getElementById('prod_image_url').value = image_url;
+            document.getElementById('prod_is_bundle').checked = is_bundle;
 
-            document.getElementById('prod_image_url').value = image_url;
             renderPreview('prod');
         }
 
@@ -2583,6 +2694,7 @@
             document.getElementById('prod_unit_value').value = '';
             document.getElementById('prod_promo').value = '';
             document.getElementById('prod_image_url').value = '';
+            document.getElementById('prod_is_bundle').checked = false;
             renderPreview('prod');
         }
 
@@ -2753,13 +2865,21 @@
 
         // Logic for Logistics Tabs
         function switchLogisticsTab(tab) {
-            document.getElementById('sub-logistics-orders').style.display = (tab === 'orders') ? 'block' : 'none';
-            document.getElementById('sub-logistics-livreurs').style.display = (tab === 'livreurs') ? 'block' : 'none';
+            const sections = ['orders', 'livreurs', 'reviews'];
+            sections.forEach(s => {
+                const sub = document.getElementById('sub-logistics-' + s);
+                if (sub) sub.style.display = (s === tab ? 'block' : 'none');
 
-            document.getElementById('btn-tab-orders').classList.toggle('active', tab === 'orders');
-            document.getElementById('btn-tab-livreurs').classList.toggle('active', tab === 'livreurs');
+                const btn = document.getElementById('btn-tab-' + s);
+                if (btn) {
+                    if (s === tab) btn.classList.add('active');
+                    else btn.classList.remove('active');
+                }
+            });
 
-            loadData(tab);
+            if (tab === 'orders') loadData('orders');
+            if (tab === 'livreurs') loadData('livreurs');
+            if (tab === 'reviews') loadData('reviews');
         }
 
         // Logic for Settings Tabs

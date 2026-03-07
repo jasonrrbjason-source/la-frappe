@@ -9,6 +9,7 @@ const COL_SETTINGS = 'bot_settings';
 const COL_PRODUCTS = 'bot_products';
 const COL_ORDERS = 'bot_orders';
 const COL_DAILY_STATS = 'bot_daily_stats';
+const COL_REVIEWS = 'bot_reviews';
 
 function ts() { return new Date().toISOString(); }
 
@@ -806,7 +807,6 @@ async function getStatsOverview() {
     const total = await getUserCount();
     const active = await getActiveUserCount();
     const stats = await getGlobalStats();
-
     const { data: bcSnap } = await supabase.from(COL_BROADCASTS).select('id, created_at, success, failed, message').order('created_at', { ascending: false }).limit(5);
 
     // Optimized count for active drivers (direct query, no memory decryption needed)
@@ -819,7 +819,11 @@ async function getStatsOverview() {
         .select('*', { count: 'exact', head: true })
         .eq('is_livreur', true);
 
-    const totalCA = parseFloat(stats.total_ca || stats.global?.total_ca || 0);
+    // Get CA from Sum of delivered orders (more reliable than just global_stats)
+    const { data: caData } = await supabase.from(COL_ORDERS).select('total_price').eq('status', 'delivered');
+    const calculatedCA = (caData || []).reduce((acc, curr) => acc + (parseFloat(curr.total_price) || 0), 0);
+
+    const totalCA = calculatedCA || parseFloat(stats.total_ca || stats.global?.total_ca || 0);
 
     // Get total count of all orders separately if needed, or just delivered
     const { count: totalOrdersCount } = await supabase.from(COL_ORDERS).select('*', { count: 'exact', head: true });
@@ -1127,11 +1131,34 @@ async function getBroadcastHistory(limit = 50) {
 }
 
 async function nukeDatabase() {
-    const collections = [COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS, COL_DAILY_STATS, COL_REFERRALS, COL_SETTINGS];
+    const collections = [COL_REVIEWS, COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS, COL_DAILY_STATS, COL_REFERRALS, COL_SETTINGS];
     for (const col of collections) {
         await supabase.from(col).delete().neq('id', 'neverMatchThisString12345'); // Deletes all rows where ID != "..."
     }
 }
+
+// --- Reviews ---
+async function saveReview(reviewData) {
+    const id = reviewData.id || `rev_${Date.now()}`;
+    const { error } = await supabase.from(COL_REVIEWS).upsert([{ id, ...reviewData, created_at: ts() }]);
+    if (error) throw error;
+    return id;
+}
+
+async function getReviews(limit = 50) {
+    const { data } = await supabase.from(COL_REVIEWS).select('*').order('created_at', { ascending: false }).limit(limit);
+    return data || [];
+}
+
+async function getPublicReviews(limit = 20) {
+    const { data } = await supabase.from(COL_REVIEWS).select('*').eq('is_public', true).order('created_at', { ascending: false }).limit(limit);
+    return data || [];
+}
+
+async function deleteReview(id) {
+    await supabase.from(COL_REVIEWS).delete().eq('id', id);
+}
+
 
 module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
@@ -1146,6 +1173,7 @@ module.exports = {
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings, getClientActiveOrders,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getOrdersByUser, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,
+    saveReview, getReviews, getPublicReviews, deleteReview,
     incrementChatCount, saveClientReply, logHelpRequest,
     getUpcomingPlannedOrders, markNotifSent, registerUser, addToStat,
     _userCache

@@ -98,21 +98,30 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
 
     // Si l'utilisateur existe déjà
     if (existing) {
-        // Toujours mettre à jour last_active s'il vient de ctx
-        const updateData = {
-            last_active: ts(),
-            updated_at: ts(),
-            is_active: true
-        };
+        // Optimisation : Ne mettre à jour last_active en DB que toutes les 5 minutes
+        const lastUpdated = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+        const needsDbUpdate = (nowMs - lastUpdated) > 300000; // 5 minutes
 
-        // Si on a des infos fraîches sur le nom/username
-        if (platformUser.username) updateData.username = !isGroup ? encryption.encrypt(platformUser.username) : platformUser.username;
-        if (platformUser.first_name) updateData.first_name = !isGroup ? encryption.encrypt(platformUser.first_name) : platformUser.first_name;
+        if (needsDbUpdate) {
+            const updateData = {
+                last_active: ts(),
+                updated_at: ts(),
+                is_active: true
+            };
 
-        await supabase.from(COL_USERS).update(updateData).eq('id', docId);
-        _userCache.set(docId, { data: { ...existing, ...updateData }, expire: nowMs + 300000 });
+            // Si on a des infos fraîches sur le nom/username
+            if (platformUser.username) updateData.username = !isGroup ? encryption.encrypt(platformUser.username) : platformUser.username;
+            if (platformUser.first_name) updateData.first_name = !isGroup ? encryption.encrypt(platformUser.first_name) : platformUser.first_name;
 
-        return { isNew: false, user: decryptUser({ ...existing, ...updateData }) };
+            // Update en tâche de fond (background) pour ne pas ralentir le bot
+            supabase.from(COL_USERS).update(updateData).eq('id', docId).then(() => { }).catch(() => { });
+
+            const updatedUser = { ...existing, ...updateData };
+            _userCache.set(docId, { data: updatedUser, expire: nowMs + 300000 });
+            return { isNew: false, user: decryptUser(updatedUser) };
+        }
+
+        return { isNew: false, user: decryptUser(existing) };
     }
 
     // Nouvel utilisateur

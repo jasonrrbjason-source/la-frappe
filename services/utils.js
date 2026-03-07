@@ -122,27 +122,28 @@ async function safeEdit(ctx, text, opts = {}) {
             if (m) newMsgs.push(m);
         }
 
-        // 2. Tracking des nouveaux messages
-        for (const m of newMsgs) {
-            await addMessageToTrack(trackId, m.message_id).catch(() => { });
-        }
+        // 2. Tracking des nouveaux messages (en arrière-plan pour ne pas bloquer)
+        const trackingPromises = newMsgs.map(m => addMessageToTrack(trackId, m.message_id).catch(() => { }));
 
-        // 3. Nettoyage PROFOND (Transition Flux Constant)
-        const user = await getUser(trackId);
+        // 3. Nettoyage ACCÉLÉRÉ (Transition Flux Constant)
+        // Utiliser l'utilisateur du state s'il existe pour éviter un appel DB
+        const user = ctx.state?.user || await getUser(trackId);
         const newIdsStrings = newMsgs.map(m => String(m.message_id));
         const currentMsgIdStr = currentMsg ? String(currentMsg.message_id) : null;
+
+        const deletePromises = [];
 
         // Supprimer l'ancien last_menu_id
         if (user && user.last_menu_id) {
             const lastIdStr = String(user.last_menu_id);
             if (!newIdsStrings.includes(lastIdStr)) {
-                await ctx.telegram.deleteMessage(chatId, user.last_menu_id).catch(() => { });
+                deletePromises.push(ctx.telegram.deleteMessage(chatId, user.last_menu_id).catch(() => { }));
             }
         }
 
         // Supprimer le message actuel s'il n'a pas été supprimé par last_menu_id
         if (currentMsg && !newIdsStrings.includes(currentMsgIdStr)) {
-            await ctx.telegram.deleteMessage(chatId, currentMsg.message_id).catch(() => { });
+            deletePromises.push(ctx.telegram.deleteMessage(chatId, currentMsg.message_id).catch(() => { }));
         }
 
         // Supprimer TOUS les anciens messages traqués (Garantit un seul message)
@@ -150,15 +151,18 @@ async function safeEdit(ctx, text, opts = {}) {
             for (const mid of user.tracked_messages) {
                 const midStr = String(mid);
                 if (!newIdsStrings.includes(midStr) && midStr !== currentMsgIdStr) {
-                    await ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
+                    deletePromises.push(ctx.telegram.deleteMessage(chatId, mid).catch(() => { }));
                 }
             }
         }
 
+        // Exécuter le nettoyage en arrière-plan pour une réponse instantanée
+        Promise.all([...trackingPromises, ...deletePromises]).catch(() => { });
+
     } catch (e) {
         console.error('❌ SafeEdit CRITICAL error:', e.message);
         const lastResort = await ctx.replyWithHTML(text, extra).catch(() => { });
-        if (lastResort) await addMessageToTrack(trackId, lastResort.message_id).catch(() => { });
+        if (lastResort) addMessageToTrack(trackId, lastResort.message_id).catch(() => { });
     }
 }
 

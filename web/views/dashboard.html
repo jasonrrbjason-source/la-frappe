@@ -1256,163 +1256,171 @@
                 <input id="set_msg_qty" placeholder="Choisissez la quantité souhaitée :">
 
                 <button class="btn btn-accent" style="margin-top:20px;" onclick="saveSettings()">Sauvegarder</button>
-            </div>
 
-            <!-- Onglet Sécurité -->
-            <div id="sub-settings-security" class="card" style="display:none;">
-                <h3>Sécurité & Contact</h3>
-                <label>ID(s) Telegram Administrateur(s)</label>
-                <input id="set_admin_tg_id" placeholder="ID1, ID2, ID3">
-                <small style="color:var(--text-muted); display:block; margin-bottom:10px;">
-                    <b>Administrateurs supplémentaires :</b> Séparez les IDs par une virgule (ex: 123456, 789012) pour
-                    donner l'accès total à plusieurs personnes.
-                </small>
+                <!-- Onglet Sécurité -->
+                <div id="sub-settings-security" class="card" style="display:none;">
+                    <h3>Sécurité & Contact</h3>
+                    <label>Administrateurs (IDs Telegram)</label>
+                    <div id="admins_list_container"
+                        style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
+                        <!-- Rows will be added here via JS -->
+                    </div>
+                    <button class="btn btn-outline btn-sm" onclick="addAdminRow()"
+                        style="margin-bottom:25px; width:fit-content;">+ Ajouter un Admin</button>
 
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-                    <div>
-                        <label>Mot de passe actuel</label>
-                        <input id="set_current_password" readonly
-                            style="background:rgba(255,255,255,0.05); color:var(--accent);">
-                    </div>
-                    <div>
-                        <label>Modifier le mot de passe</label>
-                        <input type="password" id="set_admin_password" placeholder="Nouveau mot de passe">
-                    </div>
-                </div>
-
-                <h3 style="margin-top:25px;">Liens</h3>
-                <label>URL du Dashboard (pour le bot)</label>
-                <input id="set_dashboard_url" placeholder="https://votre-domaine.com/dashboard">
-                <label style="margin-top:10px;">Lien Contact Privé (Telegram)</label>
-                <input id="set_private_contact_url" placeholder="https://t.me/votre_profil">
-                <label style="margin-top:10px;">Lien Canal Telegram</label>
-                <input id="set_channel_url" placeholder="https://t.me/votre_canal">
-
-                <button class="btn btn-accent" style="margin-top:20px;" onclick="saveSettings()">Sauvegarder</button>
-            </div>
-
-            <!-- Onglet Fidélité -->
-            <div id="sub-settings-fidelity" class="card" style="display:none;">
-                <h3>Fidélité & Parrainage</h3>
-                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:15px;">
-                    <div>
-                        <label>Points par € (/commande)</label>
-                        <input type="number" id="set_pts_ratio" placeholder="ex: 1">
-                    </div>
-                    <div>
-                        <label>Seuil Conversion (Pts -> Crédit)</label>
-                        <input type="number" id="set_pts_exchange" placeholder="ex: 100">
-                    </div>
-                    <div>
-                        <label>Valeur Crédit (€)</label>
-                        <input type="number" id="set_pts_credit_val" placeholder="ex: 5">
-                    </div>
-                    <div>
-                        <label>Bonus Parrainage (€)</label>
-                        <input type="number" id="set_ref_bonus" placeholder="ex: 5">
-                    </div>
-                </div>
-
-                <h3 style="margin-top:25px;">Bonus Paliers de Commandes</h3>
-                <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:8px;">
-                    <label>Sélectionnez les numéros de commande offrant un bonus :</label>
-                    <div id="paliers_grid"
-                        style="display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; margin-bottom:15px;">
-                        <!-- JS will populate stars 1-20 -->
-                    </div>
-                    <input type="hidden" id="set_fidelity_thresholds">
-
-                    <div style="display:flex; gap:10px;">
-                        <div style="flex:1;">
-                            <label>Bonus (€)</label>
-                            <input type="number" id="set_fidelity_bonus_val" placeholder="ex: 10">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+                        <div>
+                            <label>Mot de passe actuel</label>
+                            <input id="set_current_password" readonly
+                                style="background:rgba(255,255,255,0.05); color:var(--accent);">
                         </div>
-                        <div style="flex:1;">
-                            <label>Minimum de commande (€)</label>
-                            <input type="number" id="set_fidelity_min_spend" placeholder="ex: 50">
-                            <small style="color:var(--text-muted)">Bloque la livraison sous ce montant.</small>
+                        <div>
+                            <label>Modifier le mot de passe</label>
+                            <input type="password" id="set_admin_password" placeholder="Nouveau mot de passe">
                         </div>
                     </div>
+
+                    <h3 style="margin-top:25px;">Liens</h3>
+                    <label>URL du Dashboard (pour le bot)</label>
+                    <input id="set_dashboard_url" placeholder="https://votre-domaine.com/dashboard">
+                    <label style="margin-top:10px;">Lien Contact Privé (Telegram)</label>
+                    <input id="set_private_contact_url" placeholder="https://t.me/votre_profil">
+                    <label style="margin-top:10px;">Lien Canal Telegram</label>
+                    <input id="set_channel_url" placeholder="https://t.me/votre_canal">
+
+                    <button class="btn btn-accent" style="margin-top:20px;"
+                        onclick="saveSettings()">Sauvegarder</button>
                 </div>
 
-                <button class="btn btn-accent" style="margin-top:20px;" onclick="saveSettings()">Sauvegarder</button>
-            </div>
+                <!-- Onglet Fidélité -->
+                <div id="sub-settings-fidelity" class="card" style="display:none;">
+                    <h3>Fidélité & Parrainage</h3>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:15px;">
+                        <div>
+                            <label>Points par € (/commande)</label>
+                            <input type="number" id="set_pts_ratio" placeholder="ex: 1">
+                        </div>
+                        <div>
+                            <label>Seuil Conversion (Pts -> Crédit)</label>
+                            <input type="number" id="set_pts_exchange" placeholder="ex: 100">
+                        </div>
+                        <div>
+                            <label>Valeur Crédit (€)</label>
+                            <input type="number" id="set_pts_credit_val" placeholder="ex: 5">
+                        </div>
+                        <div>
+                            <label>Bonus Parrainage (€)</label>
+                            <input type="number" id="set_ref_bonus" placeholder="ex: 5">
+                        </div>
+                    </div>
 
-            <!-- Onglet Interface -->
-            <div id="sub-settings-ui" class="card" style="display:none;">
-                <h3>Interface du Bot (Boutons & Icônes)</h3>
-                <div
-                    style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
-                    <div><label>Icône Catalogue</label><input id="set_ui_icon_catalog" placeholder="🍔"></div>
-                    <div><label>Libellé Catalogue</label><input id="set_label_catalog" placeholder="Catalogue Produits">
+                    <h3 style="margin-top:25px;">Bonus Paliers de Commandes</h3>
+                    <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:8px;">
+                        <label>Sélectionnez les numéros de commande offrant un bonus :</label>
+                        <div id="paliers_grid"
+                            style="display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; margin-bottom:15px;">
+                            <!-- JS will populate stars 1-20 -->
+                        </div>
+                        <input type="hidden" id="set_fidelity_thresholds">
+
+                        <div style="display:flex; gap:10px;">
+                            <div style="flex:1;">
+                                <label>Bonus (€)</label>
+                                <input type="number" id="set_fidelity_bonus_val" placeholder="ex: 10">
+                            </div>
+                            <div style="flex:1;">
+                                <label>Minimum de commande (€)</label>
+                                <input type="number" id="set_fidelity_min_spend" placeholder="ex: 50">
+                                <small style="color:var(--text-muted)">Bloque la livraison sous ce montant.</small>
+                            </div>
+                        </div>
                     </div>
-                    <div><label>Icône Commandes</label><input id="set_ui_icon_orders" placeholder="📦"></div>
-                    <div><label>Libellé Commandes</label><input id="set_label_my_orders" placeholder="Mes Commandes">
-                    </div>
-                    <div><label>Icône Contact</label><input id="set_ui_icon_contact" placeholder="📱"></div>
-                    <div><label>Libellé Contact</label><input id="set_label_contact" placeholder="Mon contact privé">
-                    </div>
-                    <div><label>Icône Canal</label><input id="set_ui_icon_channel" placeholder="📢"></div>
-                    <div><label>Libellé Canal</label><input id="set_label_channel" placeholder="Rejoindre le Canal">
-                    </div>
-                    <div><label>Icône Info/Bienvenue</label><input id="set_ui_icon_welcome" placeholder="✨"></div>
-                    <div><label>Libellé Info/Bienvenue</label><input id="set_label_welcome"
-                            placeholder="Infos & Bienvenue"></div>
-                    <div><label>Icône Profil</label><input id="set_ui_icon_profile" placeholder="🎁"></div>
-                    <div><label>Libellé Profil</label><input id="set_label_profile"
-                            placeholder="Mon Profil & Parrainage"></div>
-                    <div><label>Icône Espace Livreur</label><input id="set_ui_icon_livreur" placeholder="🛵"></div>
-                    <div><label>Libellé Espace Livreur</label><input id="set_label_livreur"
-                            placeholder="Espace Livreur"></div>
-                    <div><label>Icône Admin Bot</label><input id="set_ui_icon_admin" placeholder="⚙️"></div>
-                    <div><label>Libellé Admin Bot</label><input id="set_label_admin_bot" placeholder="Gestion Bot">
-                    </div>
-                    <div><label>Icône Admin Web</label><input id="set_ui_icon_web" placeholder="🌐"></div>
-                    <div><label>Libellé Admin Web</label><input id="set_label_admin_web" placeholder="Dashboard Web">
-                    </div>
-                    <div><label>Icône Portefeuille</label><input id="set_ui_icon_wallet" placeholder="💳"></div>
-                    <div><label>Icône Points</label><input id="set_ui_icon_points" placeholder="⭐️"></div>
-                    <div><label>Icône Aide</label><input id="set_ui_icon_help" placeholder="❓"></div>
-                    <div><label>Libellé Aide</label><input id="set_label_help" placeholder="Aide / Support"></div>
-                    <div><label>Message Intro Aide</label><input id="set_msg_help_intro"
-                            placeholder="Besoin d'aide ? Choisissez une option ci-dessous :"></div>
+
+                    <button class="btn btn-accent" style="margin-top:20px;"
+                        onclick="saveSettings()">Sauvegarder</button>
                 </div>
 
-                <h3 style="margin-top:25px;">Statuts des Commandes</h3>
-                <div
-                    style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
-                    <div><label>Libellé 'En Attente'</label><input id="set_status_pending_label"
-                            placeholder="EN ATTENTE"></div>
-                    <div><label>Icône 'En Attente'</label><input id="set_ui_icon_pending" placeholder="⏳"></div>
-                    <div><label>Libellé 'Pris en Charge'</label><input id="set_status_taken_label"
-                            placeholder="PRIS EN CHARGE"></div>
-                    <div><label>Icône 'Pris en Charge'</label><input id="set_ui_icon_taken" placeholder="🚚"></div>
-                    <div><label>Libellé 'Livrée'</label><input id="set_status_delivered_label" placeholder="LIVRÉE">
+                <!-- Onglet Interface -->
+                <div id="sub-settings-ui" class="card" style="display:none;">
+                    <h3>Interface du Bot (Boutons & Icônes)</h3>
+                    <div
+                        style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                        <div><label>Icône Catalogue</label><input id="set_ui_icon_catalog" placeholder="🍔"></div>
+                        <div><label>Libellé Catalogue</label><input id="set_label_catalog"
+                                placeholder="Catalogue Produits">
+                        </div>
+                        <div><label>Icône Commandes</label><input id="set_ui_icon_orders" placeholder="📦"></div>
+                        <div><label>Libellé Commandes</label><input id="set_label_my_orders"
+                                placeholder="Mes Commandes">
+                        </div>
+                        <div><label>Icône Contact</label><input id="set_ui_icon_contact" placeholder="📱"></div>
+                        <div><label>Libellé Contact</label><input id="set_label_contact"
+                                placeholder="Mon contact privé">
+                        </div>
+                        <div><label>Icône Canal</label><input id="set_ui_icon_channel" placeholder="📢"></div>
+                        <div><label>Libellé Canal</label><input id="set_label_channel" placeholder="Rejoindre le Canal">
+                        </div>
+                        <div><label>Icône Info/Bienvenue</label><input id="set_ui_icon_welcome" placeholder="✨"></div>
+                        <div><label>Libellé Info/Bienvenue</label><input id="set_label_welcome"
+                                placeholder="Infos & Bienvenue"></div>
+                        <div><label>Icône Profil</label><input id="set_ui_icon_profile" placeholder="🎁"></div>
+                        <div><label>Libellé Profil</label><input id="set_label_profile"
+                                placeholder="Mon Profil & Parrainage"></div>
+                        <div><label>Icône Espace Livreur</label><input id="set_ui_icon_livreur" placeholder="🛵"></div>
+                        <div><label>Libellé Espace Livreur</label><input id="set_label_livreur"
+                                placeholder="Espace Livreur"></div>
+                        <div><label>Icône Admin Bot</label><input id="set_ui_icon_admin" placeholder="⚙️"></div>
+                        <div><label>Libellé Admin Bot</label><input id="set_label_admin_bot" placeholder="Gestion Bot">
+                        </div>
+                        <div><label>Icône Admin Web</label><input id="set_ui_icon_web" placeholder="🌐"></div>
+                        <div><label>Libellé Admin Web</label><input id="set_label_admin_web"
+                                placeholder="Dashboard Web">
+                        </div>
+                        <div><label>Icône Portefeuille</label><input id="set_ui_icon_wallet" placeholder="💳"></div>
+                        <div><label>Icône Points</label><input id="set_ui_icon_points" placeholder="⭐️"></div>
+                        <div><label>Icône Aide</label><input id="set_ui_icon_help" placeholder="❓"></div>
+                        <div><label>Libellé Aide</label><input id="set_label_help" placeholder="Aide / Support"></div>
+                        <div><label>Message Intro Aide</label><input id="set_msg_help_intro"
+                                placeholder="Besoin d'aide ? Choisissez une option ci-dessous :"></div>
                     </div>
-                    <div><label>Icône 'Succès / Livré'</label><input id="set_ui_icon_success" placeholder="✅"></div>
-                    <div><label>Libellé 'Annulée'</label><input id="set_status_cancelled_label" placeholder="ANNULÉE">
+
+                    <h3 style="margin-top:25px;">Statuts des Commandes</h3>
+                    <div
+                        style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                        <div><label>Libellé 'En Attente'</label><input id="set_status_pending_label"
+                                placeholder="EN ATTENTE"></div>
+                        <div><label>Icône 'En Attente'</label><input id="set_ui_icon_pending" placeholder="⏳"></div>
+                        <div><label>Libellé 'Pris en Charge'</label><input id="set_status_taken_label"
+                                placeholder="PRIS EN CHARGE"></div>
+                        <div><label>Icône 'Pris en Charge'</label><input id="set_ui_icon_taken" placeholder="🚚"></div>
+                        <div><label>Libellé 'Livrée'</label><input id="set_status_delivered_label" placeholder="LIVRÉE">
+                        </div>
+                        <div><label>Icône 'Succès / Livré'</label><input id="set_ui_icon_success" placeholder="✅"></div>
+                        <div><label>Libellé 'Annulée'</label><input id="set_status_cancelled_label"
+                                placeholder="ANNULÉE">
+                        </div>
+                        <div><label>Icône 'Erreur / Annulée'</label><input id="set_ui_icon_error" placeholder="❌"></div>
                     </div>
-                    <div><label>Icône 'Erreur / Annulée'</label><input id="set_ui_icon_error" placeholder="❌"></div>
+
+                    <button class="btn btn-accent" style="margin-top:20px;"
+                        onclick="saveSettings()">Sauvegarder</button>
                 </div>
 
-                <button class="btn btn-accent" style="margin-top:20px;" onclick="saveSettings()">Sauvegarder</button>
-            </div>
-
-            <!-- Onglet Zone Danger -->
-            <div id="sub-settings-danger" class="card" style="display:none;">
-                <div
-                    style="border: 1px solid #ff4444; border-radius: 12px; padding: 20px; background: rgba(255,0,0,0.05);">
-                    <h3 style="color: #ff4444; margin-top: 0;">ZONE DE DANGER (IRRÉVERSIBLE)</h3>
-                    <p style="color: #ffaaaa; margin-bottom: 15px; font-size: 14px;">
-                        <strong>Attention :</strong> Ce bouton va supprimer DÉFINITIVEMENT tous les utilisateurs
-                        (clients et livreurs), toutes les commandes, tous les produits, toutes les statistiques et
-                        l'historique des diffusions. Vous allez <strong>TOUT PERDRE</strong>. À utiliser uniquement
-                        pour remettre le bot complètement à zéro.
-                    </p>
-                    <button class="btn btn-danger" onclick="nukeEntireDatabase()">SUPPRIMER TOUTE LA BASE DE
-                        DONNÉES</button>
+                <!-- Onglet Zone Danger -->
+                <div id="sub-settings-danger" class="card" style="display:none;">
+                    <div
+                        style="border: 1px solid #ff4444; border-radius: 12px; padding: 20px; background: rgba(255,0,0,0.05);">
+                        <h3 style="color: #ff4444; margin-top: 0;">ZONE DE DANGER (IRRÉVERSIBLE)</h3>
+                        <p style="color: #ffaaaa; margin-bottom: 15px; font-size: 14px;">
+                            <strong>Attention :</strong> Ce bouton va supprimer DÉFINITIVEMENT tous les utilisateurs
+                            (clients et livreurs), toutes les commandes, tous les produits, toutes les statistiques et
+                            l'historique des diffusions. Vous allez <strong>TOUT PERDRE</strong>. À utiliser uniquement
+                            pour remettre le bot complètement à zéro.
+                        </p>
+                        <button class="btn btn-danger" onclick="nukeEntireDatabase()">SUPPRIMER TOUTE LA BASE DE
+                            DONNÉES</button>
+                    </div>
                 </div>
-            </div>
         </section>
     </main>
 
@@ -1948,7 +1956,16 @@
                     document.getElementById('set_bot_name').value = s.bot_name;
                     document.getElementById('set_title').value = s.dashboard_title || 'Admin Panel';
                     document.getElementById('set_color').value = s.accent_color || '#ff0050';
-                    document.getElementById('set_admin_tg_id').value = s.admin_telegram_id || '';
+
+                    // Admin Dynamic List
+                    const container = document.getElementById('admins_list_container');
+                    container.innerHTML = '';
+                    const adminIds = (s.admin_telegram_id || '').split(/[\s,]+/).filter(id => id.trim() !== '');
+                    if (adminIds.length === 0) {
+                        addAdminRow('');
+                    } else {
+                        adminIds.forEach(id => addAdminRow(id));
+                    }
                     document.getElementById('set_current_password').value = s.admin_password || '';
                     document.getElementById('set_dashboard_url').value = s.dashboard_url || '';
                     document.getElementById('set_private_contact_url').value = s.private_contact_url || '';
@@ -2734,7 +2751,7 @@
                     bot_name: document.getElementById('set_bot_name').value,
                     dashboard_title: document.getElementById('set_title').value,
                     accent_color: document.getElementById('set_color').value,
-                    admin_telegram_id: document.getElementById('set_admin_tg_id').value,
+                    admin_telegram_id: Array.from(document.querySelectorAll('.admin-id-input')).map(i => i.value.trim()).filter(v => v !== '').join(', '),
                     admin_password: document.getElementById('set_current_password').value,
                     dashboard_url: document.getElementById('set_dashboard_url').value,
                     private_contact_url: document.getElementById('set_private_contact_url').value,
@@ -2799,6 +2816,17 @@
                 loadData('users');
                 if (document.getElementById('section-livreurs').classList.contains('active')) loadData('livreurs');
             } catch (err) { showToast(err.message, 'error'); }
+        }
+
+        function addAdminRow(val = '') {
+            const container = document.getElementById('admins_list_container');
+            const div = document.createElement('div');
+            div.style = "display:flex; gap:10px; align-items:center;";
+            div.innerHTML = `
+                <input class="admin-id-input" value="${val}" placeholder="ID Telegram (ex: 12345678)" style="flex:1;">
+                <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()" style="width:36px; height:36px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:8px;">✕</button>
+            `;
+            container.appendChild(div);
         }
 
         async function delUser(id) {

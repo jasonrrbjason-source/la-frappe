@@ -13,6 +13,8 @@ const userCarts = new Map();
 const pendingOrders = new Map();
 const awaitingAddressDetails = new Map();
 const pendingOrderConfirmation = new Map();
+const awaitingDelayReason = new Map();
+const awaitingChatReply = new Map();
 
 function setupOrderSystem(bot) {
     // ========== CATALOGUE & COMMANDE ==========
@@ -967,15 +969,19 @@ function setupOrderSystem(bot) {
             }
         ).catch(() => { });
 
-        // Notifier le client avec option d'annulation
+        // Notifier le client avec option d'annulation et aide
         bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
             `🚚 <b>Bonne nouvelle !</b>\n\n` +
             `Votre commande #${orderId.substring(0, 5)} est prise en charge par <b>La Frappe</b>.\n` +
             `⏳ Une estimation du temps d'arrivé vous sera donnée dans quelques minutes.\n\n` +
-            `<i>Si le délai ne vous convient pas, vous pouvez annuler la commande via le bouton ci-dessous.</i>`,
+            `<i>Besoin de parler au livreur ou à l'admin ? Utilisez les boutons ci-dessous.</i>`,
             {
                 parse_mode: 'HTML',
-                ...Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]])
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('💬 Parler au livreur', `chat_livreur_${orderId}`)],
+                    [Markup.button.callback('❓ Aide / Support', 'help_menu')],
+                    [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]
+                ])
             }
         ).catch(() => { });
     });
@@ -1001,8 +1007,8 @@ function setupOrderSystem(bot) {
             {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard([
-                    [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)],
-                    [Markup.button.callback('💬 Répondre au livreur', `chat_livreur_${orderId}`)]
+                    [Markup.button.callback('💬 Répondre au livreur', `chat_livreur_${orderId}`)],
+                    [Markup.button.callback('◀️ Menu principal', 'main_menu')]
                 ])
             }
         ).catch(() => { });
@@ -1011,7 +1017,7 @@ function setupOrderSystem(bot) {
     bot.action(/^delay_report_(.+)$/, async (ctx) => {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
-        ctx.state.awaiting_delay_reason = orderId;
+        awaitingDelayReason.set(`telegram_${ctx.from.id}`, orderId);
         await safeEdit(ctx, `⚠️ <b>SIGNALEMENT DE RETARD</b>\n\nIndiquez la raison ou le temps estimé (ex: "10 min de retard, bouchons") :`,
             Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', `take_order_${orderId}`)]])
         );
@@ -1027,7 +1033,7 @@ function setupOrderSystem(bot) {
             return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nVous avez déjà utilisé vos 3 messages autorisés pour cette commande. Pour toute urgence, contactez le support.", { parse_mode: 'HTML' });
         }
 
-        ctx.state.awaiting_chat_reply = orderId;
+        awaitingChatReply.set(`telegram_${ctx.from.id}`, orderId);
         await ctx.reply(`💬 <b>Réponse au livreur (${3 - count} restants)</b>\n\nEnvoyez votre message pour le livreur ci-dessous :`, { parse_mode: 'HTML' });
     });
 
@@ -1201,8 +1207,9 @@ function setupOrderSystem(bot) {
         }
 
         // 2. Retard Livreur
-        if (ctx.state.awaiting_delay_reason) {
-            const orderId = ctx.state.awaiting_delay_reason;
+        if (awaitingDelayReason.has(userId)) {
+            const orderId = awaitingDelayReason.get(userId);
+            awaitingDelayReason.delete(userId);
             const order = await getOrder(orderId);
             if (order) {
                 const count = (parseInt(order.chat_count) || 0);
@@ -1218,20 +1225,32 @@ function setupOrderSystem(bot) {
                             parse_mode: 'HTML',
                             ...Markup.inlineKeyboard([
                                 ...(newCount < 3 ? [[Markup.button.callback('💬 Répondre au livreur', `chat_livreur_${orderId}`)]] : []),
+                                [Markup.button.callback('❓ Aide / Support', 'help_menu')],
                                 [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]
                             ])
                         }
-                    );
+                    ).catch(() => { });
+
+                    // Alerte aux admins
+                    const settings = ctx.state?.settings;
+                    if (settings && settings.admin_telegram_id) {
+                        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(idx => idx.trim().replace('telegram_', ''));
+                        const alertMsg = `⚠️ <b>SIGNALEMENT RETARD</b>\n\n🆔 Commande : <code>#${orderId.substring(0, 5)}</code>\n👤 Livreur : ${ctx.from.first_name}\n📝 Motif : "<i>${reason}</i>"`;
+                        for (const adminId of adminIds) {
+                            if (adminId) bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                        }
+                    }
+
                     await ctx.reply(`✅ Notification envoyée (${newCount}/3).`);
                 }
             }
-            delete ctx.state.awaiting_delay_reason;
             return;
         }
 
         // 3. Réponse Client -> Livreur
-        if (ctx.state.awaiting_chat_reply) {
-            const orderId = ctx.state.awaiting_chat_reply;
+        if (awaitingChatReply.has(userId)) {
+            const orderId = awaitingChatReply.get(userId);
+            awaitingChatReply.delete(userId);
             const order = await getOrder(orderId);
             if (order && order.livreur_id) {
                 const count = (parseInt(order.chat_count) || 0);
@@ -1243,12 +1262,28 @@ function setupOrderSystem(bot) {
 
                     bot.telegram.sendMessage(order.livreur_id.replace('telegram_', ''),
                         `💬 <b>Réponse du client (Commande #${orderId.substring(0, 5)})</b>\n\n"<i>${reply}</i>"${newCount >= 3 ? '\n\n⚠️ <i>Dernier message autorisé envoyé.</i>' : ''}`,
-                        { parse_mode: 'HTML' }
-                    );
+                        {
+                            parse_mode: 'HTML',
+                            ...Markup.inlineKeyboard([
+                                ...(newCount < 3 ? [[Markup.button.callback('💬 Répondre au client', `chat_livreur_${orderId}`)]] : []),
+                                [Markup.button.callback('◀️ Menu Livreur', 'livreur_menu')]
+                            ])
+                        }
+                    ).catch(() => { });
+
+                    // Alerte aux admins
+                    const settings = ctx.state?.settings;
+                    if (settings && settings.admin_telegram_id) {
+                        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(idx => idx.trim().replace('telegram_', ''));
+                        const alertMsg = `💬 <b>CHAT CLIENT -> LIVREUR</b>\n\n🆔 Commande : <code>#${orderId.substring(0, 5)}</code>\n👤 Client : ${ctx.from.first_name}\n📝 Message : "<i>${reply}</i>"`;
+                        for (const adminId of adminIds) {
+                            if (adminId) bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                        }
+                    }
+
                     await ctx.reply(`✅ Votre message a été transmis (${newCount}/3).`);
                 }
             }
-            delete ctx.state.awaiting_chat_reply;
             return;
         }
 
@@ -1491,5 +1526,7 @@ module.exports = {
     userCarts,
     pendingOrders,
     awaitingAddressDetails,
-    pendingOrderConfirmation
+    pendingOrderConfirmation,
+    awaitingDelayReason,
+    awaitingChatReply
 };

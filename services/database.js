@@ -1015,8 +1015,8 @@ const SETTINGS_DEFAULTS = {
     dashboard_url: process.env.DASHBOARD_URL || '',
     private_contact_url: 'https://t.me/lafrappex',
     channel_url: 'https://t.me/lafrappe_canal',
-    bot_description: '🚀 Commandez vos produits préférés et faites-vous livrer rapidement ! Catalogue, suivi en direct et service client intégré.',
-    bot_short_description: '🚀 Livraison rapide en IDF — Commandez maintenant !',
+    bot_description: '',
+    bot_short_description: '',
     payment_modes: '💵 Espèces'
 };
 

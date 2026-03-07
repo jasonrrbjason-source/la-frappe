@@ -25,7 +25,7 @@ function debugLog(msg) {
     console.log(msg);
 }
 
-require('dotenv').config();
+require('dotenv').config({ path: process.env.RAILWAY_ENVIRONMENT ? '.env.railway' : '.env' });
 
 // Référence partagée au bot Telegram (définie par index.js)
 let _bot = null;

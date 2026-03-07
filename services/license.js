@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+require('dotenv').config({ path: process.env.RAILWAY_ENVIRONMENT ? '.env.railway' : '.env' });
 
 // Master key fragments — assembled at runtime to discourage simple grep
 const _p = ['4f7a', '9c3d', 'b8e1', '2d6f', 'a5c8', '71e3', '0b9d', 'f4a2'];

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: process.env.RAILWAY_ENVIRONMENT ? '.env.railway' : '.env' });
 const { validateLicense } = require('./services/license');
 if (!validateLicense()) {
     console.error('❌ Licence invalide ou manquante. Arrêt.');

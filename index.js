@@ -52,6 +52,13 @@ async function main() {
                     getAppSettings()
                 ]);
 
+                if (registeredUser && registeredUser.is_blocked) {
+                    if (ctx.callbackQuery) {
+                        return ctx.answerCbQuery("⛔️ Votre compte est suspendu.", { show_alert: true }).catch(() => { });
+                    }
+                    return ctx.reply("⛔️ <b>ACCÈS REFUSÉ</b>\n\nVotre compte a été suspendu par l'administration. Contactez le support pour plus d'informations.", { parse_mode: 'HTML' }).catch(() => { });
+                }
+
                 ctx.state.user = registeredUser;
                 ctx.state.settings = settings;
             } else {

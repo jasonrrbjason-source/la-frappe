@@ -14,37 +14,43 @@ async function safeEdit(ctx, text, opts = {}) {
     const userId = isGroup ? `telegram_${ctx.chat.id}` : `telegram_${ctx.from.id}`;
     const chatId = ctx.chat.id;
 
-    // 1. Médias & Clavier
-    let photo = opts.photo || null;
-    const video = opts.video || null;
-    if (photo === '') photo = null;
-
     // 2. Résolution Photo (Base URL si path relatif + Extraction Liste)
-    if (photo && typeof photo === 'string') {
+    if (photo) {
         const settings = ctx.state?.settings || {};
         const baseUrl = (settings.dashboard_url || '').replace(/\/$/, '');
 
-        // Extraction si c'est une liste (JSON ou CSV)
-        const cleanPhoto = photo.trim();
-        if (cleanPhoto.startsWith('[') && cleanPhoto.endsWith(']')) {
-            try {
-                const arr = JSON.parse(cleanPhoto);
-                if (arr && arr.length > 0) {
-                    const first = typeof arr[0] === 'string' ? arr[0] : (arr[0].url || arr[0].path || '');
-                    photo = first;
-                }
-            } catch (e) {
-                // Fallback basic si JSON malformé mais contient des crochets
-                photo = cleanPhoto.replace(/[\[\]"']/g, '').split(',')[0].trim();
+        if (Array.isArray(photo)) {
+            if (photo.length > 0) {
+                const first = photo[0];
+                photo = typeof first === 'string' ? first : (first.url || first.path || '');
+            } else {
+                photo = null;
             }
-        } else if (cleanPhoto.includes(',') && !cleanPhoto.startsWith('http')) {
-            photo = cleanPhoto.split(',')[0].trim();
-        } else {
-            photo = cleanPhoto;
         }
 
-        // Si c'est un chemin relatif, on ajoute le baseUrl
-        if (photo && !photo.startsWith('http') && !photo.startsWith('data:')) {
+        if (typeof photo === 'string') {
+            const clean = photo.trim();
+            if (clean.startsWith('[') && clean.endsWith(']')) {
+                try {
+                    const arr = JSON.parse(clean);
+                    if (arr && arr.length > 0) {
+                        const first = arr[0];
+                        photo = typeof first === 'string' ? first : (first.url || first.path || '');
+                    } else {
+                        photo = null;
+                    }
+                } catch (e) {
+                    photo = clean.replace(/[\[\]"']/g, '').split(',')[0].trim();
+                }
+            } else if (clean.includes(',') && !clean.startsWith('http')) {
+                photo = clean.split(',')[0].trim();
+            } else {
+                photo = clean;
+            }
+        }
+
+        // Final check: if relative, add baseUrl
+        if (photo && typeof photo === 'string' && !photo.startsWith('http') && !photo.startsWith('data:')) {
             photo = baseUrl + (photo.startsWith('/') ? '' : '/') + photo;
         }
     }

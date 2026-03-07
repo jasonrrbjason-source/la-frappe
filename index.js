@@ -99,9 +99,9 @@ async function main() {
             if (ctx.message && !ctx.message.from?.is_bot) {
                 await next();
                 // Nettoyage flux constant (uniquement en privé) - On ne bloque pas next()
-                if (ctx.chat?.type === 'private') {
-                    ctx.deleteMessage().catch(() => { });
-                }
+                // if (ctx.chat?.type === 'private') {
+                //    ctx.deleteMessage().catch(() => { });
+                // }
             } else {
                 await next();
             }

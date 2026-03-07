@@ -19,11 +19,25 @@ async function safeEdit(ctx, text, opts = {}) {
     const video = opts.video || null;
     if (photo === '') photo = null;
 
-    // Normalisation Photo (Base URL si path relatif)
-    if (photo && typeof photo === 'string' && !photo.startsWith('http') && !photo.startsWith('data:')) {
+    // 2. Résolution Photo (Base URL si path relatif + Extraction Liste)
+    if (photo && typeof photo === 'string') {
         const settings = ctx.state?.settings || {};
         const baseUrl = (settings.dashboard_url || '').replace(/\/$/, '');
-        photo = baseUrl + (photo.startsWith('/') ? '' : '/') + photo;
+
+        // Extraction si c'est une liste (JSON ou CSV)
+        if (photo.startsWith('[') && photo.endsWith(']')) {
+            try {
+                const arr = JSON.parse(photo);
+                if (arr.length > 0) photo = typeof arr[0] === 'string' ? arr[0] : (arr[0].url || arr[0].path || '');
+            } catch (e) { }
+        } else if (photo.includes(',') && !photo.startsWith('http')) {
+            photo = photo.split(',')[0].trim();
+        }
+
+        // Si c'est un chemin relatif, on ajoute le baseUrl
+        if (photo && !photo.startsWith('http') && !photo.startsWith('data:')) {
+            photo = baseUrl + (photo.startsWith('/') ? '' : '/') + photo;
+        }
     }
 
     let reply_markup = opts.reply_markup || (opts.inline_keyboard ? opts : (Array.isArray(opts) ? { inline_keyboard: opts } : null));

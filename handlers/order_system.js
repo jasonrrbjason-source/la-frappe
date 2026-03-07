@@ -1018,7 +1018,12 @@ function setupOrderSystem(bot) {
     bot.action(/^delay_report_(.+)$/, async (ctx) => {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
-        awaitingDelayReason.set(`telegram_${ctx.from.id}`, orderId);
+        const userId = `telegram_${ctx.from.id}`;
+
+        // Nettoyage des autres états
+        awaitingChatReply.delete(userId);
+
+        awaitingDelayReason.set(userId, orderId);
         await safeEdit(ctx, `⚠️ <b>SIGNALEMENT DE RETARD</b>\n\nIndiquez la raison ou le temps estimé (ex: "10 min de retard, bouchons") :`,
             Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', `take_order_${orderId}`)]])
         );
@@ -1027,6 +1032,10 @@ function setupOrderSystem(bot) {
     bot.action(/^chat_livreur_(.+)$/, async (ctx) => {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
+        const userId = `telegram_${ctx.from.id}`;
+
+        // Nettoyage des autres états
+        awaitingDelayReason.delete(userId);
 
         const order = await getOrder(orderId);
         const count = parseInt(order?.chat_count) || 0;
@@ -1034,7 +1043,7 @@ function setupOrderSystem(bot) {
             return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nVous avez déjà utilisé vos 3 messages autorisés pour cette commande. Pour toute urgence, contactez le support.", { parse_mode: 'HTML' });
         }
 
-        awaitingChatReply.set(`telegram_${ctx.from.id}`, orderId);
+        awaitingChatReply.set(userId, orderId);
         await ctx.reply(`💬 <b>Réponse au livreur (${3 - count} restants)</b>\n\nEnvoyez votre message pour le livreur ci-dessous :`, { parse_mode: 'HTML' });
     });
 
@@ -1223,7 +1232,8 @@ function setupOrderSystem(bot) {
                         const newCount = await incrementChatCount(orderId);
                         const shortId = String(orderId).substring(0, 5);
 
-                        await bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
+                        const targetId = String(order.user_id).replace('telegram_', '');
+                        await bot.telegram.sendMessage(targetId,
                             `⚠️ <b>Un retard est à prévoir</b>\n\nVotre livreur nous signale un imprévu :\n"<i>${safeHtml(reason)}</i>"\n\nIl fait le maximum pour arriver vite !${newCount >= 3 ? '\n\n<i>(Limite d\'échanges atteinte)</i>' : ''}`,
                             {
                                 parse_mode: 'HTML',
@@ -1233,7 +1243,10 @@ function setupOrderSystem(bot) {
                                     [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]
                                 ])
                             }
-                        ).catch(() => { });
+                        ).catch(err => {
+                            console.error(`❌ Send delay report failed to ${targetId}:`, err.message);
+                            throw err;
+                        });
 
                         // Alerte aux admins
                         const settings = ctx.state?.settings;
@@ -1250,64 +1263,68 @@ function setupOrderSystem(bot) {
                 }
                 return;
             }
+        } catch (errDelay) {
+            console.error("❌ CRITICAL DELAY RELAY ERROR:", errDelay);
+            await ctx.reply(`⚠️ Échec de l'envoi du retard : ${errDelay.message || 'Erreur inconnue'}.`).catch(() => { });
+            return;
+        }
 
-            // 3. Discussion Client <> Livreur
+        // --- DISCUSSION CLIENT <> LIVREUR ---
+        try {
             if (awaitingChatReply.has(userId)) {
                 const orderId = awaitingChatReply.get(userId);
                 awaitingChatReply.delete(userId);
                 const order = await getOrder(orderId);
                 if (order) {
-                    const count = (parseInt(order.chat_count) || 0);
-                    if (count >= 3) {
-                        await ctx.reply("❌ Limite d'échanges atteinte.").catch(() => { });
-                    } else {
-                        const reply = String(ctx.message.text || '');
-                        const newCount = await incrementChatCount(orderId);
-                        const shortId = String(orderId).substring(0, 5);
+                    const reply = String(ctx.message.text || '');
+                    const newCount = await incrementChatCount(orderId);
+                    const shortId = String(orderId).substring(0, 5);
 
-                        // Qui envoie à qui ?
-                        const isLivreur = userId === order.livreur_id;
-                        const targetId = isLivreur ? order.user_id : order.livreur_id;
+                    // Qui envoie à qui ?
+                    const isLivreur = userId === order.livreur_id;
+                    const targetIdRaw = isLivreur ? order.user_id : order.livreur_id;
 
-                        if (!targetId) {
-                            return await ctx.reply("❌ L'ordre n'est plus attribué ou destinataire introuvable.").catch(() => { });
-                        }
-
-                        const roleLabel = isLivreur ? "livreur" : "client";
-                        const targetLabel = isLivreur ? "Répondre au livreur" : "Répondre au client";
-
-                        await bot.telegram.sendMessage(targetId.replace('telegram_', ''),
-                            `💬 <b>Réponse du ${roleLabel} (Commande #${shortId})</b>\n\n"<i>${safeHtml(reply)}</i>"${newCount >= 3 ? '\n\n⚠️ <i>Dernier message autorisé envoyé.</i>' : ''}`,
-                            {
-                                parse_mode: 'HTML',
-                                ...Markup.inlineKeyboard([
-                                    ...(newCount < 3 ? [[Markup.button.callback(`💬 ${targetLabel}`, `chat_livreur_${orderId}`)]] : []),
-                                    [Markup.button.callback('◀️ Menu', isLivreur ? 'livreur_menu' : 'main_menu')]
-                                ])
-                            }
-                        ).catch(() => { });
-
-                        // Alerte aux admins
-                        const settings = ctx.state?.settings;
-                        if (settings && settings.admin_telegram_id) {
-                            const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(idx => idx.trim().replace('telegram_', ''));
-                            const alertMsg = `💬 <b>CHAT ${roleLabel.toUpperCase()}</b>\n\n🆔 Commande : <code>#${shortId}</code>\n👤 De : ${safeHtml(ctx.from.first_name)}\n📝 Message : "<i>${safeHtml(reply)}</i>"`;
-                            for (const adminId of adminIds) {
-                                if (adminId) bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
-                            }
-                        }
-
-                        await ctx.reply(`✅ Message transmis au ${isLivreur ? 'client' : 'livreur'} (${newCount}/3).`).catch(() => { });
+                    if (!targetIdRaw) {
+                        return await ctx.reply("❌ Impossible de trouver le destinataire (Livreur ou Client non assigné).").catch(() => { });
                     }
+
+                    const targetId = String(targetIdRaw).replace('telegram_', '');
+                    const roleLabel = isLivreur ? "livreur" : "client";
+                    const targetLabel = isLivreur ? "Répondre au livreur" : "Répondre au client";
+
+                    await bot.telegram.sendMessage(targetId,
+                        `💬 <b>Réponse du ${roleLabel} (Commande #${shortId})</b>\n\n"<i>${safeHtml(reply)}</i>"${newCount >= 3 ? '\n\n⚠️ <i>Dernier message autorisé envoyé.</i>' : ''}`,
+                        {
+                            parse_mode: 'HTML',
+                            ...Markup.inlineKeyboard([
+                                ...(newCount < 3 ? [[Markup.button.callback(`💬 ${targetLabel}`, `chat_livreur_${orderId}`)]] : []),
+                                [Markup.button.callback('◀️ Menu', isLivreur ? 'livreur_menu' : 'main_menu')]
+                            ])
+                        }
+                    ).catch(err => {
+                        console.error(`❌ Send message failed to ${targetId}:`, err.message);
+                        throw err;
+                    });
+
+                    // Alerte aux admins
+                    const settings = ctx.state?.settings;
+                    if (settings && settings.admin_telegram_id) {
+                        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(idx => String(idx).trim().replace('telegram_', ''));
+                        const alertMsg = `💬 <b>CHAT ${roleLabel.toUpperCase()}</b>\n\n🆔 Commande : <code>#${shortId}</code>\n👤 De : ${safeHtml(ctx.from.first_name)}\n📝 Message : "<i>${safeHtml(reply)}</i>"`;
+                        for (const adminId of adminIds) {
+                            if (adminId) bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                        }
+                    }
+
+                    await ctx.reply(`✅ Message transmis au ${isLivreur ? 'client' : 'livreur'} (${newCount}/3).`).catch(() => { });
                 } else {
                     await ctx.reply("❌ Commande introuvable pour ce chat.").catch(() => { });
                 }
                 return;
             }
         } catch (errChat) {
-            console.error("❌ CRITICAL CHAT RELAY ERROR:", errChat.message);
-            // On ne laisse pas le crash se propager
-            await ctx.reply("⚠️ Erreur de transmission du message. Réessayez.").catch(() => { });
+            console.error("❌ CRITICAL CHAT RELAY ERROR:", errChat);
+            await ctx.reply(`⚠️ Échec de l'envoi : ${errChat.message || 'Erreur inconnue'}.`).catch(() => { });
             return;
         }
 

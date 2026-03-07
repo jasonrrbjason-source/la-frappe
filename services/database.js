@@ -514,11 +514,16 @@ async function getClientActiveOrders(userId) {
 }
 
 async function logHelpRequest(orderId, type, message) {
-    const order = await getOrder(orderId);
-    if (!order) return;
-    const requests = Array.isArray(order.help_requests) ? order.help_requests : [];
-    requests.push({ type, message, timestamp: ts() });
-    await supabase.from(COL_ORDERS).update({ help_requests: requests }).eq('id', orderId);
+    try {
+        const order = await getOrder(orderId);
+        if (!order) return;
+        const requests = Array.isArray(order.help_requests) ? order.help_requests : [];
+        requests.push({ type, message, timestamp: ts() });
+        const { error } = await supabase.from(COL_ORDERS).update({ help_requests: requests }).eq('id', orderId);
+        if (error) console.error("❌ SQL logHelpRequest failed:", error.message);
+    } catch (e) {
+        console.error("❌ logHelpRequest error:", e.message);
+    }
 }
 
 async function saveClientReply(orderId, reply) {
@@ -526,11 +531,27 @@ async function saveClientReply(orderId, reply) {
 }
 
 async function incrementChatCount(orderId) {
-    const order = await getOrder(orderId);
-    if (!order) return 0;
-    const newCount = (parseInt(order.chat_count) || 0) + 1;
-    await supabase.from(COL_ORDERS).update({ chat_count: newCount }).eq('id', orderId);
-    return newCount;
+    try {
+        const order = await getOrder(orderId);
+        if (!order) return 0;
+
+        // Sécurité : si la colonne est absente ou NaN, on force à 0
+        let currentCount = parseInt(order.chat_count);
+        if (isNaN(currentCount)) currentCount = 0;
+
+        const newCount = currentCount + 1;
+        const { error } = await supabase.from(COL_ORDERS).update({ chat_count: newCount }).eq('id', orderId);
+
+        if (error) {
+            console.error("❌ SQL incrementChatCount failed:", error.message);
+            // Si erreur SQL (colonne manquante), on renvoie quand même un nombre pour ne pas bloquer le relayage
+            return newCount;
+        }
+        return newCount;
+    } catch (e) {
+        console.error("❌ incrementChatCount error:", e.message);
+        return 1;
+    }
 }
 
 async function saveFeedback(orderId, rating, text) {

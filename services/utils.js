@@ -54,33 +54,30 @@ async function safeEdit(ctx, text, opts = {}) {
     if (reply_markup && reply_markup.reply_markup) reply_markup = reply_markup.reply_markup;
     const extra = { parse_mode: 'HTML', disable_web_page_preview: true, reply_markup };
 
+    const currentMsg = ctx.callbackQuery?.message;
+    const user = await getUser(userId).catch(() => null);
+
     const cleanupOldMessages = async (newId) => {
         try {
-            const currentMsg = ctx.callbackQuery?.message; // Need to re-declare or pass it
-            const user = await getUser(userId).catch(() => null); // Need to re-fetch or pass it
-
+            const userObj = await getUser(userId).catch(() => null);
             const toDelete = new Set();
             if (currentMsg) toDelete.add(String(currentMsg.message_id));
-            if (user && user.last_menu_id) toDelete.add(String(user.last_menu_id));
-            if (user && user.tracked_messages) {
-                user.tracked_messages.forEach(mid => { if (mid) toDelete.add(String(mid)); });
+            if (userObj && userObj.last_menu_id) toDelete.add(String(userObj.last_menu_id));
+            if (userObj && userObj.tracked_messages) {
+                userObj.tracked_messages.forEach(mid => { if (mid) toDelete.add(String(mid)); });
             }
 
-            // Ne jamais supprimer le nouveau message qu'on vient d'envoyer
             if (newId) toDelete.delete(String(newId));
 
             for (const mid of toDelete) {
                 await ctx.telegram.deleteMessage(chatId, parseInt(mid)).catch(() => { });
             }
         } catch (e) {
-            console.error('safeEdit: cleanup error', e.message);
+            console.error('safeEdit Cleanup Error:', e.message);
         }
     };
 
     try {
-        const currentMsg = ctx.callbackQuery?.message;
-        const user = await getUser(userId).catch(() => null);
-
         // A. TENTATIVE D'EDIT SI TYPE IDENTIQUE
         if (currentMsg) {
             const isMediaMsg = !!(currentMsg.photo || currentMsg.video);
@@ -91,7 +88,7 @@ async function safeEdit(ctx, text, opts = {}) {
                     if (!wantMedia) {
                         await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
                     } else {
-                        await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, null, {
+                        await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, {
                             type: photo ? 'photo' : 'video',
                             media: photo || video,
                             caption: text,
@@ -102,7 +99,7 @@ async function safeEdit(ctx, text, opts = {}) {
                     return;
                 } catch (e) {
                     if (!String(e.description || '').includes('not modified')) {
-                        console.warn('safeEdit: edit failed, falling back to send', e.message);
+                        console.warn('safeEdit: edit failed, fallback to send', e.message);
                     } else return;
                 }
             }
@@ -111,15 +108,19 @@ async function safeEdit(ctx, text, opts = {}) {
         // B. ENVOI DU NOUVEAU MENU
         let newMsg;
         if (photo) {
-            newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra }).catch(async (err) => {
-                console.error('safeEdit: replyWithPhoto failed', err.message);
-                return await ctx.replyWithHTML(text, extra); // Fallback immédiat si photo invalide
-            });
+            try {
+                newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
+            } catch (err) {
+                console.error('safeEdit: replyWithPhoto error', err.message);
+                newMsg = await ctx.replyWithHTML(text, extra);
+            }
         } else if (video) {
-            newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra }).catch(async (err) => {
-                console.error('safeEdit: replyWithVideo failed', err.message);
-                return await ctx.replyWithHTML(text, extra);
-            });
+            try {
+                newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra });
+            } catch (err) {
+                console.error('safeEdit: replyWithVideo error', err.message);
+                newMsg = await ctx.replyWithHTML(text, extra);
+            }
         } else {
             newMsg = await ctx.replyWithHTML(text, extra);
         }

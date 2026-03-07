@@ -14,56 +14,54 @@ async function safeEdit(ctx, text, opts = {}) {
     const userId = isGroup ? `telegram_${ctx.chat.id}` : `telegram_${ctx.from.id}`;
     const chatId = ctx.chat.id;
 
-    // 2. Résolution Photo (Base URL si path relatif + Extraction Liste)
+    // 1. Médias & Clavier
+    let photo = opts.photo || null;
+    const video = opts.video || null;
+    if (photo === '') photo = null;
+
+    // Résolution Photo (Base URL si path relatif + Extraction Liste)
     if (photo) {
         const settings = ctx.state?.settings || {};
         const baseUrl = (settings.dashboard_url || '').replace(/\/$/, '');
 
+        // Si c'est un tableau de photos, on prend la première
         if (Array.isArray(photo)) {
             if (photo.length > 0) {
-                const first = photo[0];
-                photo = typeof first === 'string' ? first : (first.url || first.path || '');
-            } else {
-                photo = null;
-            }
+                const p0 = photo[0];
+                photo = typeof p0 === 'string' ? p0 : (p0.url || p0.path || '');
+            } else photo = null;
         }
 
-        if (typeof photo === 'string') {
-            const clean = photo.trim();
-            if (clean.startsWith('[') && clean.endsWith(']')) {
+        if (photo && typeof photo === 'string') {
+            const cp = photo.trim();
+            if (cp.startsWith('[') && cp.endsWith(']')) {
                 try {
-                    const arr = JSON.parse(clean);
+                    const arr = JSON.parse(cp);
                     if (arr && arr.length > 0) {
-                        const first = arr[0];
-                        photo = typeof first === 'string' ? first : (first.url || first.path || '');
-                    } else {
-                        photo = null;
-                    }
+                        const p0 = arr[0];
+                        photo = typeof p0 === 'string' ? p0 : (p0.url || p0.path || '');
+                    } else photo = null;
                 } catch (e) {
-                    photo = clean.replace(/[\[\]"']/g, '').split(',')[0].trim();
+                    photo = cp.replace(/[\[\]"']/g, '').split(',')[0].trim();
                 }
-            } else if (clean.includes(',') && !clean.startsWith('http')) {
-                photo = clean.split(',')[0].trim();
-            } else {
-                photo = clean;
-            }
+            } else if (cp.includes(',') && !cp.startsWith('http')) {
+                photo = cp.split(',')[0].trim();
+            } else photo = cp;
         }
 
-        // Final check: if relative, add baseUrl
         if (photo && typeof photo === 'string' && !photo.startsWith('http') && !photo.startsWith('data:')) {
             photo = baseUrl + (photo.startsWith('/') ? '' : '/') + photo;
         }
     }
 
     let reply_markup = opts.reply_markup || (opts.inline_keyboard ? opts : (Array.isArray(opts) ? { inline_keyboard: opts } : null));
-    // Support Telegraf Markup
     if (reply_markup && reply_markup.reply_markup) reply_markup = reply_markup.reply_markup;
     const extra = { parse_mode: 'HTML', disable_web_page_preview: true, reply_markup };
 
     const currentMsg = ctx.callbackQuery?.message;
-    const user = await getUser(userId).catch(() => null);
 
-    const cleanupOldMessages = async (newId) => {
+    // Fonction de nettoyage asynchrone pour ne pas ralentir le bot
+    const runCleanup = async (newId) => {
         try {
             const userObj = await getUser(userId).catch(() => null);
             const toDelete = new Set();
@@ -72,24 +70,16 @@ async function safeEdit(ctx, text, opts = {}) {
             if (userObj && userObj.tracked_messages) {
                 userObj.tracked_messages.forEach(mid => { if (mid) toDelete.add(String(mid)); });
             }
-
             if (newId) toDelete.delete(String(newId));
 
             for (const mid of toDelete) {
-                await ctx.telegram.deleteMessage(chatId, parseInt(mid)).catch(e => {
-                    const desc = String(e.description || e.message || '').toLowerCase();
-                    if (!desc.includes('message to delete not found')) {
-                        console.warn(`safeEdit: Cleanup failed for ${mid}:`, e.message);
-                    }
-                });
+                ctx.telegram.deleteMessage(chatId, parseInt(mid)).catch(() => { });
             }
-        } catch (e) {
-            console.error('safeEdit Cleanup Error:', e.message);
-        }
+        } catch (e) { }
     };
 
     try {
-        // A. TENTATIVE D'EDIT SI TYPE IDENTIQUE
+        // A. TENTATIVE D'EDIT
         if (currentMsg) {
             const isMediaMsg = !!(currentMsg.photo || currentMsg.video);
             const wantMedia = !!(photo || video);
@@ -99,7 +89,6 @@ async function safeEdit(ctx, text, opts = {}) {
                     if (!wantMedia) {
                         await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
                     } else {
-                        // CRITICAL FIX: Positional arguments for editMessageMedia (chatId, msgId, inlineId, media, extra)
                         await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, null, {
                             type: photo ? 'photo' : 'video',
                             media: photo || video,
@@ -110,27 +99,20 @@ async function safeEdit(ctx, text, opts = {}) {
                     await addMessageToTrack(userId, currentMsg.message_id).catch(() => { });
                     return;
                 } catch (e) {
-                    if (!String(e.description || '').includes('not modified')) {
-                        console.warn('safeEdit: edit failed, fallback to send', e.message);
-                    } else return;
+                    if (String(e.description || '').includes('not modified')) return;
+                    console.warn('safeEdit: edit failed, fallback to send', e.message);
                 }
             }
         }
 
-        // B. ENVOI DU NOUVEAU MENU
+        // B. ENVOI DU NOUVEAU
         let newMsg;
-        if (photo) {
+        if (photo || video) {
             try {
-                newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
+                if (photo) newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
+                else newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra });
             } catch (err) {
-                console.error('safeEdit: replyWithPhoto error', err.message);
-                newMsg = await ctx.replyWithHTML(text, extra);
-            }
-        } else if (video) {
-            try {
-                newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra });
-            } catch (err) {
-                console.error('safeEdit: replyWithVideo error', err.message);
+                console.error('safeEdit: Media Send failed', err.message);
                 newMsg = await ctx.replyWithHTML(text, extra);
             }
         } else {
@@ -139,8 +121,7 @@ async function safeEdit(ctx, text, opts = {}) {
 
         if (newMsg) {
             await addMessageToTrack(userId, newMsg.message_id).catch(() => { });
-            // C. NETTOYAGE APRÈS ENVOI RÉUSSI
-            await cleanupOldMessages(newMsg.message_id);
+            runCleanup(newMsg.message_id); // On lance le ménage juste après l'avoir affiché
         }
 
     } catch (e) {
@@ -149,7 +130,7 @@ async function safeEdit(ctx, text, opts = {}) {
             const fb = await ctx.replyWithHTML(text, extra);
             if (fb) {
                 await addMessageToTrack(userId, fb.message_id).catch(() => { });
-                await cleanupOldMessages(fb.message_id);
+                runCleanup(fb.message_id);
             }
         } catch (err) { }
     }

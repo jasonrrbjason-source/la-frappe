@@ -63,9 +63,14 @@ function makeDocId(platform, platformId) { return `${platform}_${platformId}`; }
 
 async function activeUsersQuery(platform, type = null, limit = null) {
     let q = supabase.from(COL_USERS).select('id, platform, platform_id, type, username, first_name, last_name, order_count, wallet_balance, points, date_inscription, is_livreur, is_available, is_blocked, current_city, data').eq('is_blocked', false);
-    if (platform) q = q.eq('platform', platform);
+    if (platform && platform !== 'all') q = q.eq('platform', platform);
     if (type === 'livreurs') {
         q = q.eq('is_livreur', true);
+    } else if (type === 'user') {
+        // Inclure 'user' OU NULL (si non défini) mais exclure explicitement 'group'
+        q = q.neq('type', 'group');
+    } else if (type === 'group') {
+        q = q.eq('type', 'group');
     } else if (type) {
         q = q.eq('type', type);
     }
@@ -427,6 +432,29 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
     }
     await supabase.from(COL_ORDERS).update({ status, ...extraData, updated_at: ts() }).eq('id', orderId);
 
+    // Notification Admin sur chaque changement
+    try {
+        const settings = await getAppSettings();
+        if (settings.admin_telegram_id) {
+            const { getBotInstance } = require('../server');
+            const bot = getBotInstance();
+            if (bot) {
+                const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
+                const label = (status === 'delivered' ? settings.status_delivered_label :
+                    (status === 'pending' ? settings.status_pending_label :
+                        (status === 'taken' ? settings.status_taken_label : settings.status_cancelled_label))) || status.toUpperCase();
+                const icon = (status === 'delivered' ? settings.ui_icon_success :
+                    (status === 'pending' ? settings.ui_icon_pending :
+                        (status === 'taken' ? (settings.ui_icon_taken || '🚚') : settings.ui_icon_error))) || '🔔';
+
+                const alertMsg = `${icon} <b>MISE À JOUR COMMANDE</b>\n\n🆔 ID : <code>#${orderId.substring(0, 5)}</code>\n🔄 Statut : <b>${label}</b>`;
+                for (const adminId of adminIds) {
+                    bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                }
+            }
+        }
+    } catch (e) { }
+
     if (status === 'delivered') {
         const order = await getOrder(orderId);
         if (order) {
@@ -449,6 +477,51 @@ async function assignOrderLivreur(orderId, livreurId, livreurName) {
         updated_at: ts()
     };
     await supabase.from(COL_ORDERS).update(update).eq('id', orderId);
+
+    // Notifier Admin
+    try {
+        const settings = await getAppSettings();
+        if (settings.admin_telegram_id && livreurId) {
+            const { getBotInstance } = require('../server');
+            const bot = getBotInstance();
+            if (bot) {
+                const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
+                const alertMsg = `🚚 <b>AFFECTATION</b>\n\n🆔 #<code>${orderId.substring(0, 5)}</code>\n👤 Livreur : <b>${livreurName}</b>`;
+                for (const adminId of adminIds) {
+                    bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                }
+            }
+        }
+    } catch (e) { }
+}
+
+async function getClientActiveOrders(userId) {
+    const { data } = await supabase.from(COL_ORDERS)
+        .select('*')
+        .eq('user_id', userId)
+        .in('status', ['pending', 'taken'])
+        .order('created_at', { ascending: false });
+    return data || [];
+}
+
+async function logHelpRequest(orderId, type, message) {
+    const order = await getOrder(orderId);
+    if (!order) return;
+    const requests = Array.isArray(order.help_requests) ? order.help_requests : [];
+    requests.push({ type, message, timestamp: ts() });
+    await supabase.from(COL_ORDERS).update({ help_requests: requests }).eq('id', orderId);
+}
+
+async function saveClientReply(orderId, reply) {
+    await supabase.from(COL_ORDERS).update({ client_reply: reply }).eq('id', orderId);
+}
+
+async function incrementChatCount(orderId) {
+    const order = await getOrder(orderId);
+    if (!order) return 0;
+    const newCount = (parseInt(order.chat_count) || 0) + 1;
+    await supabase.from(COL_ORDERS).update({ chat_count: newCount }).eq('id', orderId);
+    return newCount;
 }
 
 async function saveFeedback(orderId, rating, text) {

@@ -404,7 +404,28 @@ function createServer() {
                             text = `${settings.ui_icon_pending} <b>Mise à jour de commande</b>\n\nVotre commande #${shortId} est de nouveau ${statusLabel}.`;
                             break;
                     }
-                    if (text) bot.telegram.sendMessage(tgId, text, { parse_mode: 'HTML' }).catch(() => { });
+                    if (text) {
+                        const { Markup } = require('telegraf');
+                        let keyboard = [];
+
+                        // Ajouter bouton annulation si pas encore livré ou annulé
+                        if (!['delivered', 'cancelled'].includes(status)) {
+                            keyboard.push([Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]);
+                            // Si c'est une notification de temps, permettre de répondre
+                            if (status.startsWith('arrival_')) {
+                                keyboard.push([Markup.button.callback('💬 Répondre au livreur', `chat_livreur_${orderId}`)]);
+                            }
+                        } else if (status === 'delivered') {
+                            keyboard.push([Markup.button.callback('⭐️ Laisser un avis', `feedback_start_${orderId}`)]);
+                        }
+
+                        keyboard.push([Markup.button.callback('◀️ Retour Menu', 'main_menu')]);
+
+                        bot.telegram.sendMessage(tgId, text, {
+                            parse_mode: 'HTML',
+                            ...Markup.inlineKeyboard(keyboard)
+                        }).catch(() => { });
+                    }
                 }
             }
 

@@ -1263,8 +1263,10 @@
                 <h3>Sécurité & Contact</h3>
                 <label>ID(s) Telegram Administrateur(s)</label>
                 <input id="set_admin_tg_id" placeholder="ID1, ID2, ID3">
-                <small style="color:var(--text-muted); display:block; margin-bottom:10px;">Séparez les IDs par une
-                    virgule pour plusieurs admins.</small>
+                <small style="color:var(--text-muted); display:block; margin-bottom:10px;">
+                    <b>Administrateurs supplémentaires :</b> Séparez les IDs par une virgule (ex: 123456, 789012) pour
+                    donner l'accès total à plusieurs personnes.
+                </small>
 
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
                     <div>
@@ -1370,6 +1372,10 @@
                     </div>
                     <div><label>Icône Portefeuille</label><input id="set_ui_icon_wallet" placeholder="💳"></div>
                     <div><label>Icône Points</label><input id="set_ui_icon_points" placeholder="⭐️"></div>
+                    <div><label>Icône Aide</label><input id="set_ui_icon_help" placeholder="❓"></div>
+                    <div><label>Libellé Aide</label><input id="set_label_help" placeholder="Aide / Support"></div>
+                    <div><label>Message Intro Aide</label><input id="set_msg_help_intro"
+                            placeholder="Besoin d'aide ? Choisissez une option ci-dessous :"></div>
                 </div>
 
                 <h3 style="margin-top:25px;">Statuts des Commandes</h3>
@@ -1596,11 +1602,34 @@
                         <small>${o.status === 'delivered' ? '✅ ' + deliveredTime : (o.livreur_name ? '⏳ En cours' : '—')}</small>
                         ${o.livreur_name ? `<br><small style="color:var(--accent); font-weight:700;">🚴 ${o.livreur_name}</small>` : ''}
                     </td>
-                    <td data-label="Avis">
+                    <td data-label="Avis/Suivi">
                         ${o.feedback_rating ? `
                             <div style="color:orange; font-size:12px; font-weight:bold;">${'⭐'.repeat(o.feedback_rating)}</div>
                             <div style="font-size:11px; font-style:italic; color:var(--text-muted); line-height:1.2; max-width:150px;">"${o.feedback_text || ''}"</div>
-                        ` : '<small style="color:var(--text-muted)">—</small>'}
+                        ` : ''}
+                        
+                        ${o.delay_reason ? `
+                            <div style="margin-top:6px; padding:4px; background:rgba(255,0,0,0.1); border-radius:4px; border-left:3px solid red;">
+                                <small style="display:block; font-weight:bold; color:red; font-size:9px;">⚠️ RETARD SIGNALÉ :</small>
+                                <small style="font-size:10px; color:var(--text-main); font-style:italic;">"${o.delay_reason}"</small>
+                            </div>
+                        ` : ''}
+
+                        ${o.client_reply ? `
+                            <div style="margin-top:4px; padding:4px; background:rgba(0,180,0,0.1); border-radius:4px; border-left:3px solid #00b400;">
+                                <small style="display:block; font-weight:bold; color:#00b400; font-size:9px;">💬 RÉPONSE CLIENT :</small>
+                                <small style="font-size:10px; color:var(--text-main);">"${o.client_reply}"</small>
+                            </div>
+                        ` : ''}
+
+                        ${(o.help_requests && o.help_requests.length > 0) ? `
+                            <div style="margin-top:4px; padding:4px; background:rgba(0,0,255,0.05); border-radius:4px; border:1px dashed blue;">
+                                <small style="display:block; font-weight:bold; color:blue; font-size:9px;">❓ DEMANDE AIDE (${o.help_requests.length}) :</small>
+                                <small style="font-size:10px; color:var(--text-muted); line-height:1;">Dernière : ${o.help_requests[o.help_requests.length - 1].type}</small>
+                            </div>
+                        ` : ''}
+
+                        ${(!o.feedback_rating && !o.delay_reason && !o.client_reply && (!o.help_requests || o.help_requests.length === 0)) ? '<small style="color:var(--text-muted)">—</small>' : ''}
                     </td>
                     <td data-label="Statut"><span class="badge badge-${o.status}">${label}</span></td>
                     <td data-label="Action">
@@ -1958,6 +1987,9 @@
                     document.getElementById('set_label_channel').value = s.label_channel || 'Rejoindre le Canal';
                     document.getElementById('set_ui_icon_welcome').value = s.ui_icon_welcome || '✨';
                     document.getElementById('set_label_welcome').value = s.label_welcome || 'Infos & Bienvenue';
+                    document.getElementById('set_ui_icon_help').value = s.ui_icon_help || '❓';
+                    document.getElementById('set_label_help').value = s.label_help || 'Aide / Support';
+                    document.getElementById('set_msg_help_intro').value = s.msg_help_intro || 'Besoin d\'aide ? Choisissez une option ci-dessous :';
 
                     document.getElementById('set_status_pending_label').value = s.status_pending_label || 'EN ATTENTE';
                     document.getElementById('set_ui_icon_pending').value = s.ui_icon_pending || '⏳';
@@ -2747,7 +2779,11 @@
                     status_delivered_label: document.getElementById('set_status_delivered_label').value,
                     ui_icon_success: document.getElementById('set_ui_icon_success').value,
                     status_cancelled_label: document.getElementById('set_status_cancelled_label').value,
-                    ui_icon_error: document.getElementById('set_ui_icon_error').value
+                    ui_icon_error: document.getElementById('set_ui_icon_error').value,
+
+                    label_help: document.getElementById('set_label_help').value,
+                    ui_icon_help: document.getElementById('set_ui_icon_help').value,
+                    msg_help_intro: document.getElementById('set_msg_help_intro').value
                 };
                 await api('/settings', 'POST', s);
                 showToast('Paramètres mis à jour !');

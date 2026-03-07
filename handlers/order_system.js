@@ -3,7 +3,8 @@ const {
     getProducts, createOrder, getUser, setLivreurStatus,
     updateLivreurPosition, getAvailableOrders, updateOrderStatus,
     getOrder, getAppSettings, setLivreurAvailability,
-    incrementOrderCount, getAllLivreurs, _userCache
+    incrementOrderCount, getAllLivreurs, _userCache,
+    getClientActiveOrders, logHelpRequest, saveClientReply, incrementChatCount
 } = require('../services/database');
 const { safeEdit, debugLog } = require('../services/utils');
 
@@ -934,19 +935,23 @@ function setupOrderSystem(bot) {
                     [Markup.button.callback('⏰ Arrivée -1h', `notify_${orderId}_1h`)],
                     [Markup.button.callback('⏳ 30 min', `notify_${orderId}_30m`), Markup.button.callback('⏳ 10 min', `notify_${orderId}_10m`)],
                     [Markup.button.callback('⚡ 5 min', `notify_${orderId}_5m`), Markup.button.callback('📍 Arrivé', `notify_${orderId}_here`)],
+                    [Markup.button.callback('⚠️ Signaler un RETARD', `delay_report_${orderId}`)],
                     [Markup.button.callback(`${settings.ui_icon_success} MARQUER COMME LIVRÉE`, `finish_${orderId}`)],
                     [Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]
                 ])
             }
         ).catch(() => { });
 
-        // Notifier le client
+        // Notifier le client avec option d'annulation
         bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
             `🚚 <b>Bonne nouvelle !</b>\n\n` +
             `Votre commande #${orderId.substring(0, 5)} est prise en charge par <b>La Frappe</b>.\n` +
             `⏳ Une estimation du temps d'arrivé vous sera donnée dans quelques minutes.\n\n` +
-            `<i>Préparez l'appoint pour le paiement en liquide.</i>`,
-            { parse_mode: 'HTML' }
+            `<i>Si le délai ne vous convient pas, vous pouvez annuler la commande via le bouton ci-dessous.</i>`,
+            {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([[Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]])
+            }
         ).catch(() => { });
     });
 
@@ -968,8 +973,37 @@ function setupOrderSystem(bot) {
             `🔔 <b>Mise à jour Livraison #${orderId.substring(0, 5)}</b>\n\n` +
             `Votre livreur vous informe qu'il arrive : <b>${timeText}</b>\n\n` +
             `<i>Restez joignable !</i>`,
-            { parse_mode: 'HTML' }
+            {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)],
+                    [Markup.button.callback('💬 Répondre au livreur', `chat_livreur_${orderId}`)]
+                ])
+            }
         ).catch(() => { });
+    });
+
+    bot.action(/^delay_report_(.+)$/, async (ctx) => {
+        const orderId = ctx.match[1];
+        await ctx.answerCbQuery();
+        ctx.state.awaiting_delay_reason = orderId;
+        await safeEdit(ctx, `⚠️ <b>SIGNALEMENT DE RETARD</b>\n\nIndiquez la raison ou le temps estimé (ex: "10 min de retard, bouchons") :`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', `take_order_${orderId}`)]])
+        );
+    });
+
+    bot.action(/^chat_livreur_(.+)$/, async (ctx) => {
+        const orderId = ctx.match[1];
+        await ctx.answerCbQuery();
+
+        const order = await getOrder(orderId);
+        const count = parseInt(order?.chat_count) || 0;
+        if (count >= 3) {
+            return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nVous avez déjà utilisé vos 3 messages autorisés pour cette commande. Pour toute urgence, contactez le support.", { parse_mode: 'HTML' });
+        }
+
+        ctx.state.awaiting_chat_reply = orderId;
+        await ctx.reply(`💬 <b>Réponse au livreur (${3 - count} restants)</b>\n\nEnvoyez votre message pour le livreur ci-dessous :`, { parse_mode: 'HTML' });
     });
 
     bot.action(/^finish_(.+)$/, async (ctx) => {
@@ -1002,10 +1036,41 @@ function setupOrderSystem(bot) {
                 {
                     parse_mode: 'HTML',
                     ...Markup.inlineKeyboard([
-                        [Markup.button.callback('⭐️ Laisser un avis / Commentaire', `feedback_start_${orderId}`)]
+                        [Markup.button.callback('⭐️ Laisser un avis / Commentaire', `feedback_start_${orderId}`)],
+                        [Markup.button.callback('◀️ Retour Menu', 'main_menu')]
                     ])
                 }
             ).catch(() => { });
+        }
+    });
+
+    // --- Gestion de l'annulation par le client ---
+    bot.action(/^cancel_order_client_(.+)$/, async (ctx) => {
+        const orderId = ctx.match[1];
+        const order = await getOrder(orderId);
+        if (!order || order.status === 'delivered' || order.status === 'cancelled') {
+            return ctx.answerCbQuery('Action impossible ou déjà effectuée.', true);
+        }
+
+        await updateOrderStatus(orderId, 'cancelled');
+        await ctx.answerCbQuery('Votre commande a été annulée. ❌', true);
+
+        const shortId = orderId.substring(0, 5);
+        await safeEdit(ctx, `❌ <b>Commande #${shortId} annulée</b>\n\nVotre demande d'annulation a bien été prise en compte.`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu', 'main_menu')]]));
+
+        // Notifier Admin
+        const settings = await getAppSettings();
+        if (settings.admin_telegram_id) {
+            const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
+            const alertMsg = `⚠️ <b>ANNULATION CLIENT</b>\n\nLa commande <b>#${shortId}</b> a été annulée par le client.\n👤 Client: ${ctx.from.first_name}`;
+            for (const adminId of adminIds) {
+                bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+            }
+        }
+
+        // Notifier Livreur
+        if (order.livreur_id) {
+            bot.telegram.sendMessage(order.livreur_id.replace('telegram_', ''), `⚠️ <b>COMMANDE ANNULÉE</b>\n\nLe client a annulé la commande <b>#${shortId}</b>. Ne vous déplacez pas.`, { parse_mode: 'HTML' }).catch(() => { });
         }
     });
 
@@ -1021,8 +1086,20 @@ function setupOrderSystem(bot) {
                 [Markup.button.callback('⭐️⭐️⭐️⭐️ Très bien', `feedback_rate_${orderId}_4`)],
                 [Markup.button.callback('⭐️⭐️⭐️ Bien', `feedback_rate_${orderId}_3`)],
                 [Markup.button.callback('⭐️ Moyen / Insatisfait', `feedback_rate_${orderId}_1`)],
+                [Markup.button.callback('◀️ Plus tard', 'main_menu')]
             ])
         );
+    });
+
+    bot.action(/^feedback_skip_(.+)$/, async (ctx) => {
+        const orderId = ctx.match[1];
+        await ctx.answerCbQuery();
+        const { getAndClearPendingFeedback, saveFeedback } = require('../services/database');
+        const pending = await getAndClearPendingFeedback(`telegram_${ctx.from.id}`);
+        if (pending) {
+            await saveFeedback(orderId, parseInt(pending.rate), "Aucun commentaire");
+        }
+        await safeEdit(ctx, "🙏 Merci pour votre note !", Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu', 'main_menu')]]));
     });
 
     bot.action(/^feedback_rate_(.+)_(.+)$/, async (ctx) => {
@@ -1032,14 +1109,21 @@ function setupOrderSystem(bot) {
         const { setPendingFeedback } = require('../services/database');
         await setPendingFeedback(`telegram_${ctx.from.id}`, orderId, rate);
 
-        await safeEdit(ctx, `✍️ <b>Un dernier mot ?</b>\n\nEnvoyez maintenant votre commentaire en répondant simplement à ce message (ex: "Livraison rapide, au top !") :`);
+        await safeEdit(ctx,
+            `✍️ <b>Un dernier mot ?</b>\n\nEnvoyez votre commentaire en répondant à ce message (ex: "Livraison rapide, au top !") :`,
+            Markup.inlineKeyboard([
+                [Markup.button.callback('⏭ Passer cette étape', `feedback_skip_${orderId}`)]
+            ])
+        );
     });
 
-    // Capture du commentaire feedback
+    // Capture des messages spéciaux (Feedback, Retard, Chat)
     bot.on('message', async (ctx, next) => {
-        const { getAndClearPendingFeedback, saveFeedback } = require('../services/database');
-        const pending = await getAndClearPendingFeedback(`telegram_${ctx.from.id}`);
+        const { getAndClearPendingFeedback, saveFeedback, getOrder } = require('../services/database');
+        const userId = `telegram_${ctx.from.id}`;
 
+        // 1. Feedback
+        const pending = await getAndClearPendingFeedback(userId);
         if (pending) {
             const { orderId, rate } = pending;
             const text = ctx.message.text;
@@ -1071,7 +1155,7 @@ function setupOrderSystem(bot) {
 
                     // Notifier le livreur si assigné
                     if (order.livreur_id) {
-                        ctx.telegram.sendMessage(order.livreur_id, `👏 <b>Félicitations !</b>\n\nUn client a laissé une note pour votre livraison :\n\n${stars}\n"<i>${text}</i>"`, { parse_mode: 'HTML' }).catch(() => { });
+                        bot.telegram.sendMessage(order.livreur_id.replace('telegram_', ''), `👏 <b>Félicitations !</b>\n\nUn client a laissé une note pour votre livraison :\n\n${stars}\n"<i>${text}</i>"`, { parse_mode: 'HTML' }).catch(() => { });
                     }
                 }
             } catch (e) {
@@ -1080,26 +1164,69 @@ function setupOrderSystem(bot) {
 
             const thankMsg = await ctx.reply('🙏 Merci pour votre retour ! Votre avis a bien été enregistré.');
 
-            // Après 35s : vider et réafficher le menu principal
+            // Après 10s : vider et réafficher le menu principal
             setTimeout(async () => {
                 try {
-                    // Supprimer le message de remerciement et le commentaire de l'utilisateur
                     await ctx.deleteMessage(thankMsg.message_id).catch(() => { });
                     await ctx.deleteMessage(ctx.message.message_id).catch(() => { });
-
-                    // Réafficher le menu principal
-                    const { getAppSettings, getUser } = require('../services/database');
-                    const { getMainMenuKeyboard } = require('./start');
-                    const settings = await getAppSettings();
-                    const user = await getUser(`telegram_${ctx.from.id}`);
-                    const menuText = `📋 <b>Menu principal</b>`;
-                    const keyboard = getMainMenuKeyboard(settings, user);
-                    await ctx.telegram.sendMessage(ctx.chat.id, menuText, { parse_mode: 'HTML', ...keyboard });
-                } catch (e) { console.error('Post-feedback cleanup error:', e.message); }
-            }, 35000);
+                } catch (e) { }
+            }, 10000);
 
             return;
         }
+
+        // 2. Retard Livreur
+        if (ctx.state.awaiting_delay_reason) {
+            const orderId = ctx.state.awaiting_delay_reason;
+            const order = await getOrder(orderId);
+            if (order) {
+                const count = (parseInt(order.chat_count) || 0);
+                if (count >= 3) {
+                    await ctx.reply("❌ Impossible d'envoyer : Limite de 3 échanges déjà atteinte pour cette commande.");
+                } else {
+                    const reason = ctx.message.text;
+                    const newCount = await incrementChatCount(orderId);
+
+                    bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
+                        `⚠️ <b>Un retard est à prévoir</b>\n\nVotre livreur nous signale un imprévu :\n"<i>${reason}</i>"\n\nIl fait le maximum pour arriver vite !${newCount >= 3 ? '\n\n<i>(Limite d\'échanges atteinte pour cette commande)</i>' : ''}`,
+                        {
+                            parse_mode: 'HTML',
+                            ...Markup.inlineKeyboard([
+                                ...(newCount < 3 ? [[Markup.button.callback('💬 Répondre au livreur', `chat_livreur_${orderId}`)]] : []),
+                                [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]
+                            ])
+                        }
+                    );
+                    await ctx.reply(`✅ Notification envoyée (${newCount}/3).`);
+                }
+            }
+            delete ctx.state.awaiting_delay_reason;
+            return;
+        }
+
+        // 3. Réponse Client -> Livreur
+        if (ctx.state.awaiting_chat_reply) {
+            const orderId = ctx.state.awaiting_chat_reply;
+            const order = await getOrder(orderId);
+            if (order && order.livreur_id) {
+                const count = (parseInt(order.chat_count) || 0);
+                if (count >= 3) {
+                    await ctx.reply("❌ Limite d'échanges atteinte.");
+                } else {
+                    const reply = ctx.message.text;
+                    const newCount = await incrementChatCount(orderId);
+
+                    bot.telegram.sendMessage(order.livreur_id.replace('telegram_', ''),
+                        `💬 <b>Réponse du client (Commande #${orderId.substring(0, 5)})</b>\n\n"<i>${reply}</i>"${newCount >= 3 ? '\n\n⚠️ <i>Dernier message autorisé envoyé.</i>' : ''}`,
+                        { parse_mode: 'HTML' }
+                    );
+                    await ctx.reply(`✅ Votre message a été transmis (${newCount}/3).`);
+                }
+            }
+            delete ctx.state.awaiting_chat_reply;
+            return;
+        }
+
         await next();
     });
 
@@ -1182,6 +1309,77 @@ function setupOrderSystem(bot) {
                 ])
             }
         );
+    });
+
+    // --- Système d'Aide ---
+    bot.action('help_menu', async (ctx) => {
+        await ctx.answerCbQuery();
+        const settings = await getAppSettings();
+        const activeOrders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
+
+        let text = `<b>${settings.label_help || 'Aide / Support'}</b>\n\n` +
+            `${settings.msg_help_intro || 'Besoin d\'aide ? Choisissez une option ci-dessous :'}`;
+
+        const buttons = [];
+        if (activeOrders.length > 0) {
+            buttons.push([Markup.button.callback('⏳ Où en est ma livraison ?', 'help_where_is_my_order')]);
+        }
+
+        buttons.push([Markup.button.callback('📞 Parler à l\'Admin', 'help_chat_admin')]);
+        buttons.push([Markup.button.callback('◀️ Retour Menu', 'main_menu')]);
+
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action('help_where_is_my_order', async (ctx) => {
+        await ctx.answerCbQuery();
+        const orders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
+        if (orders.length === 0) return ctx.reply("Vous n'avez pas de commande en cours.");
+
+        const latest = orders[0];
+        const shortId = latest.id.substring(0, 5);
+
+        // Logger la demande
+        await logHelpRequest(latest.id, 'WHERE_IS_MY_ORDER', 'Le client demande où est sa commande.');
+
+        // Notifier le livreur
+        if (latest.livreur_id) {
+            bot.telegram.sendMessage(latest.livreur_id.replace('telegram_', ''),
+                `❓ <b>DEMANDE CLIENT (ID #${shortId})</b>\n\nLe client demande où vous en êtes pour sa livraison.\nMerci de lui envoyer une estimation ASAP via le menu livreur !`,
+                { parse_mode: 'HTML' }
+            ).catch(() => { });
+        }
+
+        // Notifier Admin
+        const settings = await getAppSettings();
+        if (settings.admin_telegram_id) {
+            const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
+            const alertMsg = `❓ <b>DEMANDE "OÙ EST MA COMMANDE"</b>\n\n🆔 ID : <code>#${shortId}</code>\n👤 Client : ${ctx.from.first_name}`;
+            for (const adminId of adminIds) {
+                bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+            }
+        }
+
+        await safeEdit(ctx, `✅ <b>Votre demande a été transmise !</b>\n\nLe livreur (ID #${shortId}) a été notifié de votre attente. Il reviendra vers vous très vite par message.`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'help_menu')]])
+        );
+    });
+
+    bot.action('help_chat_admin', async (ctx) => {
+        await ctx.answerCbQuery();
+        const settings = await getAppSettings();
+        if (settings.private_contact_url) {
+            return safeEdit(ctx, `💬 <b>Besoin d'un admin ?</b>\n\nCliquez sur le bouton ci-dessous pour ouvrir une discussion directe :`,
+                Markup.inlineKeyboard([
+                    [Markup.button.url('📲 Parler à l\'Admin', settings.private_contact_url)],
+                    [Markup.button.callback('◀️ Retour', 'help_menu')]
+                ])
+            );
+        } else {
+            return safeEdit(ctx, `💬 <b>Discussion Admin</b>\n\nL'admin n'a pas configuré de lien de contact direct.\n\nVous pouvez cliquer sur le bouton Aide pour revenir ou contacter le support via le canal officiel.`,
+                Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'help_menu')]])
+            );
+        }
     });
 
     // Mode client pour les livreurs

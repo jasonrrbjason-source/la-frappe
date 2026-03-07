@@ -289,6 +289,7 @@ function getMainMenuKeyboard(settings, user = null) {
         [Markup.button.callback(`${settings.ui_icon_channel} ${settings.label_channel}`, 'channel_link')],
         [Markup.button.callback(`${settings.ui_icon_welcome} ${settings.label_welcome}`, 'welcome_message')],
         [Markup.button.callback(`${settings.ui_icon_profile} ${settings.label_profile}`, 'my_referrals')],
+        [Markup.button.callback(`${settings.ui_icon_help || '❓'} ${settings.label_help || 'Aide / Support'}`, 'help_menu')],
     ];
 
     // Vérifier si un panier existe pour proposer de le reprendre

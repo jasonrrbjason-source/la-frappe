@@ -29,9 +29,11 @@ async function broadcastMessage(platform, message, options = {}) {
     else if (platform === 'groups') bType = 'group';
     else if (platform === 'livreurs') bType = 'livreurs';
 
-    const targets = await getAllActiveUsers('telegram', bType);
+    // On récupère TOUTES les cibles sans filtrer par plateforme pour être sûr de n'oublier personne
+    // Et si on cible les 'users', on prend tout ce qui n'est pas un groupe (pour inclure les types non définis)
+    const targets = await getAllActiveUsers(null, bType);
     const totalTargets = targets.length;
-    debugLog(`[BC-TARGETS] ${totalTargets} cibles trouvées (Platform: ${platform}, InternalType: ${bType}).`);
+    debugLog(`[BC-TARGETS] ${totalTargets} cibles trouvées (Argument Platform: ${platform}, InternalType: ${bType}).`);
 
     if (totalTargets === 0) {
         return { success: 0, failed: 0, blocked: 0, total: 0 };

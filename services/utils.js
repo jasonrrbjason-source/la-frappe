@@ -76,7 +76,12 @@ async function safeEdit(ctx, text, opts = {}) {
             if (newId) toDelete.delete(String(newId));
 
             for (const mid of toDelete) {
-                await ctx.telegram.deleteMessage(chatId, parseInt(mid)).catch(() => { });
+                await ctx.telegram.deleteMessage(chatId, parseInt(mid)).catch(e => {
+                    const desc = String(e.description || e.message || '').toLowerCase();
+                    if (!desc.includes('message to delete not found')) {
+                        console.warn(`safeEdit: Cleanup failed for ${mid}:`, e.message);
+                    }
+                });
             }
         } catch (e) {
             console.error('safeEdit Cleanup Error:', e.message);
@@ -94,7 +99,8 @@ async function safeEdit(ctx, text, opts = {}) {
                     if (!wantMedia) {
                         await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
                     } else {
-                        await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, {
+                        // CRITICAL FIX: Positional arguments for editMessageMedia (chatId, msgId, inlineId, media, extra)
+                        await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, null, {
                             type: photo ? 'photo' : 'video',
                             media: photo || video,
                             caption: text,

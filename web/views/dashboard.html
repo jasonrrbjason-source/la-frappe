@@ -1852,9 +1852,9 @@
                 if (r.photos && r.photos.length > 0) {
                     const firstPhoto = r.photos[0];
                     if (firstPhoto.includes('/') || firstPhoto.startsWith('http')) {
-                        photoHtml = `<img src="${firstPhoto}" style="width:40px; height:40px; cursor:pointer; object-fit:cover; border-radius:6px; border:1px solid var(--border);" onclick="window.open('${firstPhoto}')" title="Agrandir">`;
+                        photoHtml = `<img src="${firstPhoto}" style="width:60px; height:60px; cursor:pointer; object-fit:cover; border-radius:10px; border:1px solid var(--border);" onclick="window.open('${firstPhoto}')" title="Agrandir">`;
                     } else {
-                        photoHtml = `<div style="padding:4px; background:var(--hover); border-radius:6px; font-size:9px; color:var(--text-muted); text-align:center; width:40px;">IMG TG</div>`;
+                        photoHtml = `<div style="padding:4px; background:var(--hover); border-radius:6px; font-size:10px; color:var(--text-muted); text-align:center; width:60px;">PHOTO TG</div>`;
                     }
                 }
 

@@ -1330,22 +1330,33 @@ function setupOrderSystem(bot) {
     bot.action('view_reviews', async (ctx) => {
         await ctx.answerCbQuery();
         const { getPublicReviews } = require('../services/database');
-        const reviews = await getPublicReviews(10);
+        const reviews = await getPublicReviews(5); // Show last 5 in detail
 
         if (reviews.length === 0) {
             return safeEdit(ctx, "📭 Aucun avis pour le moment. Soyez le premier !", Markup.inlineKeyboard([[Markup.button.callback('⭐️ Laisser un avis', 'leave_review')], [Markup.button.callback('◀️ Menu', 'main_menu')]]));
         }
 
-        let text = `👥 <b>Avis de la famille (10 derniers)</b>\n\n`;
-        reviews.forEach(r => {
-            const stars = '⭐'.repeat(r.rating);
+        // Send each review as a separate message to handle photos
+        for (const r of reviews) {
+            const stars = '⭐'.repeat(r.rating || 0);
             const date = new Date(r.created_at).toLocaleDateString('fr-FR');
-            text += `${stars}\n"<i>${r.text || 'Sans commentaire'}</i>"\n👤 <b>Anonyme</b> - ${date}\n\n`;
-        });
+            const text = `<b>Avis de la famille</b>\n\n${stars}\n"<i>${r.text || 'Sans commentaire'}</i>"\n👤 <b>${r.first_name || 'Anonyme'}</b> - ${date}`;
 
-        await safeEdit(ctx, text, Markup.inlineKeyboard([
+            if (r.photos && r.photos.length > 0) {
+                const photo = r.photos[0];
+                if (photo.startsWith('http')) {
+                    await ctx.replyWithPhoto(photo, { caption: text, parse_mode: 'HTML' }).catch(() => ctx.reply(text, { parse_mode: 'HTML' }));
+                } else {
+                    await ctx.reply(text, { parse_mode: 'HTML' });
+                }
+            } else {
+                await ctx.reply(text, { parse_mode: 'HTML' });
+            }
+        }
+
+        await ctx.reply('🏮 <i>Fin des avis récents.</i>', Markup.inlineKeyboard([
             [Markup.button.callback('⭐️ Laisser un avis', 'leave_review')],
-            [Markup.button.callback('◀️ Retour', 'main_menu')]
+            [Markup.button.callback('◀️ Retour Menu', 'main_menu')]
         ]));
     });
 

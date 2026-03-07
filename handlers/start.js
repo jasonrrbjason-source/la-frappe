@@ -65,7 +65,10 @@ function setupStartHandler(bot) {
             }
 
             const keyboard = registeredUser.is_livreur ? getLivreurMenuKeyboard(settings, registeredUser, hasActive) : getMainMenuKeyboard(settings, registeredUser);
-            await safeEdit(ctx, welcomeText, keyboard);
+            await safeEdit(ctx, welcomeText, {
+                photo: settings.welcome_photo || null,
+                ...keyboard
+            });
 
             // Forcer le bouton "Menu" au lieu de "Démarrer"
             ctx.telegram.setChatMenuButton(ctx.chat.id, { type: 'commands' }).catch(() => { });
@@ -239,7 +242,10 @@ function setupStartHandler(bot) {
             keyboard = getLivreurMenuKeyboard(settings, user, hasActive);
         }
 
-        await safeEdit(ctx, text, keyboard);
+        await safeEdit(ctx, text, {
+            photo: settings.welcome_photo || null,
+            ...keyboard
+        });
     });
 
     // ========== GESTION GPS / LOCALISATION ==========

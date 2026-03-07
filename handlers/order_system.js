@@ -171,7 +171,7 @@ function setupOrderSystem(bot) {
     async function showAddToCartChoice(ctx, product, qty, totalPrice, unitAmount = null) {
         const userId = ctx.from.id;
         const pending = pendingOrders.get(userId);
-        if (!pending) return ctx.reply("Session expirée."); // Sécurité
+        if (!pending) return safeEdit(ctx, "❌ Session expirée.", Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
         if (unitAmount) pending.chosen_unit_amount = unitAmount;
 
         const text = `🛒 <b>Sélection : ${qty}x ${product.name}${unitAmount ? ` (${unitAmount})` : ''}</b>\n` +
@@ -196,7 +196,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery('Ajouté au panier ! 🛒');
         const userId = ctx.from.id;
         const pending = pendingOrders.get(userId);
-        if (!pending) return ctx.reply("Session expirée.");
+        if (!pending) return safeEdit(ctx, "❌ Session expirée.", Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
         let cart = userCarts.get(userId) || [];
         cart.push(pending);
@@ -292,7 +292,7 @@ function setupOrderSystem(bot) {
     async function startCheckout(ctx) {
         const userId = ctx.from.id;
         const cart = userCarts.get(userId) || [];
-        if (cart.length === 0) return ctx.reply("Votre panier est vide.");
+        if (cart.length === 0) return safeEdit(ctx, "📭 Votre panier est vide.", Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
 
         const settings = ctx.state.settings;
         const minOrder = settings.fidelity_min_spend || 50;
@@ -364,7 +364,7 @@ function setupOrderSystem(bot) {
         const products = await getProducts();
         const product = products.find(p => p.id === pId);
 
-        if (!product) return ctx.reply("Produit non trouvé.");
+        if (!product) return safeEdit(ctx, "❌ Produit non trouvé.", Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
 
         const baseVal = parseFloat(product.unit_value) || 1;
         let finalPrice = ((product.price / baseVal) * amount * qty).toFixed(2);
@@ -1405,7 +1405,7 @@ function setupOrderSystem(bot) {
 
             await sendFeedbackNotifications(orderId, rate, text, ctx);
 
-            await ctx.reply(
+            await safeEdit(ctx,
                 '🙏 <b>Merci pour votre retour !</b>\n\nVotre avis a bien été enregistré. 🏮',
                 { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu', 'main_menu')]]) }
             );

@@ -6,163 +6,77 @@ const { getLastMenuId, addMessageToTrack, getUser } = require('./database');
  */
 async function safeEdit(ctx, text, opts = {}) {
     const isGroup = ctx.chat.type !== 'private';
-    const trackId = isGroup ? `telegram_${ctx.chat.id}` : `telegram_${ctx.from.id}`;
+    const userId = isGroup ? `telegram_${ctx.chat.id}` : `telegram_${ctx.from.id}`;
     const chatId = ctx.chat.id;
 
-    // Détection et extraction des médias
+    // Détection des médias
     let photo = opts.photo || null;
     const video = opts.video || null;
-    const mediaGroup = opts.mediaGroup || null;
 
-    if (photo && typeof photo === 'string') {
-        // 1. Extraction si c'est une liste (JSON ou CSV)
-        if (photo.startsWith('[') && photo.endsWith(']')) {
-            try {
-                const arr = JSON.parse(photo);
-                if (arr.length > 0) photo = typeof arr[0] === 'string' ? arr[0] : (arr[0].url || arr[0].path || '');
-            } catch (e) { }
-        } else if (photo.includes(',') && !photo.startsWith('http')) {
-            // Cas CSV type "uploads/123.jpg, uploads/456.jpg"
-            photo = photo.split(',')[0].trim();
-        } else if (photo.includes(',') && photo.startsWith('http')) {
-            // Cas CSV type "https://site.com/1.jpg, https://site.com/2.jpg"
-            photo = photo.split(',')[0].trim();
-        }
-
-        // 2. Résolution des chemins relatifs
-        if (photo && !photo.startsWith('http') && !photo.startsWith('data:')) {
-            const settings = ctx.state?.settings || {};
-            const baseUrl = settings.dashboard_url ? settings.dashboard_url.replace(/\/$/, '') : '';
-            const cleanPath = photo.startsWith('/') ? photo : '/' + photo;
-            photo = baseUrl + cleanPath;
-        }
-    }
-
-    delete opts.photo;
-    delete opts.video;
-    delete opts.mediaGroup;
-
-    // Normalisation du clavier (Telegraf Markup vs Plain Object)
-    let reply_markup = null;
-    if (opts.reply_markup) {
-        reply_markup = opts.reply_markup;
-    } else if (opts.inline_keyboard) {
-        reply_markup = opts;
-    } else if (Array.isArray(opts)) {
-        reply_markup = { inline_keyboard: opts };
-    }
-
-    const extra = {
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-        reply_markup: reply_markup
-    };
+    // Normalisation du clavier
+    let reply_markup = opts.reply_markup || (opts.inline_keyboard ? opts : (Array.isArray(opts) ? { inline_keyboard: opts } : null));
+    const extra = { parse_mode: 'HTML', disable_web_page_preview: true, reply_markup };
 
     try {
         const currentMsg = ctx.callbackQuery?.message;
+        const user = await getUser(userId); // Bypassing local state to get true last_menu_id
 
-        // --- TENTATIVE 1 : EDIT FLUIDE (Même type de message pour éviter l'évanescence) ---
+        // 1. TENTATIVE D'EDIT (Dynamic)
         if (currentMsg) {
-            const hasPhoto = !!currentMsg.photo;
-            const hasVideo = !!currentMsg.video;
-            const hasTextOnly = !hasPhoto && !hasVideo && !currentMsg.media_group_id;
+            const hasMedia = !!(currentMsg.photo || currentMsg.video);
+            const wantMedia = !!(photo || video);
 
-            // CAS A : TEXTE -> TEXTE
-            if (hasTextOnly && !photo && !video && !mediaGroup) {
+            // CASE: Text -> Text
+            if (!hasMedia && !wantMedia) {
                 try {
                     await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
-                    await addMessageToTrack(trackId, currentMsg.message_id).catch(() => { });
+                    await addMessageToTrack(userId, currentMsg.message_id);
                     return;
-                } catch (err) {
-                    if (err.description && err.description.includes('message is not modified')) return;
-                }
+                } catch (e) { if (!e.description.includes('not modified')) throw e; }
             }
 
-            // CAS B : PHOTO -> PHOTO ou VIDEO -> VIDEO (Edit Media)
-            if (((hasPhoto && photo) || (hasVideo && video)) && !mediaGroup) {
+            // CASE: Media -> Media (Photo or Video)
+            if (hasMedia && wantMedia) {
                 try {
                     await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, null, {
                         type: photo ? 'photo' : 'video',
                         media: photo || video,
                         caption: text,
                         parse_mode: 'HTML'
-                    }, { reply_markup: extra.reply_markup });
-                    await addMessageToTrack(trackId, currentMsg.message_id).catch(() => { });
+                    }, { reply_markup });
+                    await addMessageToTrack(userId, currentMsg.message_id);
                     return;
-                } catch (e) {
-                    if (e.description && e.description.includes('message is not modified')) return;
-                    // Fallback if edit fails for other reasons (e.g. media type change or network)
-                }
+                } catch (e) { if (!e.description.includes('not modified')) throw e; }
             }
         }
 
-        // --- TENTATIVE 2 : SEND PUIS DELETE (Évite le bouton "Start" et l'écran vide) ---
-
-        // 1. Envoi du nouveau menu d'abord
-        let newMsgs = [];
-        if (mediaGroup && mediaGroup.length > 0) {
-            const mediaWithCaption = mediaGroup.map((m, i) => ({
-                ...m,
-                caption: i === 0 ? text : '',
-                parse_mode: 'HTML'
-            }));
-            const msgs = await ctx.replyWithMediaGroup(mediaWithCaption);
-            if (Array.isArray(msgs)) msgs.forEach(m => newMsgs.push(m));
-
-            const menuMsg = await ctx.replyWithHTML('<b>Options :</b>', extra);
-            if (menuMsg) newMsgs.push(menuMsg);
-        } else if (photo) {
-            const m = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
-            if (m) newMsgs.push(m);
-        } else if (video) {
-            const m = await ctx.replyWithVideo(video, { caption: text, ...extra });
-            if (m) newMsgs.push(m);
-        } else {
-            const m = await ctx.replyWithHTML(text, extra);
-            if (m) newMsgs.push(m);
+        // 2. TENTATIVE DE DELETE OLD (Vortex)
+        const oldMenuId = (currentMsg ? currentMsg.message_id : null) || (user ? user.last_menu_id : null);
+        if (oldMenuId) {
+            await ctx.telegram.deleteMessage(chatId, oldMenuId).catch(() => { });
         }
 
-        // 2. Tracking des nouveaux messages (en arrière-plan pour ne pas bloquer)
-        const trackingPromises = newMsgs.map(m => addMessageToTrack(trackId, m.message_id).catch(() => { }));
-
-        // 3. Nettoyage ACCÉLÉRÉ (Transition Flux Constant)
-        // Utiliser l'utilisateur du state s'il existe pour éviter un appel DB
-        const user = ctx.state?.user || await getUser(trackId);
-        const newIdsStrings = newMsgs.map(m => String(m.message_id));
-        const currentMsgIdStr = currentMsg ? String(currentMsg.message_id) : null;
-
-        const deletePromises = [];
-
-        // Supprimer l'ancien last_menu_id
-        if (user && user.last_menu_id) {
-            const lastIdStr = String(user.last_menu_id);
-            if (!newIdsStrings.includes(lastIdStr)) {
-                deletePromises.push(ctx.telegram.deleteMessage(chatId, user.last_menu_id).catch(() => { }));
-            }
-        }
-
-        // Supprimer le message actuel s'il n'a pas été supprimé par last_menu_id
-        if (currentMsg && !newIdsStrings.includes(currentMsgIdStr)) {
-            deletePromises.push(ctx.telegram.deleteMessage(chatId, currentMsg.message_id).catch(() => { }));
-        }
-
-        // Supprimer TOUS les anciens messages traqués (Garantit un seul message)
+        // Supprimer aussi tous les messages traqués (pour être sûr qu'il n'en reste qu'un)
         if (user && user.tracked_messages && user.tracked_messages.length > 0) {
             for (const mid of user.tracked_messages) {
-                const midStr = String(mid);
-                if (!newIdsStrings.includes(midStr) && midStr !== currentMsgIdStr) {
-                    deletePromises.push(ctx.telegram.deleteMessage(chatId, mid).catch(() => { }));
-                }
+                if (mid !== oldMenuId) ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
             }
         }
 
-        // Exécuter le nettoyage en arrière-plan pour une réponse instantanée
-        Promise.all([...trackingPromises, ...deletePromises]).catch(() => { });
+        // 3. ENVOI DU NOUVEAU
+        let newMsg;
+        if (photo) newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
+        else if (video) newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra });
+        else newMsg = await ctx.replyWithHTML(text, extra);
+
+        if (newMsg) {
+            await addMessageToTrack(userId, newMsg.message_id);
+        }
 
     } catch (e) {
-        console.error('❌ SafeEdit CRITICAL error:', e.message);
-        const lastResort = await ctx.replyWithHTML(text, extra).catch(() => { });
-        if (lastResort) addMessageToTrack(trackId, lastResort.message_id).catch(() => { });
+        console.error('❌ SafeEdit Error:', e.message);
+        const fallback = await ctx.replyWithHTML(text, extra).catch(() => { });
+        if (fallback) addMessageToTrack(userId, fallback.message_id);
     }
 }
 

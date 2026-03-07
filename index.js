@@ -113,10 +113,13 @@ async function main() {
 
     // ERROR HANDLER — empêche le bot de crash sur une erreur
     bot.catch(async (err, ctx) => {
-        console.error(`❌ Erreur bot [${ctx.updateType}]:`, err.message);
+        console.error(`❌ Bot Error [${ctx.updateType}]:`, err.message);
         try {
-            const { safeEdit } = require('./services/utils');
-            await safeEdit(ctx, '⚠️ Une erreur est survenue, réessayez.').catch(() => { });
+            if (ctx.callbackQuery) {
+                await ctx.answerCbQuery("⚠️ Une erreur technique est survenue.", { show_alert: true }).catch(() => { });
+            } else {
+                await ctx.reply("⚠️ Désolé, une erreur est survenue. Retour au menu : /start").catch(() => { });
+            }
         } catch (e) { }
     });
 

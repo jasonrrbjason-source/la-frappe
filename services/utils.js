@@ -23,17 +23,7 @@ async function safeEdit(ctx, text, opts = {}) {
     if (photo && typeof photo === 'string' && !photo.startsWith('http') && !photo.startsWith('data:')) {
         const settings = ctx.state?.settings || {};
         const baseUrl = (settings.dashboard_url || '').replace(/\/$/, '');
-        if (photo.startsWith('[') && photo.endsWith(']')) {
-            try {
-                const arr = JSON.parse(photo);
-                if (arr.length > 0) {
-                    const first = typeof arr[0] === 'string' ? arr[0] : (arr[0].url || arr[0].path || '');
-                    photo = first.startsWith('http') ? first : baseUrl + (first.startsWith('/') ? '' : '/') + first;
-                }
-            } catch (e) { }
-        } else {
-            photo = baseUrl + (photo.startsWith('/') ? '' : '/') + photo;
-        }
+        photo = baseUrl + (photo.startsWith('/') ? '' : '/') + photo;
     }
 
     let reply_markup = opts.reply_markup || (opts.inline_keyboard ? opts : (Array.isArray(opts) ? { inline_keyboard: opts } : null));
@@ -43,61 +33,67 @@ async function safeEdit(ctx, text, opts = {}) {
 
     try {
         const currentMsg = ctx.callbackQuery?.message;
-        const user = await getUser(userId);
+        const user = await getUser(userId).catch(() => null);
 
-        // A. TENTATIVE D'EDIT (Dynamic) - Le plus propre si possible
+        // A. TENTATIVE D'EDIT SI TYPE IDENTIQUE
         if (currentMsg) {
-            const hasMedia = !!(currentMsg.photo || currentMsg.video);
+            const isMediaMsg = !!(currentMsg.photo || currentMsg.video);
             const wantMedia = !!(photo || video);
 
-            if (!hasMedia && !wantMedia) {
+            if (isMediaMsg === wantMedia) {
                 try {
-                    await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
-                    await addMessageToTrack(userId, currentMsg.message_id);
+                    if (!wantMedia) {
+                        await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
+                    } else {
+                        await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, null, {
+                            type: photo ? 'photo' : 'video',
+                            media: photo || video,
+                            caption: text,
+                            parse_mode: 'HTML'
+                        }, { reply_markup });
+                    }
+                    await addMessageToTrack(userId, currentMsg.message_id).catch(() => { });
                     return;
-                } catch (e) { if (!String(e.description || '').includes('not modified')) throw e; return; }
-            }
-
-            if (hasMedia && wantMedia) {
-                try {
-                    await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, null, {
-                        type: photo ? 'photo' : 'video',
-                        media: photo || video,
-                        caption: text,
-                        parse_mode: 'HTML'
-                    }, { reply_markup });
-                    await addMessageToTrack(userId, currentMsg.message_id);
-                    return;
-                } catch (e) { if (!String(e.description || '').includes('not modified')) throw e; return; }
+                } catch (e) {
+                    if (!String(e.description || '').includes('not modified')) {
+                        // Si l'edit échoue vraiment (ex: message supprimé entre temps), on continue en "Send"
+                        console.warn('safeEdit: edit failed, falling back to send', e.message);
+                    } else return;
+                }
             }
         }
 
-        // B. NETTOYAGE AGGRESSIF (Suppression directe de TOUT ce qui précède)
-        const toDelete = new Set();
-        if (currentMsg) toDelete.add(currentMsg.message_id);
-        if (user && user.last_menu_id) toDelete.add(user.last_menu_id);
-        if (user && user.tracked_messages) {
-            user.tracked_messages.forEach(mid => { if (mid) toDelete.add(mid); });
-        }
-
-        for (const mid of toDelete) {
-            await ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
-        }
-
-        // C. ENVOI DU NOUVEAU
+        // B. ENVOI DU NOUVEAU MENU
         let newMsg;
         if (photo) newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
         else if (video) newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra });
         else newMsg = await ctx.replyWithHTML(text, extra);
 
         if (newMsg) {
-            await addMessageToTrack(userId, newMsg.message_id);
+            await addMessageToTrack(userId, newMsg.message_id).catch(() => { });
+        }
+
+        // C. NETTOYAGE APRÈS (Uniquement si le nouveau est visible)
+        const toDelete = new Set();
+        if (currentMsg) toDelete.add(currentMsg.message_id);
+        if (user && user.last_menu_id) toDelete.add(user.last_menu_id);
+        if (user && user.tracked_messages) {
+            user.tracked_messages.forEach(mid => { if (mid && (!newMsg || String(mid) !== String(newMsg.message_id))) toDelete.add(mid); });
+        }
+
+        for (const mid of toDelete) {
+            if (!newMsg || String(mid) !== String(newMsg.message_id)) {
+                await ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
+            }
         }
 
     } catch (e) {
-        console.error('❌ safeEdit Error:', e.message);
-        const fb = await ctx.replyWithHTML(text, extra).catch(() => { });
-        if (fb) addMessageToTrack(userId, fb.message_id);
+        console.error('❌ safeEdit Fatal:', e.message);
+        // Fallback d'urgence
+        try {
+            const fb = await ctx.replyWithHTML(text, extra);
+            if (fb) addMessageToTrack(userId, fb.message_id).catch(() => { });
+        } catch (err) { }
     }
 }
 

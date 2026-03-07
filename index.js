@@ -27,14 +27,14 @@ async function main() {
     setBotInstance(bot);
     setBroadcastBot(bot);
 
+    // 2. Middleware Global : Tracking & Nettoyage
+    const { registerUser, getAppSettings } = require('./services/database');
+
     // Configuration de la carte de partage du bot (Description Telegram)
     getAppSettings().then(settings => {
         if (settings.bot_description) bot.telegram.setMyDescription(settings.bot_description).catch(() => { });
         if (settings.bot_short_description) bot.telegram.setMyShortDescription(settings.bot_short_description).catch(() => { });
     }).catch(() => { });
-
-    // 2. Middleware Global : Tracking & Nettoyage
-    const { registerUser, getAppSettings } = require('./services/database');
     bot.use(async (ctx, next) => {
         try {
             const user = ctx.from;

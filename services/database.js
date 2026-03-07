@@ -1162,11 +1162,16 @@ async function deleteReview(id) {
 async function uploadMediaFromUrl(url, fileName) {
     try {
         const axios = require('axios');
-        const response = await axios.get(url, { responseType: 'arraybuffer' });
-        const buffer = Buffer.from(response.data, 'binary');
+        const response = await axios.get(url, {
+            responseType: 'arraybuffer',
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
+        });
+
+        const buffer = Buffer.from(response.data);
+        const contentType = response.headers['content-type'] || 'image/jpeg';
 
         const { data, error } = await supabase.storage.from('uploads').upload(fileName, buffer, {
-            contentType: response.headers['content-type'],
+            contentType: contentType,
             upsert: true
         });
 
@@ -1175,7 +1180,7 @@ async function uploadMediaFromUrl(url, fileName) {
         return publicUrlData.publicUrl;
     } catch (e) {
         console.error("❌ uploadMediaFromUrl failed:", e.message);
-        return url; // Fallback to provided URL
+        throw e; // Rethrow to allow caller to handle fallback (e.g., use file_id)
     }
 }
 

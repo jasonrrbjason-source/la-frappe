@@ -49,7 +49,11 @@ async function safeEdit(ctx, text, opts = {}) {
             } else photo = cp;
         }
 
-        if (photo && typeof photo === 'string' && !photo.startsWith('http') && !photo.startsWith('data:')) {
+        // Final check: if relative path (not URL, not file_id), add baseUrl
+        // On considère que c'est un file_id si ça n'a pas de / ni de .
+        const isFileId = photo && typeof photo === 'string' && !photo.includes('/') && !photo.includes('.');
+
+        if (photo && typeof photo === 'string' && !photo.startsWith('http') && !photo.startsWith('data:') && !isFileId) {
             photo = baseUrl + (photo.startsWith('/') ? '' : '/') + photo;
         }
     }

@@ -329,9 +329,22 @@ async function getActiveLivreursCount() {
 async function addMessageToTrack(docId, messageId) {
     const user = await getUser(docId);
     if (!user) return;
+
+    // Stratégie : Garder seulement les 10 derniers messages pour éviter l'accumulation
     let tracked = user.tracked_messages || [];
-    if (!tracked.includes(messageId)) tracked.push(messageId);
-    await supabase.from(COL_USERS).update({ tracked_messages: tracked, last_menu_id: messageId }).eq('id', docId);
+    if (!tracked.includes(messageId)) {
+        tracked.push(messageId);
+        // Limiter à 10 messages maximum (FIFO - First In First Out)
+        if (tracked.length > 10) {
+            tracked = tracked.slice(-10); // Garde les 10 derniers
+        }
+    }
+
+    await supabase.from(COL_USERS).update({
+        tracked_messages: tracked,
+        last_menu_id: messageId
+    }).eq('id', docId);
+
     _userCache.delete(docId);
 }
 
@@ -955,6 +968,7 @@ const SETTINGS_DEFAULTS = {
     label_profile: 'Mon Profil & Parrainage',
     label_admin_bot: 'Console Admin (Bot)',
     label_admin_web: 'Dashboard Web',
+    label_livreur: 'Espace Livreur',
     label_livreur_space: 'Espace Livreur',
     status_pending_label: 'EN ATTENTE',
     status_taken_label: 'PRIS EN CHARGE',
@@ -993,6 +1007,31 @@ async function getAppSettings() {
         await supabase.from(COL_SETTINGS).insert([{ id: 'config', ...SETTINGS_DEFAULTS }]);
     } else {
         settings = { ...SETTINGS_DEFAULTS, ...data[0] };
+    }
+
+    // Auto-réparation : si un champ icône contient du texte brut (ex: "test") au lieu d'un emoji, on restaure le défaut
+    const repairs = {};
+    for (const key of Object.keys(SETTINGS_DEFAULTS)) {
+        if (key.startsWith('ui_icon_') && settings[key] && typeof settings[key] === 'string') {
+            const val = settings[key].trim();
+            if (/^[a-zA-Z0-9_\s]+$/.test(val)) {
+                settings[key] = SETTINGS_DEFAULTS[key];
+                repairs[key] = SETTINGS_DEFAULTS[key];
+            }
+        }
+    }
+    // Synchroniser label_livreur et label_livreur_space
+    if (settings.label_livreur && /^test\s/i.test(settings.label_livreur)) {
+        settings.label_livreur = SETTINGS_DEFAULTS.label_livreur;
+        repairs.label_livreur = SETTINGS_DEFAULTS.label_livreur;
+    }
+    if (!settings.label_livreur && settings.label_livreur_space) {
+        settings.label_livreur = settings.label_livreur_space;
+    }
+    // Persister les réparations en base
+    if (Object.keys(repairs).length > 0) {
+        console.log('🔧 Auto-repair settings:', Object.keys(repairs).join(', '));
+        supabase.from(COL_SETTINGS).update(repairs).eq('id', 'config').then(() => { }).catch(() => { });
     }
 
     _settingsCache = settings;

@@ -5,7 +5,7 @@ const {
     getOrder, getAppSettings, setLivreurAvailability,
     incrementOrderCount, getAllLivreurs, _userCache,
     getClientActiveOrders, logHelpRequest, saveClientReply, incrementChatCount,
-    getAndClearPendingFeedback, saveFeedback
+    getAndClearPendingFeedback, saveFeedback, addMessageToTrack
 } = require('../services/database');
 const { safeEdit, debugLog } = require('../services/utils');
 
@@ -18,6 +18,16 @@ const awaitingDelayReason = new Map();
 const awaitingChatReply = new Map();
 
 function setupOrderSystem(bot) {
+    // Helper universel pour relayer un message à tous les admins
+    async function notifyAdmins(settings, message) {
+        if (!settings || !settings.admin_telegram_id) return;
+        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
+        for (const adminId of adminIds) {
+            if (!adminId) continue;
+            bot.telegram.sendMessage(adminId, message, { parse_mode: 'HTML' }).catch(() => { });
+        }
+    }
+
     // Helper pour envoyer les notifications de feedback
     async function sendFeedbackNotifications(orderId, rate, text, ctx) {
         try {
@@ -702,8 +712,9 @@ function setupOrderSystem(bot) {
             `<i>Ouvrez votre espace livreur pour la prendre.</i>`;
         // Alerte aux admins
         if (ctx.state.settings.admin_telegram_id) {
-            const adminIds = String(ctx.state.settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
+            const adminIds = String(ctx.state.settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
             for (const adminId of adminIds) {
+                if (!adminId) continue;
                 bot.telegram.sendMessage(adminId,
                     `🚨 <b>NOUVELLE COMMANDE !</b>\n\n` +
                     `👤 Client : ${ctx.from.first_name} (@${ctx.from.username})\n` +
@@ -726,13 +737,16 @@ function setupOrderSystem(bot) {
             const allLivreurs = await getAllLivreurs();
             for (const l of allLivreurs) {
                 if (l.platform_id) {
-                    bot.telegram.sendMessage(l.platform_id,
+                    const tgId = String(l.platform_id).replace('telegram_', '');
+                    bot.telegram.sendMessage(tgId,
                         notificationText,
                         {
                             parse_mode: 'HTML',
                             ...Markup.inlineKeyboard([[Markup.button.callback('📦 Voir les commandes', 'show_available_orders')]])
                         }
-                    ).catch(() => { });
+                    ).then(msg => {
+                        if (msg) addMessageToTrack(`telegram_${tgId}`, msg.message_id).catch(() => { });
+                    }).catch(() => { });
                 }
             }
         } catch (e) {
@@ -820,6 +834,9 @@ function setupOrderSystem(bot) {
 
         // 5. Cleanup bouton "Démarrer"
         ctx.telegram.setChatMenuButton(ctx.chat.id, { type: 'commands' }).catch(() => { });
+
+        // 6. Relayer à l'admin
+        notifyAdmins(settings, `🔔 <b>STATUT LIVREUR</b>\n\n👤 ${ctx.from.first_name}\n📍 Secteur : ${city.toUpperCase()}\n🔘 ${isAvailable ? '✅ DISPONIBLE' : '❌ INDISPONIBLE'}`);
     });
 
     bot.command('ma_position', async (ctx) => {
@@ -1005,7 +1022,7 @@ function setupOrderSystem(bot) {
         // Notifier le client avec option d'annulation et aide
         bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
             `🚚 <b>Bonne nouvelle !</b>\n\n` +
-            `Votre commande #${orderId.substring(0, 5)} est prise en charge par <b>La Frappe</b>.\n` +
+            `Votre commande #${orderId.substring(0, 5)} est prise en charge par <b>${settings.bot_name || 'notre équipe'}</b>.\n` +
             `⏳ Une estimation du temps d'arrivé vous sera donnée dans quelques minutes.\n\n` +
             `<i>Besoin de parler au livreur ou à l'admin ? Utilisez les boutons ci-dessous.</i>`,
             {
@@ -1017,6 +1034,9 @@ function setupOrderSystem(bot) {
                 ])
             }
         ).catch(() => { });
+
+        // Relayer à l'admin
+        notifyAdmins(settings, `🚗 <b>COMMANDE ACCEPTÉE</b>\n\n🆔 Commande : <code>#${orderId.substring(0, 5)}</code>\n👤 Livreur : ${ctx.from.first_name}\n📦 Produit : ${order.product_name}\n📍 Adresse : ${order.address}\n💰 Total : ${order.total_price}€`);
     });
 
     bot.action(/^notify_(.+)_(.+)$/, async (ctx) => {
@@ -1045,6 +1065,10 @@ function setupOrderSystem(bot) {
                 ])
             }
         ).catch(() => { });
+
+        // Relayer à l'admin
+        const settings = await getAppSettings();
+        notifyAdmins(settings, `⏳ <b>ETA ENVOYÉ</b>\n\n🆔 Commande : <code>#${orderId.substring(0, 5)}</code>\n👤 Livreur : ${ctx.from.first_name}\n🕒 ETA : ${timeText}`);
     });
 
     bot.action(/^delay_report_(.+)$/, async (ctx) => {
@@ -1143,6 +1167,9 @@ function setupOrderSystem(bot) {
                 }
             ).catch(() => { });
         }
+
+        // Relayer à l'admin
+        notifyAdmins(settings, `✅ <b>COMMANDE LIVRÉE</b>\n\n🆔 Commande : <code>#${orderId.substring(0, 5)}</code>\n👤 Livreur : ${ctx.from.first_name}\n📦 Produit : ${order.product_name}\n💰 Montant : ${order.total_price}€`);
     });
 
     // --- Gestion de l'annulation par le client ---
@@ -1165,6 +1192,7 @@ function setupOrderSystem(bot) {
             const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
             const alertMsg = `⚠️ <b>ANNULATION CLIENT</b>\n\nLa commande <b>#${shortId}</b> a été annulée par le client.\n👤 Client: ${ctx.from.first_name}`;
             for (const adminId of adminIds) {
+                if (!adminId) continue;
                 bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
             }
         }
@@ -1279,7 +1307,7 @@ function setupOrderSystem(bot) {
                         });
 
                         // Alerte aux admins
-                        const settings = ctx.state?.settings;
+                        const settings = ctx.state?.settings || await getAppSettings();
                         if (settings && settings.admin_telegram_id) {
                             const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(idx => idx.trim().replace('telegram_', ''));
                             const alertMsg = `⚠️ <b>SIGNALEMENT RETARD</b>\n\n🆔 Commande : <code>#${shortId}</code>\n👤 Livreur : ${safeHtml(ctx.from.first_name)}\n📝 Motif : "<i>${safeHtml(reason)}</i>"`;
@@ -1288,7 +1316,7 @@ function setupOrderSystem(bot) {
                             }
                         }
 
-                        await ctx.reply(`✅ Notification envoyée (${newCount}/3).`).catch(() => { });
+                        await ctx.reply(`✅ Notification de retard envoyée au client.`).catch(() => { });
                     }
                 }
                 return;
@@ -1305,6 +1333,7 @@ function setupOrderSystem(bot) {
                 const chatData = awaitingChatReply.get(userId);
                 awaitingChatReply.delete(userId);
                 const orderId = chatData.orderId;
+                const order = await getOrder(orderId);
                 if (order) {
                     // SÉCURITÉ : Vérifier si la commande est toujours en cours
                     if (order.status !== 'taken') {
@@ -1327,7 +1356,7 @@ function setupOrderSystem(bot) {
                     const roleLabel = isLivreur ? "livreur" : "client";
                     const targetLabelText = isLivreur ? "le livreur" : "au client"; // Inversé pour la logique de bouton
 
-                    await bot.telegram.sendMessage(targetId,
+                    const chatMsg = await bot.telegram.sendMessage(targetId,
                         `💬 <b>Message du ${roleLabel} (Commande #${shortId})</b>\n\n"<i>${safeHtml(reply)}</i>"\n\n` +
                         `📊 <i>Message ${newCount}/3</i>${newCount >= 3 ? '\n⚠️ <b>Dernier échange consommé.</b>' : ''}`,
                         {
@@ -1337,10 +1366,8 @@ function setupOrderSystem(bot) {
                                 [Markup.button.callback('◀️ Menu', isLivreur ? 'livreur_menu' : 'main_menu')]
                             ])
                         }
-                    ).catch(err => {
-                        console.error(`❌ Send message failed to ${targetId}:`, err.message);
-                        throw err;
-                    });
+                    );
+                    if (chatMsg) addMessageToTrack(`telegram_${targetId}`, chatMsg.message_id).catch(() => { });
 
                     // Alerte aux admins
                     const settings = await getAppSettings();
@@ -1496,6 +1523,7 @@ function setupOrderSystem(bot) {
             const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
             const alertMsg = `❓ <b>DEMANDE "OÙ EST MA COMMANDE"</b>\n\n🆔 ID : <code>#${shortId}</code>\n👤 Client : ${ctx.from.first_name}`;
             for (const adminId of adminIds) {
+                if (!adminId) continue;
                 bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
             }
         }

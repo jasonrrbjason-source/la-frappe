@@ -1345,7 +1345,7 @@ function setupOrderSystem(bot) {
         const { esc } = require('../services/utils');
         const text = `👥 <b>Avis de la famille (${idx + 1}/${reviews.length})</b>\n\n` +
             `${stars}\n"<i>${esc(r.text) || 'Sans commentaire'}</i>"\n` +
-            `👤 <b>${esc(r.first_name) || 'Anonyme'}</b> - ${date}`;
+            `👤 <b>Client de la famille</b> - ${date}`;
 
         const navRow = [];
         if (idx > 0) navRow.push(Markup.button.callback('⬅️ Précédent', `view_reviews_${idx - 1}`));
@@ -1376,7 +1376,7 @@ function setupOrderSystem(bot) {
         const pendingOrderFeedback = await getAndClearPendingFeedback(userId);
         if (pendingOrderFeedback) {
             const { orderId, rate } = pendingOrderFeedback;
-            const text = ctx.message.text;
+            const text = ctx.message.text || ctx.message.caption || "(Avis sans texte)";
             const photo = ctx.message.photo ? ctx.message.photo[ctx.message.photo.length - 1].file_id : null;
 
             // Save to bot_orders feedback fields
@@ -1401,7 +1401,8 @@ function setupOrderSystem(bot) {
                 text,
                 rating: parseInt(rate),
                 order_id: orderId,
-                photos: finalPhotoUrls
+                photos: finalPhotoUrls,
+                is_public: true
             });
 
             await sendFeedbackNotifications(orderId, rate, text, ctx);
@@ -1416,7 +1417,7 @@ function setupOrderSystem(bot) {
         // 2. Generic Review (Not tied to order, or from main menu)
         if (awaitingReviewText.has(userId)) {
             const data = awaitingReviewText.get(userId);
-            const text = ctx.message.text || "(Photo sans texte)";
+            const text = ctx.message.text || ctx.message.caption || "(Avis sans texte)";
             const photo = ctx.message.photo ? ctx.message.photo[ctx.message.photo.length - 1].file_id : null;
             awaitingReviewText.delete(userId);
 

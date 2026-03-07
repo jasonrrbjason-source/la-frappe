@@ -872,7 +872,7 @@ function setupOrderSystem(bot) {
         if (asap.length > 0) {
             asap.forEach(o => {
                 const addr = o.address ? o.address.substring(0, 15) : '?';
-                buttons.push([Markup.button.callback(`🚀 ${o.product_name} - ${o.total_price}€ (${addr})`, `take_order_${o.id}`)]);
+                buttons.push([Markup.button.callback(`🚀 ${o.product_name} - ${o.total_price}€ (${addr}...)`, `view_order_${o.id}`)]);
             });
         } else {
             text = '📭 Aucune commande immédiate (ASAP) disponible.';
@@ -896,7 +896,7 @@ function setupOrderSystem(bot) {
         if (planned.length > 0) {
             planned.forEach(o => {
                 const addr = o.address ? o.address.substring(0, 15) : '?';
-                buttons.push([Markup.button.callback(`🗓 ${o.scheduled_at} - ${o.product_name} (${addr})`, `take_order_${o.id}`)]);
+                buttons.push([Markup.button.callback(`🗓 ${o.scheduled_at} - ${o.product_name} (${addr}...)`, `view_order_${o.id}`)]);
             });
         } else {
             text = '📭 Aucune commande planifiée disponible pour le moment.';
@@ -904,6 +904,31 @@ function setupOrderSystem(bot) {
 
         buttons.push([Markup.button.callback('🔄 Rafraîchir', 'show_planned_orders')]);
         buttons.push([Markup.button.callback('◀️ Retour', 'livreur_menu')]);
+
+        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+    });
+
+    bot.action(/^view_order_(.+)$/, async (ctx) => {
+        await ctx.answerCbQuery();
+        const orderId = ctx.match[1];
+        const order = await getOrder(orderId);
+        const settings = ctx.state.settings;
+
+        if (!order || order.status !== 'pending') {
+            return safeEdit(ctx, '❌ Cette commande n\'est plus disponible.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'show_available_orders')]]));
+        }
+
+        const text = `📦 <b>Détails de la mission #${orderId.substring(0, 5)}</b>\n\n` +
+            `🛒 Produit : <b>${order.product_name}</b>\n` +
+            `📍 Adresse : <code>${order.address || 'Non spécifiée'}</code>\n` +
+            `💰 Total : <b>${order.total_price}€</b>\n` +
+            `🕒 Créneau : <b>${order.scheduled_at ? order.scheduled_at : 'Dès que possible (ASAP)'}</b>\n\n` +
+            `<i>Voulez-vous prendre en charge cette livraison ?</i>`;
+
+        const buttons = [
+            [Markup.button.callback('🔥 ACCEPTER LA MISSION 🔥', `take_order_${orderId}`)],
+            [Markup.button.callback('◀️ Annuler', 'show_available_orders')]
+        ];
 
         await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     });

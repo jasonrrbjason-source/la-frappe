@@ -170,17 +170,19 @@ function setupAdminHandlers(bot) {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
         const livreurs = await searchLivreurs('');
-        const active = livreurs.filter(l => l.is_active && l.is_available);
 
-        if (active.length === 0) return safeEdit(ctx, '❌ Aucun livreur disponible actuellement.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', `admin_order_view_${orderId}`)]]));
+        if (livreurs.length === 0) return safeEdit(ctx, '❌ Aucun livreur enregistré.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', `admin_order_view_${orderId}`)]]));
 
-        const buttons = active.map(l => [Markup.button.callback(`🚴 ${l.first_name} (${l.current_city || '?'})`, `admin_order_do_assign_${orderId}_${l.id}`)]);
+        const buttons = livreurs.map(l => {
+            const dispoIcon = l.is_available ? '🟢' : '🔴';
+            return [Markup.button.callback(`${dispoIcon} ${l.first_name} (${l.current_city || '?'})`, `admin_order_do_assign_${orderId}::${l.id}`)];
+        });
         buttons.push([Markup.button.callback('◀️ Annuler', `admin_order_view_${orderId}`)]);
 
-        await safeEdit(ctx, `🤝 <b>Assignation manuelle</b>\n\nChoisissez le livreur pour la commande #${orderId.slice(-6)} :`, Markup.inlineKeyboard(buttons));
+        await safeEdit(ctx, `🤝 <b>Assignation manuelle</b>\n\nChoisissez le livreur pour la commande #${orderId.slice(-6)} :\n🟢 = Disponible  🔴 = Indisponible`, Markup.inlineKeyboard(buttons));
     });
 
-    bot.action(/^admin_order_do_assign_(.+)_(.+)$/, async (ctx) => {
+    bot.action(/^admin_order_do_assign_(.+?)::(.+)$/, async (ctx) => {
         const [, orderId, lid] = ctx.match;
         const livreur = await getUser(lid);
         if (!livreur) return ctx.answerCbQuery('❌ Erreur');
@@ -388,16 +390,37 @@ function setupAdminHandlers(bot) {
             `📛 Nom Bot : ${s.bot_name}\n` +
             `🔑 Admin Root : <code>${s.admin_telegram_id || 'Non défini'}</code>\n` +
             `👥 Admins supplémentaires : <b>${(s.list_admins || []).length}</b>\n\n` +
-            `💰 Bonus Parrainage : ${s.ref_bonus || 5}€\n` +
-            `🔄 Fidelity : ${s.fidelity_bonus_amount || 10}€ dès ${s.fidelity_bonus_thresholds || '?'} achats\n\n` +
+            `📢 <b>Canal :</b> ${s.channel_url || 'Non configuré'}\n` +
+            `📱 <b>Contact :</b> ${s.private_contact_url || 'Non configuré'}\n\n` +
+            `💰 Bonus Parrainage : ${s.ref_bonus || 5}€\n\n` +
             `<i>Utilisez les boutons ci-dessous pour gérer les admins ou voir la config web complète.</i>`;
 
         await safeEdit(ctx, msg, Markup.inlineKeyboard([
             [Markup.button.callback('👥 Gérer les Admins (+/-)', 'admin_manage_list')],
+            [Markup.button.callback('📢 Changer Lien Canal', 'admin_set_channel')],
+            [Markup.button.callback('📱 Changer Contact Admin', 'admin_set_contact')],
             [Markup.button.url('🌐 Dashboard Web Complet', s.dashboard_url || 'https://google.com')],
             [Markup.button.callback('◀️ Retour', 'admin_menu')]
         ]));
     });
+
+    const pendingSettingsUpdate = new Map();
+
+    bot.action('admin_set_channel', async (ctx) => {
+        await ctx.answerCbQuery();
+        pendingSettingsUpdate.set(ctx.from.id, 'channel_url');
+        await safeEdit(ctx, `📢 <b>Changer le lien du Canal</b>\n\nEnvoyez le nouveau lien (ex: https://t.me/moncanal) :`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', 'admin_settings')]]));
+    });
+
+    bot.action('admin_set_contact', async (ctx) => {
+        await ctx.answerCbQuery();
+        pendingSettingsUpdate.set(ctx.from.id, 'private_contact_url');
+        await safeEdit(ctx, `📱 <b>Changer le contact Admin</b>\n\nEnvoyez le nouveau lien ou username (ex: https://t.me/monuser) :`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', 'admin_settings')]]));
+    });
+
+
 
     // Gestion list_admins (+/-)
     bot.action('admin_manage_list', async (ctx) => {
@@ -457,8 +480,24 @@ function setupAdminHandlers(bot) {
                 callback_query: { id: '0', from: ctx.from, data: 'admin_manage_list', message: ctx.message }
             });
         }
+
+        if (pendingSettingsUpdate.has(ctx.from.id)) {
+            const field = pendingSettingsUpdate.get(ctx.from.id);
+            pendingSettingsUpdate.delete(ctx.from.id);
+            let val = ctx.message.text.trim();
+            if (field.endsWith('_url') && !val.startsWith('http')) {
+                val = 'https://' + val.replace(/^@/, 't.me/');
+            }
+            await updateAppSettings({ [field]: val });
+            await ctx.reply(`✅ Paramètre <b>${field}</b> mis à jour !`, { parse_mode: 'HTML' });
+            return bot.handleUpdate({
+                ...ctx.update,
+                callback_query: { id: '0', from: ctx.from, data: 'admin_settings', message: ctx.message }
+            });
+        }
         return next();
     });
+
 
     // On-onglet des fonctionnalités
     bot.action('admin_features', async (ctx) => {

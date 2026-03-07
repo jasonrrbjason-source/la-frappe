@@ -200,6 +200,14 @@ function setupStartHandler(bot) {
 
     bot.action('main_menu', async (ctx) => {
         await ctx.answerCbQuery();
+        // Nettoyage des états en attente (delay/chat)
+        try {
+            const { awaitingDelayReason, awaitingChatReply } = require('./order_system');
+            const uid = `telegram_${ctx.from.id}`;
+            awaitingDelayReason.delete(uid);
+            awaitingChatReply.delete(uid);
+        } catch (e) { }
+
         const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
 

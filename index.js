@@ -27,9 +27,11 @@ async function main() {
     setBotInstance(bot);
     setBroadcastBot(bot);
 
-    // Suppression de la description "Que peut faire ce bot ?" (Card d'accueil Telegram)
-    bot.telegram.setMyDescription('').catch(() => { });
-    bot.telegram.setMyShortDescription('').catch(() => { });
+    // Configuration de la carte de partage du bot (Description Telegram)
+    getAppSettings().then(settings => {
+        if (settings.bot_description) bot.telegram.setMyDescription(settings.bot_description).catch(() => { });
+        if (settings.bot_short_description) bot.telegram.setMyShortDescription(settings.bot_short_description).catch(() => { });
+    }).catch(() => { });
 
     // 2. Middleware Global : Tracking & Nettoyage
     const { registerUser, getAppSettings } = require('./services/database');

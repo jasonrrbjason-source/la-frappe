@@ -1403,6 +1403,11 @@ function setupOrderSystem(bot) {
 
     bot.action('livreur_menu', async (ctx) => {
         await ctx.answerCbQuery();
+        // Nettoyage des états en attente pour éviter les motifs fantômes
+        const uid = `telegram_${ctx.from.id}`;
+        awaitingDelayReason.delete(uid);
+        awaitingChatReply.delete(uid);
+
         const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
         if (!user || !user.is_livreur) return safeEdit(ctx, '❌ Accès refusé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));

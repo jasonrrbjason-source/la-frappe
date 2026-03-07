@@ -1016,7 +1016,8 @@ const SETTINGS_DEFAULTS = {
     private_contact_url: 'https://t.me/lafrappex',
     channel_url: 'https://t.me/lafrappe_canal',
     bot_description: '🚀 Commandez vos produits préférés et faites-vous livrer rapidement ! Catalogue, suivi en direct et service client intégré.',
-    bot_short_description: '🚀 Livraison rapide en IDF — Commandez maintenant !'
+    bot_short_description: '🚀 Livraison rapide en IDF — Commandez maintenant !',
+    payment_modes: '💵 Espèces'
 };
 
 let _settingsCache = null;
@@ -1142,7 +1143,7 @@ module.exports = {
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,
     createOrder, updateOrderStatus, assignOrderLivreur, getOrder, getAvailableOrders, getAllOrders,
     saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
-    getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
+    getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings, getClientActiveOrders,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getOrdersByUser, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,
     incrementChatCount, saveClientReply, logHelpRequest,

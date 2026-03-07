@@ -35,8 +35,37 @@ async function main() {
         if (settings.bot_description) bot.telegram.setMyDescription(settings.bot_description).catch(() => { });
         if (settings.bot_short_description) bot.telegram.setMyShortDescription(settings.bot_short_description).catch(() => { });
     }).catch(() => { });
+    // Middleware de maintenance - intercept ALL messages
     bot.use(async (ctx, next) => {
         try {
+            const settings = await getAppSettings();
+            
+            // Check if maintenance mode is enabled
+            if (settings.maintenance_mode === true || settings.maintenance_mode === 'true') {
+                const adminContact = settings.maintenance_contact || 'https://t.me/lafrappex';
+                const maintenanceMessage = settings.maintenance_message || '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @lafrappex';
+                
+                if (ctx.callbackQuery) {
+                    await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
+                    return;
+                }
+                
+                if (ctx.message) {
+                    await ctx.reply(maintenanceMessage + `\n\n📱 Contact : ${adminContact}`, { parse_mode: 'HTML' }).catch(() => { });
+                    await ctx.deleteMessage().catch(() => { });
+                    return;
+                }
+                
+                // Pour les autres types de updates, on répond aussi
+                if (ctx.updateType === 'callback_query') {
+                    await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
+                    return;
+                }
+                
+                return;
+            }
+
+            // Continue with normal middleware only if not in maintenance
             const user = ctx.from;
             if (user && !user.is_bot) {
                 // Enregistrement / Mise à jour automatique (inclut last_active)
@@ -49,7 +78,7 @@ async function main() {
                     language_code: user.language_code
                 };
 
-                const [{ user: registeredUser }, settings] = await Promise.all([
+                const [{ user: registeredUser }, currentSettings] = await Promise.all([
                     registerUser(platformUser),
                     getAppSettings()
                 ]);
@@ -62,7 +91,7 @@ async function main() {
                 }
 
                 ctx.state.user = registeredUser;
-                ctx.state.settings = settings;
+                ctx.state.settings = currentSettings;
             } else {
                 ctx.state.settings = await getAppSettings();
             }

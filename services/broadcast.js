@@ -91,6 +91,7 @@ async function broadcastMessage(platform, message, options = {}) {
     let successCount = 0;
     let failedCount = 0;
     let blockedCount = 0;
+    const blockedNames = [];
 
     const currentBatchSize = unifiedMediaList.length > 0 ? MEDIA_BATCH_SIZE : TEXT_BATCH_SIZE;
 
@@ -109,8 +110,10 @@ async function broadcastMessage(platform, message, options = {}) {
                 seederSuccess = true;
                 debugLog("[BC-SEED] Cached Telegram file_ids successfully.");
             } else {
-                if (res.blocked) blockedCount++;
-                else failedCount++;
+                if (res.blocked) {
+                    blockedCount++;
+                    blockedNames.push(seedUser.first_name || seedUser.platform_id);
+                } else failedCount++;
             }
             await new Promise(r => setTimeout(r, 500));
         }
@@ -131,8 +134,10 @@ async function broadcastMessage(platform, message, options = {}) {
                 if (success) {
                     successCount++;
                 } else {
-                    if (blocked) blockedCount++;
-                    else failedCount++;
+                    if (blocked) {
+                        blockedCount++;
+                        blockedNames.push(batch[idx].first_name || batch[idx].platform_id);
+                    } else failedCount++;
                     debugLog(`[BC-FAILED] ${batch[idx].platform_id}: ${error}`);
                 }
             } else {
@@ -152,6 +157,7 @@ async function broadcastMessage(platform, message, options = {}) {
         success: successCount,
         failed: failedCount,
         blocked: blockedCount,
+        blocked_names: blockedNames.length > 0 ? blockedNames.join(', ') : null,
         completed_at: new Date().toISOString()
     }).catch(e => debugLog(`[BC-LOG-ERR] ${e.message}`));
 

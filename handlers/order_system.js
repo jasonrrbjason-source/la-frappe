@@ -1482,21 +1482,6 @@ function setupOrderSystem(bot) {
         );
     });
 
-    // --- Commandes Directes ---
-    bot.command('menu', async (ctx) => {
-        await displayCatalog(ctx);
-    });
-
-    bot.command('orders', async (ctx) => {
-        // Redirige vers my_orders
-        await showMyOrders(ctx);
-    });
-
-    bot.command('help', async (ctx) => {
-        await showHelpMenu(ctx);
-    });
-
-    // --- Fonctions Partagées ---
     // --- COMMANDES TG ---
     bot.command('menu', async (ctx) => displayCatalog(ctx));
     bot.command('orders', async (ctx) => {

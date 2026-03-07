@@ -845,6 +845,7 @@
         <a class="nav-item" onclick="switchSection('logistique')"><i id="nav_icon_logistique">🚚</i> Logistique</a>
         <a class="nav-item" onclick="switchSection('insights')"><i id="nav_icon_insights">📊</i> Insights</a>
         <a class="nav-item" onclick="switchSection('broadcast')"><i id="nav_icon_broadcast">📣</i> Diffusion</a>
+        <a class="nav-item" onclick="switchSection('features')"><i id="nav_icon_features">📖</i> Fonctionnalités</a>
         <a class="nav-item" onclick="switchSection('settings')"><i id="nav_icon_settings">⚙️</i> Paramètres</a>
         <a class="nav-item logout-btn" onclick="logout()"><i>🚪</i> Déconnexion</a>
     </aside>
@@ -1210,6 +1211,107 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </section>
+
+        <!-- FEATURES / GUIDE -->
+        <section class="section" id="section-features">
+            <h1>Fonctionnalités & Guide d'Utilisation</h1>
+
+            <div class="stats-grid">
+                <!-- Commande & Catalogue -->
+                <div class="card">
+                    <div class="stat-badge">🛒</div>
+                    <h3>Catalogue & Commandes</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">
+                        Permet aux clients de naviguer dans vos produits via une interface fluide.
+                        <br><br>
+                        <b>Utilisation :</b> Le client tape /start ou /menu, choisit ses articles, définit la quantité
+                        et
+                        valide son panier.
+                        Le bot gère les calculs de prix et les stocks automatiquement.
+                    </p>
+                </div>
+
+                <!-- Logistique & Livreurs -->
+                <div class="card">
+                    <div class="stat-badge">🛵</div>
+                    <h3>Gestion Logistique</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">
+                        Système d'attribution des commandes aux livreurs disponibles.
+                        <br><br>
+                        <b>Utilisation :</b> Lorsqu'une commande arrive, elle apparaît en "Attente". Vous pouvez
+                        l'assigner à un livreur.
+                        Le livreur reçoit les détails (adresse, contact) et peut signaler son arrivée ou un retard.
+                    </p>
+                </div>
+
+                <!-- Fidélité & Parrainage -->
+                <div class="card">
+                    <div class="stat-badge">⭐️</div>
+                    <h3>Points & Fidélité</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">
+                        Récompensez vos clients fidèles pour chaque achat.
+                        <br><br>
+                        <b>Utilisation :</b> Chaque euro dépensé génère des points (configurable).
+                        À partir d'un certain seuil, ces points sont convertis en crédit dans le portefeuille du client
+                        pour sa prochaine commande.
+                    </p>
+                </div>
+
+                <!-- Support Client (Help) -->
+                <div class="card">
+                    <div class="stat-badge">❓</div>
+                    <h3>Support & Aide</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">
+                        Un menu dédié pour rassurer les clients sur leurs livraisons.
+                        <br><br>
+                        <b>Utilisation :</b> Le bouton "Aide" permet au client de demander "Où est ma commande ?"
+                        ou de contacter directement l'administrateur via un lien de chat privé.
+                    </p>
+                </div>
+
+                <!-- Diffusion (Broadcast) -->
+                <div class="card">
+                    <div class="stat-badge">📢</div>
+                    <h3>Diffusion de Messages</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">
+                        Envoyez des annonces massives à toute votre base d'utilisateurs.
+                        <br><br>
+                        <b>Utilisation :</b> Écrivez votre message, ajoutez des photos/vidéos si besoin, et diffusez
+                        instantanément.
+                        Idéal pour les promos éclair ou les nouveaux arrivages.
+                    </p>
+                </div>
+
+                <!-- Sécurité Admin -->
+                <div class="card">
+                    <div class="stat-badge">🛡️</div>
+                    <h3>Sécurité & Multi-Admin</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin-top:10px;">
+                        Contrôle total sur les accès et bannissement des fauteurs de troubles.
+                        <br><br>
+                        <b>Utilisation :</b> Ajoutez des administrateurs supplémentaires via leurs IDs.
+                        Si un utilisateur pose problème, utilisez la fonction "Bloquer" pour lui interdire l'accès au
+                        bot.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Nouveautés / Détails techniques -->
+            <div class="card" style="margin-top:20px;">
+                <h3>⚡ Fonctions Clés & Astuces</h3>
+                <ul
+                    style="color:var(--text-muted); font-size:14px; margin-left:20px; margin-top:15px; line-height:1.8;">
+                    <li><b>Mode Livraison Directe :</b> Les livreurs peuvent voir les commandes "À proximité" et les
+                        prendre en charge instantanément.</li>
+                    <li><b>Communication Limitée :</b> Les échanges chat (Livreur/Client) sont limités à 3 messages pour
+                        garantir l'efficacité.</li>
+                    <li><b>Paliers de Fidélité :</b> Offrez des bonus automatiques à la 5ème, 10ème ou 15ème commande.
+                    </li>
+                    <li><b>Avis Clients :</b> Les avis laissés après livraison sont visibles dans le Dashboard pour
+                        votre suivi qualité.</li>
+                </ul>
             </div>
         </section>
 
@@ -1728,6 +1830,8 @@
         async function loadData(id, silent = false) {
             // Évite les chargements concurrents
             if (document.body.classList.contains('loading') && !silent) return;
+
+            if (id === 'features') return;
 
             if (id === 'logistique') {
                 const isLivreurs = document.getElementById('btn-tab-livreurs')?.classList.contains('active');

@@ -30,28 +30,38 @@ function setupStartHandler(bot) {
             ctx.state.user = registeredUser; // Update state with registered user info
             await incrementDailyStat('start_commands');
 
-            let welcomeText = "";
-            if (isNew) {
-                welcomeText = `✨ <b>Bienvenue sur ${settings.bot_name}, ${user.first_name} !</b>\n\n` +
-                    `${settings.welcome_message}\n\n` +
-                    `📍 <i>En utilisant ce service, vous acceptez d'être localisé tacitement.</i>\n\n` +
-                    `🔗 <b>Votre lien de parrainage :</b>\n` +
-                    `<code>https://t.me/${ctx.botInfo.username}?start=${registeredUser.referral_code}</code>`;
+            let hasActive = false;
+            if (registeredUser.is_livreur) {
+                const { getLivreurOrders } = require('../services/database');
+                const activeOrders = await getLivreurOrders(registeredUser.id);
+                hasActive = activeOrders.length > 0;
 
-                if (!referrerId) pendingReferralInput.set(docId, true);
+                const city = registeredUser.current_city || registeredUser.data?.current_city || 'Non défini';
+                const isAvail = registeredUser.is_available || registeredUser.data?.is_available;
+
+                welcomeText = `${settings.ui_icon_livreur} <b>Bienvenue, ${user.first_name} !</b>\n\n` +
+                    `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
+                    `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n`;
+
+                if (hasActive) {
+                    welcomeText += `🚀 <b>VOUS AVEZ ${activeOrders.length} COMMANDE(S) EN COURS !</b>\n\n` +
+                        activeOrders.map(o => `📦 #${o.id.substring(0, 5)} - ${o.address || '?'}`).join('\n') +
+                        `\n\n<i>Cliquez sur "Mes livraisons en cours" pour les gérer.</i>`;
+                }
             } else {
-                if (registeredUser.is_livreur) {
-                    const city = registeredUser.current_city || registeredUser.data?.current_city || 'Non défini';
-                    const isAvail = registeredUser.is_available || registeredUser.data?.is_available;
-                    welcomeText = `${settings.ui_icon_livreur} <b>Bienvenue, ${user.first_name} !</b>\n\n` +
-                        `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
-                        `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>`;
+                if (isNew) {
+                    welcomeText = `✨ <b>Bienvenue sur ${settings.bot_name}, ${user.first_name} !</b>\n\n` +
+                        `${settings.welcome_message}\n\n` +
+                        `📍 <i>En utilisant ce service, vous acceptez d'être localisé tacitement.</i>\n\n` +
+                        `🔗 <b>Votre lien de parrainage :</b>\n` +
+                        `<code>https://t.me/${ctx.botInfo.username}?start=${registeredUser.referral_code}</code>`;
+                    if (!referrerId) pendingReferralInput.set(docId, true);
                 } else {
                     welcomeText = `👋 <b>Ravi de vous revoir, ${user.first_name} !</b>\n\nVous êtes déjà membre du ${settings.bot_name}.`;
                 }
             }
 
-            const keyboard = registeredUser.is_livreur ? getLivreurMenuKeyboard(settings, registeredUser) : getMainMenuKeyboard(settings, registeredUser);
+            const keyboard = registeredUser.is_livreur ? getLivreurMenuKeyboard(settings, registeredUser, hasActive) : getMainMenuKeyboard(settings, registeredUser);
             await safeEdit(ctx, welcomeText, keyboard);
 
             // Forcer le bouton "Menu" au lieu de "Démarrer"
@@ -194,13 +204,24 @@ function setupStartHandler(bot) {
 
         // Si livreur → menu spécial
         if (user && user.is_livreur) {
+            const { getLivreurOrders } = require('../services/database');
+            const activeOrders = await getLivreurOrders(user.id);
+            const hasActive = activeOrders.length > 0;
             const city = user?.current_city || user?.data?.current_city || 'Non défini';
             const isAvail = user?.is_available || user?.data?.is_available;
+
             text = `${settings.ui_icon_livreur} <b>${settings.label_livreur || 'Espace Livreur'}</b>\n\n` +
                 `👤 ${user.first_name || ctx.from.first_name}\n` +
                 `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
                 `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n`;
-            keyboard = getLivreurMenuKeyboard(settings, user);
+
+            if (hasActive) {
+                text += `🚀 <b>VOUS AVEZ ${activeOrders.length} COMMANDE(S) EN COURS !</b>\n\n` +
+                    activeOrders.map(o => `📦 #${o.id.substring(0, 5)} - ${o.address || '?'}`).join('\n') +
+                    `\n\n<i>Cliquez sur "Mes livraisons en cours" pour les gérer.</i>`;
+            }
+
+            keyboard = getLivreurMenuKeyboard(settings, user, hasActive);
         }
 
         await safeEdit(ctx, text, keyboard);

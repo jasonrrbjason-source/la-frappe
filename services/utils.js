@@ -4,6 +4,11 @@ const { getLastMenuId, addMessageToTrack, getUser } = require('./database');
  * L'Unique porte de sortie pour les menus du bot.
  * Garantit qu'un seul message de menu existe à la fois (Flux Constant).
  */
+function esc(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 async function safeEdit(ctx, text, opts = {}) {
     const isGroup = ctx.chat.type !== 'private';
     const userId = isGroup ? `telegram_${ctx.chat.id}` : `telegram_${ctx.from.id}`;
@@ -12,6 +17,24 @@ async function safeEdit(ctx, text, opts = {}) {
     // Détection des médias
     let photo = opts.photo || null;
     const video = opts.video || null;
+    if (photo === '') photo = null;
+
+    // Normalisation Photo (Base URL si path relatif)
+    if (photo && typeof photo === 'string' && !photo.startsWith('http') && !photo.startsWith('data:')) {
+        const settings = ctx.state?.settings || {};
+        const baseUrl = (settings.dashboard_url || '').replace(/\/$/, '');
+        if (photo.startsWith('[') && photo.endsWith(']')) {
+            try {
+                const arr = JSON.parse(photo);
+                if (arr.length > 0) {
+                    const first = typeof arr[0] === 'string' ? arr[0] : (arr[0].url || arr[0].path || '');
+                    photo = first.startsWith('http') ? first : baseUrl + (first.startsWith('/') ? '' : '/') + first;
+                }
+            } catch (e) { }
+        } else {
+            photo = baseUrl + (photo.startsWith('/') ? '' : '/') + photo;
+        }
+    }
 
     // Normalisation du clavier
     let reply_markup = opts.reply_markup || (opts.inline_keyboard ? opts : (Array.isArray(opts) ? { inline_keyboard: opts } : null));
@@ -19,23 +42,21 @@ async function safeEdit(ctx, text, opts = {}) {
 
     try {
         const currentMsg = ctx.callbackQuery?.message;
-        const user = await getUser(userId); // Bypassing local state to get true last_menu_id
+        const user = await getUser(userId);
 
-        // 1. TENTATIVE D'EDIT (Dynamic)
+        // 1. TENTATIVE D'EDIT DIRECT (Le plus propre)
         if (currentMsg) {
             const hasMedia = !!(currentMsg.photo || currentMsg.video);
             const wantMedia = !!(photo || video);
 
-            // CASE: Text -> Text
             if (!hasMedia && !wantMedia) {
                 try {
                     await ctx.telegram.editMessageText(chatId, currentMsg.message_id, null, text, extra);
                     await addMessageToTrack(userId, currentMsg.message_id);
                     return;
-                } catch (e) { if (!e.description.includes('not modified')) throw e; }
+                } catch (e) { if (!String(e.description || '').includes('not modified')) throw e; return; }
             }
 
-            // CASE: Media -> Media (Photo or Video)
             if (hasMedia && wantMedia) {
                 try {
                     await ctx.telegram.editMessageMedia(chatId, currentMsg.message_id, null, {
@@ -46,24 +67,11 @@ async function safeEdit(ctx, text, opts = {}) {
                     }, { reply_markup });
                     await addMessageToTrack(userId, currentMsg.message_id);
                     return;
-                } catch (e) { if (!e.description.includes('not modified')) throw e; }
+                } catch (e) { if (!String(e.description || '').includes('not modified')) throw e; return; }
             }
         }
 
-        // 2. TENTATIVE DE DELETE OLD (Vortex)
-        const oldMenuId = (currentMsg ? currentMsg.message_id : null) || (user ? user.last_menu_id : null);
-        if (oldMenuId) {
-            await ctx.telegram.deleteMessage(chatId, oldMenuId).catch(() => { });
-        }
-
-        // Supprimer aussi tous les messages traqués (pour être sûr qu'il n'en reste qu'un)
-        if (user && user.tracked_messages && user.tracked_messages.length > 0) {
-            for (const mid of user.tracked_messages) {
-                if (mid !== oldMenuId) ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
-            }
-        }
-
-        // 3. ENVOI DU NOUVEAU
+        // 2. ENVOI DU NOUVEAU AVANT (Pour éviter le "vide")
         let newMsg;
         if (photo) newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
         else if (video) newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra });
@@ -73,10 +81,28 @@ async function safeEdit(ctx, text, opts = {}) {
             await addMessageToTrack(userId, newMsg.message_id);
         }
 
+        // 3. NETTOYAGE APRÈS (Uniquement si le nouveau est envoyé)
+        const oldMenuId = (currentMsg ? currentMsg.message_id : null) || (user ? user.last_menu_id : null);
+        if (oldMenuId) {
+            ctx.telegram.deleteMessage(chatId, oldMenuId).catch(() => { });
+        }
+
+        if (user && user.tracked_messages && user.tracked_messages.length > 0) {
+            for (const mid of user.tracked_messages) {
+                if (mid && String(mid) !== String(oldMenuId) && (!newMsg || String(mid) !== String(newMsg.message_id))) {
+                    ctx.telegram.deleteMessage(chatId, mid).catch(() => { });
+                }
+            }
+        }
+
     } catch (e) {
-        console.error('❌ SafeEdit Error:', e.message);
-        const fallback = await ctx.replyWithHTML(text, extra).catch(() => { });
-        if (fallback) addMessageToTrack(userId, fallback.message_id);
+        console.error('❌ SafeEdit CRITICAL Error:', e.message);
+        try {
+            const fallback = await ctx.replyWithHTML(text, extra);
+            if (fallback) addMessageToTrack(userId, fallback.message_id);
+        } catch (fallbackErr) {
+            console.error('❌ SafeEdit Fallback failed:', fallbackErr.message);
+        }
     }
 }
 
@@ -91,4 +117,4 @@ function debugLog(msg) {
     console.log(msg);
 }
 
-module.exports = { safeEdit, debugLog };
+module.exports = { safeEdit, debugLog, esc };

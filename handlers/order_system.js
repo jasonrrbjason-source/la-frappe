@@ -1342,9 +1342,10 @@ function setupOrderSystem(bot) {
         const d = new Date(r.created_at);
         const date = !isNaN(d.getTime()) ? d.toLocaleDateString('fr-FR') : '—';
 
+        const { esc } = require('../services/utils');
         const text = `👥 <b>Avis de la famille (${idx + 1}/${reviews.length})</b>\n\n` +
-            `${stars}\n"<i>${r.text || 'Sans commentaire'}</i>"\n` +
-            `👤 <b>${r.first_name || 'Anonyme'}</b> - ${date}`;
+            `${stars}\n"<i>${esc(r.text) || 'Sans commentaire'}</i>"\n` +
+            `👤 <b>${esc(r.first_name) || 'Anonyme'}</b> - ${date}`;
 
         const navRow = [];
         if (idx > 0) navRow.push(Markup.button.callback('⬅️ Précédent', `view_reviews_${idx - 1}`));

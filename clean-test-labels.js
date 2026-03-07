@@ -8,6 +8,8 @@ const { supabase } = require('./config/supabase');
 
 const PROPER_DEFAULTS = {
     // Labels UI principaux
+    bot_name: 'La Frappe IDF',
+    welcome_message: 'Bienvenue ! Vous faites partie de la famille.',
     label_catalog: 'Catalogue Produits',
     label_my_orders: 'Mes Commandes',
     label_contact: 'Contact',
@@ -16,8 +18,8 @@ const PROPER_DEFAULTS = {
     label_profile: 'Mon Profil & Parrainage',
     label_admin_bot: 'Console Admin',
     label_admin_web: 'Dashboard Web',
-    label_livreur_space: 'Espace Livreur',
     label_livreur: 'Espace Livreur',
+    label_livreur_space: 'Espace Livreur',
     label_help: 'Aide / Support',
 
     // Messages système
@@ -74,7 +76,7 @@ async function cleanTestLabels() {
             console.log('⚠️  Aucun settings trouvé. Création des valeurs par défaut...');
             const { error: insertError } = await supabase
                 .from('bot_settings')
-                .insert([{ id: 'default', ...PROPER_DEFAULTS }]);
+                .insert([{ id: 'config', ...PROPER_DEFAULTS }]);
 
             if (insertError) {
                 console.error('❌ Erreur de création:', insertError.message);
@@ -91,11 +93,14 @@ async function cleanTestLabels() {
         const updates = {};
         let countFixed = 0;
 
+        // Liste des colonnes réellement présentes dans la table
+        const availableColumns = Object.keys(currentSettings);
+
         for (const [key, value] of Object.entries(currentSettings)) {
             if (typeof value === 'string') {
                 const lowerValue = value.toLowerCase();
                 // Détecter "test", "test test", ou valeurs vides/nulles
-                if (lowerValue.includes('test') || !value.trim() || value === 'null') {
+                if (lowerValue === 'test' || lowerValue === 'test test' || !value.trim() || value === 'null') {
                     if (PROPER_DEFAULTS[key]) {
                         updates[key] = PROPER_DEFAULTS[key];
                         console.log(`🔧 ${key}: "${value}" → "${PROPER_DEFAULTS[key]}"`);
@@ -105,12 +110,14 @@ async function cleanTestLabels() {
             }
         }
 
-        // 3. Ajouter les champs manquants avec leurs valeurs par défaut
-        for (const [key, defaultValue] of Object.entries(PROPER_DEFAULTS)) {
-            if (!(key in currentSettings) || !currentSettings[key]) {
-                updates[key] = defaultValue;
-                console.log(`➕ ${key}: (manquant) → "${defaultValue}"`);
-                countFixed++;
+        // 3. Compléter les colonnes présentes avec les défauts si elles sont vides ou "test"
+        for (const col of availableColumns) {
+            if (PROPER_DEFAULTS[col] && (!currentSettings[col] || currentSettings[col].toLowerCase().includes('test'))) {
+                if (!updates[col]) {
+                    updates[col] = PROPER_DEFAULTS[col];
+                    console.log(`🔧 ${col}: (réparé) → "${PROPER_DEFAULTS[col]}"`);
+                    countFixed++;
+                }
             }
         }
 
@@ -127,6 +134,7 @@ async function cleanTestLabels() {
 
         if (updateError) {
             console.error('❌ Erreur de mise à jour:', updateError.message);
+            console.log('Détail des updates tentées:', updates);
             process.exit(1);
         }
 
@@ -141,3 +149,4 @@ async function cleanTestLabels() {
 }
 
 cleanTestLabels();
+

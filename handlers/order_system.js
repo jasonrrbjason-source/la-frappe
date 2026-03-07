@@ -1305,9 +1305,12 @@ function setupOrderSystem(bot) {
                 const chatData = awaitingChatReply.get(userId);
                 awaitingChatReply.delete(userId);
                 const orderId = chatData.orderId;
-                const order = await getOrder(orderId);
-
                 if (order) {
+                    // SÉCURITÉ : Vérifier si la commande est toujours en cours
+                    if (order.status !== 'taken') {
+                        return await ctx.reply("❌ Cette commande est terminée ou annulée. La discussion est fermée.").catch(() => { });
+                    }
+
                     const reply = String(ctx.message.text || '');
                     const newCount = await incrementChatCount(orderId);
                     const shortId = String(orderId).substring(0, 5);
@@ -1340,7 +1343,7 @@ function setupOrderSystem(bot) {
                     });
 
                     // Alerte aux admins
-                    const settings = ctx.state?.settings;
+                    const settings = await getAppSettings();
                     if (settings && settings.admin_telegram_id) {
                         const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(idx => String(idx).trim().replace('telegram_', ''));
                         const alertMsg = `💬 <b>CHAT ${roleLabel.toUpperCase()}</b>\n\n🆔 Commande : <code>#${shortId}</code>\n👤 De : ${safeHtml(ctx.from.first_name)}\n📝 Message : "<i>${safeHtml(reply)}</i>"`;
@@ -1350,7 +1353,8 @@ function setupOrderSystem(bot) {
                     }
 
                     const targetRoleLabel = isLivreur ? "client" : "livreur";
-                    await ctx.reply(`${settings.ui_icon_success || '✅'} Message ${newCount}/3 transmis au ${targetRoleLabel}.`).catch(() => { });
+                    const successIcon = settings ? (settings.ui_icon_success || '✅') : '✅';
+                    await ctx.reply(`${successIcon} Message ${newCount}/3 transmis au ${targetRoleLabel}.`).catch(() => { });
                 } else {
                     await ctx.reply("❌ Commande introuvable pour ce chat.").catch(() => { });
                 }

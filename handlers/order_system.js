@@ -1357,10 +1357,8 @@ function setupOrderSystem(bot) {
             [Markup.button.callback('◀️ Retour Menu', 'main_menu')]
         ];
 
-        let photo = null;
-        if (r.photos && r.photos.length > 0) {
-            photo = r.photos[0];
-        }
+        let photo = r.photos;
+        if (Array.isArray(r.photos) && r.photos.length > 0) photo = r.photos[0];
 
         await safeEdit(ctx, text, {
             photo: photo,

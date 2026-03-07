@@ -18,6 +18,38 @@ const awaitingDelayReason = new Map();
 const awaitingChatReply = new Map();
 
 function setupOrderSystem(bot) {
+    // Helper pour envoyer les notifications de feedback
+    async function sendFeedbackNotifications(orderId, rate, text, ctx) {
+        try {
+            const [settings, order] = await Promise.all([getAppSettings(), getOrder(orderId)]);
+            if (!settings || !order) return;
+
+            const stars = '⭐'.repeat(parseInt(rate));
+            const feedbackMsg = `💬 <b>NOUVEAU FEEDBACK !</b>\n\n` +
+                `👤 Client : ${ctx.from.first_name}\n` +
+                `🔑 Commande ID : <code>${orderId}</code>\n` +
+                `🌟 Note : ${stars} (${rate}/5)\n` +
+                `📝 Commentaire : <i>${text}</i>`;
+
+            // Notifier les admins
+            if (settings.admin_telegram_id) {
+                const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
+                for (const adminId of adminIds) {
+                    if (!adminId) continue;
+                    bot.telegram.sendMessage(adminId, feedbackMsg, { parse_mode: 'HTML' }).catch(() => { });
+                }
+            }
+
+            // Notifier le livreur
+            if (order.livreur_id) {
+                bot.telegram.sendMessage(order.livreur_id.replace('telegram_', ''),
+                    `👏 <b>Félicitations !</b>\n\nUn client a laissé une note pour votre livraison :\n\n${stars}\n"<i>${text}</i>"`,
+                    { parse_mode: 'HTML' }
+                ).catch(() => { });
+            }
+        } catch (e) { console.error("Error notifying feedback:", e); }
+    }
+
     // ========== CATALOGUE & COMMANDE ==========
 
     async function displayCatalog(ctx) {
@@ -1163,10 +1195,11 @@ function setupOrderSystem(bot) {
     bot.action(/^feedback_skip_(.+)$/, async (ctx) => {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
-        const { getAndClearPendingFeedback, saveFeedback } = require('../services/database');
         const pending = await getAndClearPendingFeedback(`telegram_${ctx.from.id}`);
         if (pending) {
-            await saveFeedback(orderId, parseInt(pending.rate), "Aucun commentaire");
+            const comment = "Note envoyée sans commentaire";
+            await saveFeedback(orderId, parseInt(pending.rate), comment);
+            await sendFeedbackNotifications(orderId, pending.rate, comment, ctx);
         }
         await safeEdit(ctx, "🙏 Merci pour votre note !", Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu', 'main_menu')]]));
     });
@@ -1196,38 +1229,7 @@ function setupOrderSystem(bot) {
             const { orderId, rate } = pending;
             const text = ctx.message.text;
             await saveFeedback(orderId, parseInt(rate), text);
-
-            // Alerte aux admins et au livreur
-            try {
-                const [settings, order] = await Promise.all([getAppSettings(), getOrder(orderId)]);
-
-                if (settings && order) {
-                    const stars = '⭐'.repeat(parseInt(rate));
-                    const feedbackMsg = `💬 <b>NOUVEAU FEEDBACK !</b>\n\n` +
-                        `👤 Client : ${ctx.from.first_name}\n` +
-                        `🔑 Commande ID : <code>${orderId}</code>\n` +
-                        `🌟 Note : ${stars} (${rate}/5)\n` +
-                        `📝 Commentaire : <i>${text}</i>`;
-
-                    // Notifier les admins
-                    if (settings.admin_telegram_id) {
-                        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
-                        for (const adminId of adminIds) {
-                            if (!adminId) continue;
-                            bot.telegram.sendMessage(adminId, feedbackMsg, { parse_mode: 'HTML' }).catch(err => {
-                                console.error(`Error sending feedback to admin ${adminId}:`, err.message);
-                            });
-                        }
-                    }
-
-                    // Notifier le livreur si assigné
-                    if (order.livreur_id) {
-                        bot.telegram.sendMessage(order.livreur_id.replace('telegram_', ''), `👏 <b>Félicitations !</b>\n\nUn client a laissé une note pour votre livraison :\n\n${stars}\n"<i>${text}</i>"`, { parse_mode: 'HTML' }).catch(() => { });
-                    }
-                }
-            } catch (e) {
-                console.error("Error notifying feedback:", e.message);
-            }
+            await sendFeedbackNotifications(orderId, rate, text, ctx);
 
             const thankMsg = await ctx.reply('🙏 Merci pour votre retour ! Votre avis a bien été enregistré.');
 
@@ -1503,7 +1505,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
         const settings = await getAppSettings();
         if (settings.private_contact_url) {
-            return safeEdit(ctx, `💬 <b>Besoin d'un admin ?</b>\n\nCliquez sur le bouton ci-dessous pour ouvrir une discussion directe :`,
+            return safeEdit(ctx, `💬 <b>Besoin d'un admin ?</b>\n\nContact direct : <a href="${settings.private_contact_url}">${settings.private_contact_url}</a>\n\nCliquez aussi sur le bouton ci-dessous :`,
                 Markup.inlineKeyboard([
                     [Markup.button.url('📲 Parler à l\'Admin', settings.private_contact_url)],
                     [Markup.button.callback('◀️ Retour', 'help_menu')]

@@ -165,15 +165,31 @@ async function sendToUser(user, message, unifiedMediaList = []) {
     }
 
     const chatId = user.platform_id;
-    const caption = message ? (message.length > 1020 ? message.substring(0, 1017) + '...' : message) : '';
+    // Captions are limited to 1024 chars in Telegram
+    const maxCaption = 1020;
+    const caption = message ? (message.length > maxCaption ? message.substring(0, maxCaption - 3) + '...' : message) : '';
 
+    // Helper function for safe send with fallback
+    const safeSend = async (method, ...args) => {
+        try {
+            // First attempt: HTML
+            return await _bot.telegram[method](chatId, ...args, { parse_mode: 'HTML' });
+        } catch (err) {
+            const desc = err.description || '';
+            if (desc.includes('can\'t parse entities') || desc.includes('bad request')) {
+                debugLog(`[BC-RETRY] Fallback to Plain text for ${chatId} (${method})`);
+                // Second attempt: Plain text (no parse_mode)
+                return await _bot.telegram[method](chatId, ...args);
+            }
+            throw err;
+        }
+    };
     try {
         if (unifiedMediaList.length > 1) {
             const mediaGroup = unifiedMediaList.slice(0, 10).map((m, i) => {
                 let mediaObj = m.file_id;
                 if (!mediaObj) {
                     if (m.source) {
-                        // Pass buffer correctly to Telegraf
                         mediaObj = { source: m.source, filename: m.filename || 'media.mp4' };
                     } else if (m.url) {
                         mediaObj = m.url;
@@ -183,12 +199,24 @@ async function sendToUser(user, message, unifiedMediaList = []) {
                     type: m.type,
                     media: mediaObj,
                     ...(m.type === 'video' ? { supports_streaming: true } : {}),
-                    ...(i === 0 && caption ? { caption: caption, parse_mode: 'HTML' } : {})
+                    ...(i === 0 && caption ? { caption: caption } : {})
                 };
             });
 
             debugLog(`[BC-SEND] MediaGroup (${mediaGroup.length}) -> ${chatId}`);
-            const msgs = await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
+            if (mediaGroup[0] && mediaGroup[0].caption) {
+                mediaGroup[0].parse_mode = 'HTML';
+            }
+
+            let msgs;
+            try {
+                msgs = await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
+            } catch (err) {
+                if (err.description?.includes('can\'t parse entities') && mediaGroup[0]) {
+                    delete mediaGroup[0].parse_mode;
+                    msgs = await _bot.telegram.sendMediaGroup(chatId, mediaGroup);
+                } else throw err;
+            }
 
             // Cache file_ids & Tracking
             if (msgs && Array.isArray(msgs)) {
@@ -217,27 +245,38 @@ async function sendToUser(user, message, unifiedMediaList = []) {
             debugLog(`[BC-SEND] Single ${mData.type.toUpperCase()} -> ${chatId}`);
             let msg;
             if (mData.type === 'video') {
-                msg = await _bot.telegram.sendVideo(chatId, mediaObj, {
-                    caption: caption,
-                    parse_mode: 'HTML',
-                    supports_streaming: true
-                });
-                if (msg.video && !unifiedMediaList[0].file_id) unifiedMediaList[0].file_id = msg.video.file_id;
+                msg = await safeSend('sendVideo', mediaObj, { caption: caption, supports_streaming: true });
+                if (msg.video && !mData.file_id) mData.file_id = msg.video.file_id;
             } else {
-                msg = await _bot.telegram.sendPhoto(chatId, mediaObj, { caption: caption, parse_mode: 'HTML' });
-                if (msg.photo && !unifiedMediaList[0].file_id) unifiedMediaList[0].file_id = msg.photo[msg.photo.length - 1].file_id;
+                msg = await safeSend('sendPhoto', mediaObj, { caption: caption });
+                if (msg.photo && !mData.file_id) mData.file_id = msg.photo[msg.photo.length - 1].file_id;
             }
-            if (msg && user.id) {
+            if (msg && (user.id || user.doc_id)) {
                 const { addMessageToTrack } = require('./database');
-                await addMessageToTrack(user.id, msg.message_id).catch(() => { });
+                await addMessageToTrack(user.id || user.doc_id, msg.message_id).catch(() => { });
             }
         } else {
             // Texte uniquement
             debugLog(`[BC-SEND] Texte -> ${chatId}`);
-            const msg = await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
-            if (msg && user.id) {
-                const { addMessageToTrack } = require('./database');
-                await addMessageToTrack(user.id, msg.message_id).catch(() => { });
+            if (!message || message.trim() === '') {
+                debugLog(`[BC-SKIP] Message vide pour ${chatId}`);
+                return { success: true }; // On skip les messages vides sans erreur
+            }
+            try {
+                const msg = await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
+                if (msg && (user.id || user.doc_id)) {
+                    const { addMessageToTrack } = require('./database');
+                    await addMessageToTrack(user.id || user.doc_id, msg.message_id).catch(() => { });
+                }
+            } catch (err) {
+                if (err.description?.includes('can\'t parse entities')) {
+                    debugLog(`[BC-RETRY] Plain text fallback for: ${chatId}`);
+                    const msg = await _bot.telegram.sendMessage(chatId, message);
+                    if (msg && (user.id || user.doc_id)) {
+                        const { addMessageToTrack } = require('./database');
+                        await addMessageToTrack(user.id || user.doc_id, msg.message_id).catch(() => { });
+                    }
+                } else throw err;
             }
         }
         return { success: true };

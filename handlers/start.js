@@ -76,13 +76,15 @@ function setupStartHandler(bot) {
         await ctx.answerCbQuery();
         const settings = ctx.state.settings;
         const buttons = [];
+        let text = `${settings.ui_icon_contact} <b>${settings.label_contact}</b>`;
         if (settings.private_contact_url) {
+            text += `\n\nLien direct : <a href="${settings.private_contact_url}">${settings.private_contact_url}</a>`;
             buttons.push([Markup.button.url('💬 Ouvrir le contact', settings.private_contact_url)]);
         } else {
             buttons.push([Markup.button.callback('⚠️ Lien non configuré', 'main_menu')]);
         }
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
-        await safeEdit(ctx, `${settings.ui_icon_contact} <b>${settings.label_contact}</b>`, {
+        await safeEdit(ctx, text, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });
@@ -92,13 +94,15 @@ function setupStartHandler(bot) {
         await ctx.answerCbQuery();
         const settings = ctx.state.settings;
         const buttons = [];
+        let text = `${settings.ui_icon_channel} <b>${settings.label_channel}</b>`;
         if (settings.channel_url) {
+            text += `\n\nLien direct : <a href="${settings.channel_url}">${settings.channel_url}</a>`;
             buttons.push([Markup.button.url('📢 Rejoindre le canal', settings.channel_url)]);
         } else {
             buttons.push([Markup.button.callback('⚠️ Lien non configuré', 'main_menu')]);
         }
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
-        await safeEdit(ctx, `${settings.ui_icon_channel} <b>${settings.label_channel}</b>`, {
+        await safeEdit(ctx, text, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });

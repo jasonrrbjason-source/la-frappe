@@ -1164,6 +1164,7 @@
                     <select id="bcPlatform"
                         style="flex:1; min-width:150px; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--hover); color:var(--text-main); font-size:14px;">
                         <option value="users">Tous les utilisateurs</option>
+                        <option value="all">Tout le monde (Users + Groupes)</option>
                         <option value="groups">Groupes uniquement</option>
                         <option value="livreurs">Livreurs uniquement</option>
                     </select>
@@ -2855,7 +2856,6 @@
                     channel_url: document.getElementById('set_channel_url').value,
                     points_ratio: parseFloat(document.getElementById('set_pts_ratio').value) || 1,
                     points_exchange: parseInt(document.getElementById('set_pts_exchange').value) || 100,
-                    points_credit_value: parseFloat(document.getElementById('set_pts_credit_val').value) || 5,
                     ref_bonus: parseFloat(document.getElementById('set_ref_bonus').value) || 5,
                     fidelity_bonus_thresholds: document.getElementById('set_fidelity_thresholds').value || '5,10',
                     fidelity_bonus_amount: parseFloat(document.getElementById('set_fidelity_bonus_val').value) || 10,

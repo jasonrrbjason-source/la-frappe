@@ -972,7 +972,10 @@ const SETTINGS_DEFAULTS = {
     msg_help_intro: 'Besoin d\'aide ? Choisissez une option ci-dessous :',
     msg_help_where_order: 'Où en est ma commande ?',
     msg_help_contact_admin: 'Parler à l\'Admin',
-    msg_help_return: 'Retour au Menu'
+    msg_help_return: 'Retour au Menu',
+    dashboard_url: process.env.DASHBOARD_URL || '',
+    private_contact_url: '',
+    channel_url: ''
 };
 
 let _settingsCache = null;
@@ -998,7 +1001,11 @@ async function getAppSettings() {
 }
 
 async function updateAppSettings(settings) {
-    await supabase.from(COL_SETTINGS).update(settings).eq('id', 'config');
+    const { error } = await supabase.from(COL_SETTINGS).update(settings).eq('id', 'config');
+    if (error) {
+        console.error('❌ Error updating settings:', error);
+        throw error;
+    }
     _settingsCache = null; // Invalidate cache
 }
 

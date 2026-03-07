@@ -1496,22 +1496,27 @@ function setupOrderSystem(bot) {
     bot.command('help', async (ctx) => showHelpMenu(ctx));
 
     async function showHelpMenu(ctx) {
-        if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => { });
-        const settings = await getAppSettings();
-        const activeOrders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
+        try {
+            if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => { });
+            const settings = await getAppSettings();
+            const activeOrders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
 
-        let text = `<b>${settings.label_help || 'Aide & Support'}</b>\n\n` +
-            `${settings.msg_help_intro || 'Besoin d\'aide ? Choisissez une option ci-dessous :'}`;
+            let text = `<b>${settings.label_help || 'Aide & Support'}</b>\n\n` +
+                `${settings.msg_help_intro || 'Besoin d\'aide ? Choisissez une option ci-dessous :'}`;
 
-        const buttons = [];
-        if (activeOrders.length > 0) {
-            buttons.push([Markup.button.callback('⏳ Où en est ma livraison ?', 'help_where_is_my_order')]);
+            const buttons = [];
+            if (activeOrders.length > 0) {
+                buttons.push([Markup.button.callback('⏳ Où en est ma livraison ?', 'help_where_is_my_order')]);
+            }
+
+            buttons.push([Markup.button.callback('📞 Parler à l\'Admin', 'help_chat_admin')]);
+            buttons.push([Markup.button.callback('◀️ Retour Menu', 'main_menu')]);
+
+            await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
+        } catch (e) {
+            console.error('❌ Error in showHelpMenu:', e);
+            throw e; // Laisse bot.catch gérer la réponse utilisateur
         }
-
-        buttons.push([Markup.button.callback('📞 Parler à l\'Admin', 'help_chat_admin')]);
-        buttons.push([Markup.button.callback('◀️ Retour Menu', 'main_menu')]);
-
-        await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     }
 
 

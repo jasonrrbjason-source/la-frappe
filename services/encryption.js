@@ -11,12 +11,12 @@ const ITERATIONS = 100000;
 /**
  * Récupère ou génère la clé de chiffrement à partir de la variable d'environnement
  */
-function getKey(salt) {
+function getKey(salt, iterations = ITERATIONS) {
     const masterKey = process.env.ENCRYPTION_KEY;
     if (!masterKey) {
         throw new Error('❌ ENCRYPTION_KEY manquante dans le fichier .env');
     }
-    return crypto.pbkdf2Sync(masterKey, salt, ITERATIONS, KEY_LENGTH, 'sha512');
+    return crypto.pbkdf2Sync(masterKey, salt, iterations, KEY_LENGTH, 'sha512');
 }
 
 /**
@@ -44,26 +44,38 @@ function encrypt(text) {
  * Déchiffre une chaîne de caractères
  * @param {string} encryptedData 
  */
+function decryptWithIterations(salt, iv, tag, encryptedText, iterations) {
+    const key = getKey(salt, iterations);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(tag);
+    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+}
+
 function decrypt(encryptedData) {
     if (!encryptedData || !encryptedData.includes(':')) return encryptedData;
 
     try {
         const [saltHex, ivHex, tagHex, encryptedText] = encryptedData.split(':');
-
         const salt = Buffer.from(saltHex, 'hex');
         const iv = Buffer.from(ivHex, 'hex');
         const tag = Buffer.from(tagHex, 'hex');
-        const key = getKey(salt);
 
-        const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-        decipher.setAuthTag(tag);
+        // Essai séquentiel des itérations possibles
+        const iterationChoices = [ITERATIONS, 1000, 50000, 100000].filter((v, i, a) => a.indexOf(v) === i);
 
-        let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
+        for (const iters of iterationChoices) {
+            try {
+                return decryptWithIterations(salt, iv, tag, encryptedText, iters);
+            } catch (_) {
+                // On continue au prochain
+            }
+        }
 
-        return decrypted;
+        throw new Error('Aucune itération ne fonctionne');
     } catch (error) {
-        console.error('❌ Erreur de déchiffrement:', error.message);
+        console.error('❌ Erreur de déchiffrement finale:', error.message);
         return "[Erreur de déchiffrement]";
     }
 }

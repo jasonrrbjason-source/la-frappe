@@ -6,13 +6,31 @@ const {
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers,
     getReferralLeaderboard, getStatsOverview, getDailyStats,
     getProducts, saveProduct, deleteProduct,
-    getAllOrders, updateOrderStatus, setLivreurStatus, getOrder,
+    getAllOrders, updateOrderStatus, setLivreurStatus, getOrder, assignOrderLivreur,
     setLivreurAvailability, getAppSettings, updateAppSettings,
-    deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics
+    deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics, searchLivreurs,
+    getBroadcastHistory, deleteBroadcast, getDetailedLivreurActivity,
+    nukeDatabase, decryptUser, supabase, COL_USERS,
+    registerUser, getLivreurHistory
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
-const { registry } = require('./channels/ChannelRegistry');
+const fs = require('fs');
+
+function debugLog(msg) {
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${msg}\n`;
+    try {
+        fs.appendFileSync(path.join(process.cwd(), 'debug.log'), line);
+    } catch (e) { }
+    console.log(msg);
+}
+
 require('dotenv').config();
+
+// Référence partagée au bot Telegram (définie par index.js)
+let _bot = null;
+function setBotInstance(bot) { _bot = bot; }
+function getBotInstance() { return _bot; }
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
@@ -20,8 +38,8 @@ function createServer() {
     const app = express();
 
     app.use(cors());
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
+    app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '50mb' }));
     app.use(fileUpload({
         limits: { fileSize: 50 * 1024 * 1024 },
         useTempFiles: true,
@@ -48,43 +66,29 @@ function createServer() {
 
     app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'login.html')));
     app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'dashboard.html')));
+    app.get('/address-picker', (req, res) => res.sendFile(path.join(__dirname, 'web', 'views', 'address_picker.html')));
 
-    // ========== Webhooks ==========
-
-    /**
-     * Webhook WhatsApp (Meta API)
-     */
-    app.get('/webhook/whatsapp', (req, res) => {
-        const channel = registry.query('whatsapp');
-        if (!channel) return res.send('WhatsApp channel not found');
-
-        const result = channel.verifyWebhook(
-            req.query['hub.mode'],
-            req.query['hub.verify_token'],
-            req.query['hub.challenge']
-        );
-
-        if (result) return res.send(result);
-        res.status(403).send('Forbidden');
-    });
-
-    app.post('/webhook/whatsapp', async (req, res) => {
-        const channel = registry.query('whatsapp');
-        if (channel) await channel.handleWebhook(req.body);
-        res.sendStatus(200);
-    });
 
     // ========== API Routes ==========
 
     app.post('/api/login', async (req, res) => {
-        const { password } = req.body;
-        const settings = await getAppSettings();
+        try {
+            const { password } = req.body;
+            let settings = {};
+            try {
+                settings = await getAppSettings();
+            } catch (e) {
+                console.error('⚠️ getAppSettings() a échoué, fallback sur ADMIN_PASSWORD:', e.message);
+            }
 
-        if (password === settings.admin_password || password === ADMIN_PASSWORD) {
-            // On renvoie le mot de passe qui pourra servir de token
-            res.json({ success: true, token: password });
-        } else {
-            res.status(401).json({ error: 'Mot de passe incorrect' });
+            if (password === settings.admin_password || password === ADMIN_PASSWORD) {
+                res.json({ success: true, token: password });
+            } else {
+                res.status(401).json({ error: 'Mot de passe incorrect' });
+            }
+        } catch (e) {
+            console.error('❌ Erreur login:', e.message);
+            res.status(500).json({ error: 'Erreur serveur' });
         }
     });
 
@@ -115,6 +119,28 @@ function createServer() {
         } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
+    app.post('/api/users/add', authMiddleware, async (req, res) => {
+        try {
+            const { telegram_id, first_name, username } = req.body;
+
+            // Nettoyage de l'ID (on enlève le préfixe si l'admin l'a mis par erreur)
+            const cleanId = String(telegram_id || '').replace('telegram_', '').trim();
+            if (!cleanId) return res.status(400).json({ error: 'ID Telegram manquant ou invalide' });
+
+            const { user, isNew } = await registerUser({
+                id: cleanId,
+                first_name: first_name || 'Utilisateur Manuel',
+                username: username || '',
+                type: 'user'
+            });
+
+            res.json({ success: true, user, isNew });
+        } catch (e) {
+            console.error('Add user error:', e.message);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     app.post('/api/users/order', authMiddleware, async (req, res) => {
         try {
             await incrementOrderCount(req.body.id);
@@ -133,7 +159,10 @@ function createServer() {
         try {
             const id = await saveProduct(req.body);
             res.json({ success: true, id });
-        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+        } catch (e) {
+            console.error('Product save error:', e.message);
+            res.status(500).json({ error: e.message });
+        }
     });
 
     app.delete('/api/products/:id', authMiddleware, async (req, res) => {
@@ -158,19 +187,93 @@ function createServer() {
     // ========== Upload Routes ==========
     app.post('/api/upload', authMiddleware, async (req, res) => {
         try {
-            if (!req.files || Object.keys(req.files).length === 0) {
+            if (!req.files || !req.files.file) {
                 return res.status(400).json({ error: 'Aucun fichier téléchargé' });
             }
 
             const file = req.files.file;
-            const ext = path.extname(file.name);
-            const fileName = Date.now() + '-' + Math.round(Math.random() * 1E9) + ext;
-            const uploadPath = path.join(__dirname, 'web', 'public', 'uploads', fileName);
+            const ext = path.extname(file.name) || (file.mimetype.includes('video') ? '.mp4' : '.jpg');
+            const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
 
-            file.mv(uploadPath, (err) => {
-                if (err) return res.status(500).json({ error: err.message });
-                res.json({ success: true, url: `/public/uploads/${fileName}` });
-            });
+            // 1. Sauvegarde locale (temporaire/fallback)
+            const dir = path.resolve(__dirname, 'web', 'public', 'uploads');
+            const uploadPath = path.join(dir, fileName);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            await file.mv(uploadPath);
+
+            let finalUrl = `/public/uploads/${fileName}`;
+
+            // 2. Tentative d'upload sur Supabase Storage (Persistance Cloud)
+            try {
+                const { supabase } = require('./config/supabase');
+
+                debugLog(`[UPLOAD] Tentative Supabase Storage: ${fileName}`);
+
+                // Read the file data from disk since 'useTempFiles' strips the buffer in req.files
+                const fs = require('fs');
+                const fileBuf = fs.readFileSync(uploadPath);
+
+                const { data, error } = await supabase.storage
+                    .from('uploads')
+                    .upload(fileName, fileBuf, {
+                        contentType: file.mimetype,
+                        upsert: true
+                    });
+
+                if (error) {
+                    throw error;
+                }
+
+                // URL publique standard Supabase Storage
+                const { data: publicData } = supabase.storage.from('uploads').getPublicUrl(fileName);
+                finalUrl = publicData.publicUrl;
+
+                debugLog(`[UPLOAD-OK] Supabase: ${finalUrl}`);
+            } catch (storageErr) {
+                debugLog(`[UPLOAD-WARN] Échec Supabase Storage: ${storageErr.message}. Utilisation fallback local.`);
+            }
+
+            res.json({ success: true, url: finalUrl });
+        } catch (e) {
+            debugLog(`[UPLOAD-FATAL] ${e.message}`);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.get('/api/debug/dir', authMiddleware, async (req, res) => {
+        try {
+            const dir = path.resolve(__dirname, 'web', 'public', 'uploads');
+            if (!fs.existsSync(dir)) return res.send('Répertoire inexistant.');
+            const files = fs.readdirSync(dir);
+            res.json({ dir, files });
+        } catch (e) { res.status(500).send(e.message); }
+    });
+
+    app.get('/api/debug/logs', authMiddleware, async (req, res) => {
+        try {
+            const logPath = path.join(process.cwd(), 'debug.log');
+            if (!fs.existsSync(logPath)) return res.send('Aucun log trouvé.');
+            const content = fs.readFileSync(logPath, 'utf8');
+            res.header('Content-Type', 'text/plain');
+            res.send(content);
+        } catch (e) { res.status(500).send(e.message); }
+    });
+
+    app.post('/api/users/wallet', authMiddleware, async (req, res) => {
+        const { userId, amount } = req.body;
+        try {
+            const { updateUserWallet } = require('./services/database');
+            await updateUserWallet(userId, amount);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.post('/api/users/points', authMiddleware, async (req, res) => {
+        const { userId, points } = req.body;
+        try {
+            const { updateUserPoints } = require('./services/database');
+            await updateUserPoints(userId, points);
+            res.json({ success: true });
         } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
@@ -182,25 +285,53 @@ function createServer() {
         } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
+    app.get('/api/livreurs/search', authMiddleware, async (req, res) => {
+        try { res.json(await searchLivreurs(req.query.q)); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
     app.post('/api/livreurs/availability', authMiddleware, async (req, res) => {
-        const { userId, platform, isAvailable } = req.body;
+        const { platform, userId, isAvailable, id: directId } = req.body;
         try {
-            await setLivreurAvailability(makeDocId(platform, userId), isAvailable);
+            const docId = directId || makeDocId(platform, userId);
+            await setLivreurAvailability(docId, isAvailable);
             res.json({ success: true });
-        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.post('/api/admin/nuke', authMiddleware, async (req, res) => {
+        try {
+            debugLog(`[ADMIN] NUKE DATABASE REQUESTED BY ${req.user?.platform_id || 'unidentified'}`);
+            await nukeDatabase();
+            res.json({ success: true, message: 'Base de données réinitialisée.' });
+        } catch (e) {
+            debugLog(`[ADMIN-FATAL] Nuke failed: ${e.message}`);
+            res.status(500).json({ error: e.message });
+        }
     });
 
     app.get('/api/livreurs', authMiddleware, async (req, res) => {
         try {
-            const dbModule = require('./services/database');
-            const snap = await dbModule.db.collection('bot_users').where('is_livreur', '==', true).get();
-            const livreurs = snap.docs.map(d => {
-                const data = d.data();
-                try { return dbModule.decryptUser({ ...data, doc_id: d.id }); }
-                catch { return { ...data, doc_id: d.id }; }
+            const { data } = await supabase.from(COL_USERS).select('*').eq('is_livreur', true);
+            const livreurs = (data || []).map(d => {
+                try { return decryptUser({ ...d, doc_id: d.id }); }
+                catch (e) {
+                    console.error('Decryption failed for livreur:', d.id, e.message);
+                    return { ...d, doc_id: d.id };
+                }
             });
             res.json(livreurs);
         } catch (e) { console.error('Livreurs API error:', e); res.status(500).json({ error: e.message }); }
+    });
+
+    app.get('/api/livreurs/:id/history', authMiddleware, async (req, res) => {
+        try {
+            const history = await getDetailedLivreurActivity(req.params.id);
+            res.json(history);
+        } catch (e) {
+            console.error('Livreur history error:', e);
+            res.status(500).json({ error: e.message });
+        }
     });
 
     app.get('/api/settings', authMiddleware, async (req, res) => {
@@ -230,8 +361,8 @@ function createServer() {
             // Notification Client Automatisée
             if (order.user_id && order.user_id.startsWith('telegram_')) {
                 const tgId = order.user_id.replace('telegram_', '');
-                const tgChannel = registry.query('telegram');
-                if (tgChannel) {
+                const bot = getBotInstance();
+                if (bot) {
                     const settings = await getAppSettings();
                     let text = '';
                     const shortId = orderId.substring(0, 5);
@@ -251,6 +382,21 @@ function createServer() {
                         case 'taken':
                             text = `${statusIcon} <b>Commande #${shortId} ${statusLabel} !</b>\n\nUn livreur a pris en charge votre commande et arrive vers vous. 💨`;
                             break;
+                        case 'arrival_1h':
+                            text = `🚚 <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>moins d'une heure</b>. 📦`;
+                            break;
+                        case 'arrival_30min':
+                            text = `⏳ <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>30 min</b> ! Soyez prêt(e). 🛵`;
+                            break;
+                        case 'arrival_10min':
+                            text = `⏳ <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>10 min</b> ! Préparez-vous. 🛵`;
+                            break;
+                        case 'arrival_5min':
+                            text = `⚡ <b>Commande #${shortId}</b>\n\nVotre livreur arrive dans <b>5 min</b> ! Soyez prêt(e). 🔥`;
+                            break;
+                        case 'arrived':
+                            text = `📍 <b>Commande #${shortId}</b>\n\n<b>Votre livreur est arrivé !</b> Il vous attend sur place. ✅`;
+                            break;
                         case 'cancelled':
                             text = `${settings.ui_icon_error} <b>${statusLabel} de commande</b>\n\nVotre commande #${shortId} a été annulée par l'administration.`;
                             break;
@@ -258,7 +404,28 @@ function createServer() {
                             text = `${settings.ui_icon_pending} <b>Mise à jour de commande</b>\n\nVotre commande #${shortId} est de nouveau ${statusLabel}.`;
                             break;
                     }
-                    if (text) tgChannel.sendMessage(tgId, text, { parse_mode: 'HTML' }).catch(() => { });
+                    if (text) {
+                        const { Markup } = require('telegraf');
+                        let keyboard = [];
+
+                        // Ajouter bouton annulation si pas encore livré ou annulé
+                        if (!['delivered', 'cancelled'].includes(status)) {
+                            keyboard.push([Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]);
+                            // Si c'est une notification de temps, permettre de répondre
+                            if (status.startsWith('arrival_')) {
+                                keyboard.push([Markup.button.callback('💬 Répondre au livreur', `chat_livreur_${orderId}`)]);
+                            }
+                        } else if (status === 'delivered') {
+                            keyboard.push([Markup.button.callback('⭐️ Laisser un avis', `feedback_start_${orderId}`)]);
+                        }
+
+                        keyboard.push([Markup.button.callback('◀️ Retour Menu', 'main_menu')]);
+
+                        bot.telegram.sendMessage(tgId, text, {
+                            parse_mode: 'HTML',
+                            ...Markup.inlineKeyboard(keyboard)
+                        }).catch(() => { });
+                    }
                 }
             }
 
@@ -266,27 +433,99 @@ function createServer() {
         } catch (e) { console.error('Order Status API error:', e); res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
+    app.post('/api/orders/assign', authMiddleware, async (req, res) => {
+        try {
+            const { orderId, livreurId, livreurName } = req.body;
+            await assignOrderLivreur(orderId, livreurId, livreurName);
+
+            // Notification
+            const order = await getOrder(orderId);
+            if (order && order.user_id && order.user_id.startsWith('telegram_')) {
+                const tgId = order.user_id.replace('telegram_', '');
+                const bot = getBotInstance();
+                if (bot) {
+                    const text = `🚚 <b>Votre commande #${orderId.substring(0, 5)} est prise en charge !</b>\n\nLe livreur <b>${livreurName}</b> arrive vers vous. 💨`;
+                    bot.telegram.sendMessage(tgId, text, { parse_mode: 'HTML' }).catch(() => { });
+                }
+            }
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     /**
-     * Broadcast multi-plateforme
+     * Broadcast - accepte FormData avec fichiers médias
      */
     app.post('/api/broadcast', authMiddleware, async (req, res) => {
         try {
-            const { message, platform = 'all', template, components, media_url, media_type } = req.body;
-            if (!message && !template && !media_url) return res.status(400).json({ error: 'Message ou média requis' });
+            const message = req.body.message || '';
+            const platform = req.body.platform || 'all';
+            const mediaCount = parseInt(req.body.media_count) || 0;
 
-            res.json({ status: 'started' });
-            broadcastMessage(platform, message, { template, components, media_url, media_type }).catch(console.error);
+            // Extraire les fichiers médias
+            const mediaFiles = [];
+            if (req.files) {
+                const fs = require('fs');
+                debugLog(`[API-BC] Reçu de ${mediaCount} fichiers attendus.`);
+                for (let i = 0; i < mediaCount; i++) {
+                    const f = req.files[`media_${i}`];
+                    if (f) {
+                        try {
+                            const fileData = f.tempFilePath ? fs.readFileSync(f.tempFilePath) : f.data;
+                            if (fileData && fileData.length > 0) {
+                                mediaFiles.push({ data: fileData, mimetype: f.mimetype, name: f.name });
+                                debugLog(`[API-BC] Fichier ${i} prêt: ${f.name} (${f.mimetype}, ${fileData.length} octets)`);
+                            }
+                        } catch (err) {
+                            debugLog(`[API-BC-ERR] Lecture fichier ${i}: ${err.message}`);
+                        }
+                    } else {
+                        debugLog(`[API-BC-WARN] media_${i} manquant dans req.files`);
+                    }
+                }
+            }
+
+            const mediaUrls = req.body.media_urls ? JSON.parse(req.body.media_urls) : [];
+
+            if (!message && mediaFiles.length === 0 && mediaUrls.length === 0) {
+                return res.status(400).json({ error: 'Message ou média requis' });
+            }
+
+            debugLog(`[API-BC-OK] Lancement: "${message.substring(0, 20)}..." Platform: ${platform}, Médias: ${mediaFiles.length}, URLs: ${mediaUrls.length}`);
+            res.json({ status: 'started', media_count: mediaFiles.length + mediaUrls.length });
+
+            // Lancer la diffusion
+            broadcastMessage(platform, message, { mediaFiles, mediaUrls }).catch(err => {
+                debugLog(`[API-BC-FATAL] ${err.message}`);
+            });
         } catch (e) {
-            console.error('API Broadcast error:', e);
+            debugLog(`[API-BC-CRITICAL] ${e.message}`);
             res.status(500).json({ error: 'Erreur broadcast' });
         }
+    });
+
+    app.get('/api/broadcasts', authMiddleware, async (req, res) => {
+        try { res.json(await getBroadcastHistory()); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.delete('/api/broadcasts/:id', authMiddleware, async (req, res) => {
+        try {
+            await deleteBroadcast(req.params.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
     app.use('/api/*', (req, res) => {
         res.status(404).json({ error: 'Route API non trouvée' });
     });
 
+    // Global error handler for Express
+    app.use((err, req, res, next) => {
+        console.error('❌ [EXPRESS ERROR]', err);
+        res.status(500).json({ error: 'Erreur interne du serveur' });
+    });
+
     return app;
 }
 
-module.exports = { createServer };
+module.exports = { createServer, setBotInstance };

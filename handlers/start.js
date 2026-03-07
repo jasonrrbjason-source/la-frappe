@@ -1,5 +1,6 @@
 const { Markup } = require('telegraf');
-const { registerUser, getUser, incrementDailyStat, getAppSettings } = require('../services/database');
+const { registerUser, getUser, incrementDailyStat, getAppSettings, addMessageToTrack, getLastMenuId } = require('../services/database');
+const { safeEdit } = require('../services/utils');
 
 /**
  * Enregistre les handlers pour la commande /start
@@ -11,85 +12,79 @@ function setupStartHandler(bot) {
     bot.command('start', async (ctx) => {
         try {
             const user = ctx.from;
-            const settings = await getAppSettings();
+            const settings = ctx.state.settings;
+            const docId = `telegram_${user.id}`;
 
-            // Vérifier si un code de parrainage est dans le payload (format complet: ref_telegram_xxx_CODE)
+            // L'envoi du menu est géré par safeEdit (transition douce)
+            // L'effacement du /start entrant est géré par le middleware global
+
+            // Vérifier si un code de parrainage
             let referrerId = null;
             const payload = ctx.message.text.split(' ')[1];
             if (payload && payload.startsWith('ref_')) {
-                // On passe le code complet — la DB cherchera par referral_code
                 referrerId = payload;
-                // Empêcher l'auto-parrainage en cherchant son propre ID dans le code
                 if (payload.includes(`_${user.id}_`)) referrerId = null;
             }
 
-            // Enregistrer l'utilisateur (sera chiffré en DB)
             const { isNew, user: registeredUser } = await registerUser(user, 'telegram', referrerId);
-
+            ctx.state.user = registeredUser; // Update state with registered user info
             await incrementDailyStat('start_commands');
 
-            if (isNew) {
-                await ctx.replyWithHTML(
-                    `✨ <b>Bienvenue sur ${settings.bot_name}, ${user.first_name} !</b>\n\n` +
-                    `${settings.welcome_message}\n\n` +
-                    `📋 <b>Votre profil :</b>\n` +
-                    `├ 👤 Nom : <b>${user.first_name}</b>\n` +
-                    `├ 🆔 ID : <code>${user.id}</code>\n` +
-                    `└ 📅 Inscrit : <b>Aujourd'hui</b>\n\n` +
-                    (referrerId ? `🎉 <i>Vous avez été invité via un lien de parrainage !</i>\n\n` : '') +
-                    `🔗 <b>Votre lien de parrainage :</b>\n` +
-                    `<code>https://t.me/${ctx.botInfo.username}?start=${registeredUser.referral_code}</code>\n\n` +
-                    `Partagez ce lien pour inviter vos amis ! 🚀`,
-                    getMainMenuKeyboard(settings, registeredUser)
-                );
+            let hasActive = false;
+            if (registeredUser.is_livreur) {
+                const { getLivreurOrders } = require('../services/database');
+                const activeOrders = await getLivreurOrders(registeredUser.id);
+                hasActive = activeOrders.length > 0;
 
-                // Si pas de code parrain dans le lien → demander manuellement
-                if (!referrerId) {
-                    pendingReferralInput.set(`telegram_${user.id}`, true);
-                    await ctx.reply(
-                        '🎁 Avez-vous un code parrainage ?\n' +
-                        'Si oui, tapez-le maintenant (commençant par ref_...).\n' +
-                        'Sinon, ignorez ce message et utilisez le menu.'
-                    );
+                const city = registeredUser.current_city || registeredUser.data?.current_city || 'Non défini';
+                const isAvail = registeredUser.is_available || registeredUser.data?.is_available;
+
+                welcomeText = `${settings.ui_icon_livreur} <b>Bienvenue, ${user.first_name} !</b>\n\n` +
+                    `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
+                    `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n`;
+
+                if (hasActive) {
+                    welcomeText += `🚀 <b>VOUS AVEZ ${activeOrders.length} COMMANDE(S) EN COURS !</b>\n\n` +
+                        activeOrders.map(o => `📦 #${o.id.substring(0, 5)} - ${o.address || '?'}`).join('\n') +
+                        `\n\n<i>Cliquez sur "Mes livraisons en cours" pour les gérer.</i>`;
                 }
             } else {
-                // Nettoyer le pending si revient
-                pendingReferralInput.delete(`telegram_${user.id}`);
-
-                // ========== SI LIVREUR → MENU LIVREUR DÉDIÉ ==========
-                if (registeredUser.is_livreur) {
-                    await ctx.replyWithHTML(
-                        `${settings.ui_icon_livreur} <b>Bienvenue, livreur ${user.first_name} !</b>\n\n` +
-                        `📍 Secteur : <b>${registeredUser.current_city ? registeredUser.current_city.toUpperCase() : 'Non défini'}</b>\n` +
-                        `🔘 Statut : <b>${registeredUser.is_available ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>\n\n` +
-                        `Que voulez-vous faire ?`,
-                        getLivreurMenuKeyboard(settings, registeredUser)
-                    );
+                if (isNew) {
+                    welcomeText = `✨ <b>Bienvenue sur ${settings.bot_name}, ${user.first_name} !</b>\n\n` +
+                        `${settings.welcome_message}\n\n` +
+                        `📍 <i>En utilisant ce service, vous acceptez d'être localisé tacitement.</i>\n\n` +
+                        `🔗 <b>Votre lien de parrainage :</b>\n` +
+                        `<code>https://t.me/${ctx.botInfo.username}?start=${registeredUser.referral_code}</code>`;
+                    if (!referrerId) pendingReferralInput.set(docId, true);
                 } else {
-                    await ctx.replyWithHTML(
-                        `👋 <b>Ravi de vous revoir, ${user.first_name} !</b>\n\n` +
-                        `Vous êtes déjà membre du ${settings.bot_name}.`,
-                        getMainMenuKeyboard(settings, registeredUser)
-                    );
+                    welcomeText = `👋 <b>Ravi de vous revoir, ${user.first_name} !</b>\n\nVous êtes déjà membre du ${settings.bot_name}.`;
                 }
             }
+
+            const keyboard = registeredUser.is_livreur ? getLivreurMenuKeyboard(settings, registeredUser, hasActive) : getMainMenuKeyboard(settings, registeredUser);
+            await safeEdit(ctx, welcomeText, keyboard);
+
+            // Forcer le bouton "Menu" au lieu de "Démarrer"
+            ctx.telegram.setChatMenuButton(ctx.chat.id, { type: 'commands' }).catch(() => { });
+
         } catch (error) {
             console.error('❌ Erreur /start:', error);
-            await ctx.reply('❌ Une erreur est survenue. Veuillez réessayer avec /start');
         }
     });
 
     bot.action('private_contact', async (ctx) => {
         await ctx.answerCbQuery();
-        const settings = await getAppSettings();
+        const settings = ctx.state.settings;
         const buttons = [];
+        let text = `${settings.ui_icon_contact} <b>${settings.label_contact}</b>`;
         if (settings.private_contact_url) {
+            text += `\n\nLien direct : <a href="${settings.private_contact_url}">${settings.private_contact_url}</a>`;
             buttons.push([Markup.button.url('💬 Ouvrir le contact', settings.private_contact_url)]);
         } else {
             buttons.push([Markup.button.callback('⚠️ Lien non configuré', 'main_menu')]);
         }
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
-        await ctx.editMessageText(`${settings.ui_icon_contact} <b>${settings.label_contact}</b>`, {
+        await safeEdit(ctx, text, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });
@@ -97,15 +92,17 @@ function setupStartHandler(bot) {
 
     bot.action('channel_link', async (ctx) => {
         await ctx.answerCbQuery();
-        const settings = await getAppSettings();
+        const settings = ctx.state.settings;
         const buttons = [];
+        let text = `${settings.ui_icon_channel} <b>${settings.label_channel}</b>`;
         if (settings.channel_url) {
+            text += `\n\nLien direct : <a href="${settings.channel_url}">${settings.channel_url}</a>`;
             buttons.push([Markup.button.url('📢 Rejoindre le canal', settings.channel_url)]);
         } else {
             buttons.push([Markup.button.callback('⚠️ Lien non configuré', 'main_menu')]);
         }
         buttons.push([Markup.button.callback('◀️ Retour au menu', 'main_menu')]);
-        await ctx.editMessageText(`${settings.ui_icon_channel} <b>${settings.label_channel}</b>`, {
+        await safeEdit(ctx, text, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
         });
@@ -114,7 +111,7 @@ function setupStartHandler(bot) {
     bot.action('welcome_message', async (ctx) => {
         await ctx.answerCbQuery();
         const settings = await getAppSettings();
-        await ctx.editMessageText(
+        await safeEdit(ctx,
             `${settings.ui_icon_welcome} <b>${settings.label_welcome}</b>\n\n${settings.welcome_message}`,
             {
                 parse_mode: 'HTML',
@@ -126,7 +123,7 @@ function setupStartHandler(bot) {
     bot.action('my_referrals', async (ctx) => {
         await ctx.answerCbQuery();
         const user = await getUser(`telegram_${ctx.from.id}`);
-        if (!user) return ctx.reply('❌ Erreur : Profil non trouvé. Relancez /start');
+        if (!user) return safeEdit(ctx, '❌ Erreur : Profil non trouvé. Relancez /start', Markup.inlineKeyboard([[Markup.button.callback('🚀 /start', 'start')]]));
 
         const botUsername = ctx.botInfo.username;
         const refLink = `https://t.me/${botUsername}?start=${user.referral_code}`;
@@ -138,7 +135,7 @@ function setupStartHandler(bot) {
         const chunkCredit = 10;
         const chunkPts = ptsExchange * chunkCredit;
 
-        await ctx.editMessageText(
+        await safeEdit(ctx,
             `${settings.ui_icon_profile} <b>${settings.label_profile}</b>\n\n` +
             `${settings.ui_icon_wallet} Solde Portefeuille : <b>${(user.wallet_balance || 0).toFixed(2)}€</b>\n` +
             `${settings.ui_icon_points} Points Fidélité : <b>${user.points || 0} pts</b>\n\n` +
@@ -158,28 +155,47 @@ function setupStartHandler(bot) {
     });
 
     bot.action('exchange_points', async (ctx) => {
-        await ctx.answerCbQuery();
-
         const settings = await require('../services/database').getAppSettings();
         const ptsExchange = settings.points_exchange || 10;
         const chunkCredit = 10;
         const chunkPts = ptsExchange * chunkCredit;
 
-        const userRef = require('../services/database').db.collection('bot_users').doc(`telegram_${ctx.from.id}`);
-        const userDoc = await userRef.get();
-        if (userDoc.exists && userDoc.data().points >= chunkPts) {
-            await userRef.update({
-                points: require('../services/database').incr(-chunkPts),
-                wallet_balance: require('../services/database').incr(chunkCredit)
-            });
-            await ctx.reply(`🎉 <b>Félicitations !</b> Vous avez échangé ${chunkPts} points contre ${chunkCredit}€ dans votre portefeuille.`, { parse_mode: 'HTML' });
-            return bot.handleUpdate({
-                ...ctx.update,
-                callback_query: { ...ctx.callbackQuery, data: 'my_referrals' }
-            }); // Refresh profile
+        const docId = `telegram_${ctx.from.id}`;
+        const userDoc = await getUser(docId);
+
+        if (userDoc && userDoc.points >= chunkPts) {
+            const { supabase, COL_USERS } = require('../services/database');
+            await supabase.from(COL_USERS).update({
+                points: userDoc.points - chunkPts,
+                wallet_balance: (userDoc.wallet_balance || 0) + chunkCredit
+            }).eq('id', docId);
+            await ctx.answerCbQuery(`🎉 Succès ! +${chunkCredit}€ ajoutés.`, { show_alert: true });
         } else {
-            return ctx.reply(`❌ Vous n'avez pas assez de points (${chunkPts} pts minimum).`);
+            return ctx.answerCbQuery(`❌ Points insuffisants (${chunkPts} pts requis).`, { show_alert: true });
         }
+
+        // Simuler le clic sur le profil pour rafraîchir sans handleUpdate
+        const user = await getUser(docId);
+        const botUsername = ctx.botInfo.username;
+        const refLink = `https://t.me/${botUsername}?start=${user.referral_code}`;
+        const refBonus = settings.ref_bonus || 5;
+        const ptsRatio = settings.points_ratio || 1;
+
+        const text = `${settings.ui_icon_profile} <b>${settings.label_profile}</b>\n\n` +
+            `${settings.ui_icon_wallet} Solde Portefeuille : <b>${(user.wallet_balance || 0).toFixed(2)}€</b>\n` +
+            `${settings.ui_icon_points} Points Fidélité : <b>${user.points || 0} pts</b>\n\n` +
+            `👥 Amis parrainés : <b>${user.referral_count || 0}</b>\n` +
+            `🛍️ Commandes totales : <b>${user.order_count || 0}</b>\n\n` +
+            `🔗 <b>Votre lien personnel :</b>\n` +
+            `<code>${refLink}</code>\n\n` +
+            `<i>Partagez ce lien ! À votre première commande, vous et votre parrain gagnerez <b>${refBonus}€</b> de crédit. Vous cumulez aussi ${ptsRatio} point(s) par euro d'achat.\n(${chunkPts} points = ${chunkCredit}€ de crédit)</i>`;
+
+        const buttons = [
+            ...(user.points >= chunkPts ? [[Markup.button.callback(`🎁 Échanger ${chunkPts} pts contre ${chunkCredit}€`, 'exchange_points')]] : []),
+            [Markup.button.callback('◀️ Retour au menu', 'main_menu')]
+        ];
+
+        return await safeEdit(ctx, text, Markup.inlineKeyboard(buttons));
     });
 
     bot.action('main_menu', async (ctx) => {
@@ -187,56 +203,105 @@ function setupStartHandler(bot) {
         const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
 
-        // Si livreur → renvoyer vers le menu livreur
+        let text = `📋 <b>Menu principal</b>`;
+        let keyboard = getMainMenuKeyboard(settings, user);
+
+        // Si livreur → menu spécial
         if (user && user.is_livreur) {
-            return ctx.replyWithHTML(
-                `${settings.ui_icon_livreur} <b>${settings.label_livreur_space}</b>\n\n` +
-                `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : 'Non défini'}</b>\n` +
-                `🔘 Statut : <b>${user.is_available ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>`,
-                getLivreurMenuKeyboard(settings, user)
-            );
+            const { getLivreurOrders } = require('../services/database');
+            const activeOrders = await getLivreurOrders(user.id);
+            const hasActive = activeOrders.length > 0;
+            const city = user?.current_city || user?.data?.current_city || 'Non défini';
+            const isAvail = user?.is_available || user?.data?.is_available;
+
+            text = `${settings.ui_icon_livreur} <b>${settings.label_livreur || 'Espace Livreur'}</b>\n\n` +
+                `👤 ${user.first_name || ctx.from.first_name}\n` +
+                `📍 Secteur : <b>${city.toUpperCase()}</b>\n` +
+                `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n`;
+
+            if (hasActive) {
+                text += `🚀 <b>VOUS AVEZ ${activeOrders.length} COMMANDE(S) EN COURS !</b>\n\n` +
+                    activeOrders.map(o => `📦 #${o.id.substring(0, 5)} - ${o.address || '?'}`).join('\n') +
+                    `\n\n<i>Cliquez sur "Mes livraisons en cours" pour les gérer.</i>`;
+            }
+
+            keyboard = getLivreurMenuKeyboard(settings, user, hasActive);
         }
 
-        await ctx.editMessageText(`📋 <b>Menu principal</b>`, {
-            parse_mode: 'HTML',
-            ...getMainMenuKeyboard(settings, user)
-        });
+        await safeEdit(ctx, text, keyboard);
+    });
+
+    // ========== GESTION GPS / LOCALISATION ==========
+    bot.on('location', async (ctx) => {
+        const userId = `telegram_${ctx.from.id}`;
+        const loc = ctx.message.location;
+        if (!loc) return;
+
+        try {
+            const { saveUserLocation } = require('../services/database');
+            // Sauvegarder les coordonnées
+            await saveUserLocation(userId, loc.latitude, loc.longitude);
+
+            await safeEdit(ctx, '✅ Position enregistrée. Merci !', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'livreur_menu')]]));
+
+            // On pourrait faire un reverse geocoding ici pour avoir la ville exacte si besoin
+            // Pour l'instant on garde les coordonnées pour le tracking livreur
+        } catch (e) {
+            console.error('Location error:', e);
+        }
     });
 
     // ========== GESTION CODE PARRAIN MANUEL ==========
+    bot.action('tracking_info', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `📡 <b>Comment activer le tracking ?</b>\n\n` +
+            `Pour que le client puisse recevoir vos estimations d'arrivée :\n\n` +
+            `1. Cliquez sur le trombonne (📎) ou (+) en bas.\n` +
+            `2. Choisissez <b>Position</b> (ou Localisation).\n` +
+            `3. Sélectionnez <b>Partager ma position en direct</b>.\n` +
+            `4. Choisissez la durée (ex: 8 heures).\n\n` +
+            `✅ Une fois activé, le bot enverra automatiquement des alertes (10 min / 5 min) à vos clients en fonction de vos déplacements !`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'livreur_menu')]])
+        );
+    });
+
     bot.on('text', async (ctx, next) => {
-        const userId = `telegram_${ctx.from.id}`;
+        const docId = `telegram_${ctx.from.id}`;
         const inputText = ctx.message.text.trim();
 
         // Si pas en attente de code parrain, passer au handler suivant
-        if (!pendingReferralInput.has(userId)) return next();
+        if (!pendingReferralInput.has(docId)) return next();
         // Si le texte ne commence pas par ref_, c'est peut-être l'adresse -> passer au suivant
         if (!inputText.startsWith('ref_')) {
-            pendingReferralInput.delete(userId);
+            pendingReferralInput.delete(docId);
             return next();
         }
 
-        pendingReferralInput.delete(userId);
+        pendingReferralInput.delete(docId);
 
         try {
             const db = require('../services/database');
-            const snap = await db.db.collection('bot_users').where('referral_code', '==', inputText).limit(1).get();
-            if (!snap.empty && snap.docs[0].id !== userId) {
-                const referrerDoc = snap.docs[0];
-                await referrerDoc.ref.update({ referral_count: db.incr() });
-                await db.db.collection('bot_users').doc(userId).update({ referred_by: referrerDoc.id });
-                await db.db.collection('referrals').add({
+            const { supabase, COL_USERS, COL_REFERRALS } = db;
+            const { data: snap } = await supabase.from(COL_USERS).select('*').eq('referral_code', inputText).limit(1);
+
+            if (snap && snap.length > 0 && snap[0].id !== docId) {
+                const referrerDoc = snap[0];
+                await supabase.from(COL_USERS).update({ referral_count: referrerDoc.referral_count + 1 }).eq('id', referrerDoc.id);
+                await supabase.from(COL_USERS).update({ referred_by: referrerDoc.id }).eq('id', docId);
+                await supabase.from(COL_REFERRALS).insert([{
+                    id: `${Date.now()}-${Math.random()}`,
                     referrer_id: referrerDoc.id,
-                    referred_id: userId,
+                    referred_id: docId,
                     created_at: db.ts()
-                });
-                return ctx.reply('🎉 Code parrainage validé ! Votre parrain a été crédité. Vous gagnerez chacun un bonus à votre première commande.');
+                }]);
+                return safeEdit(ctx, '🎉 Code parrainage validé ! Votre parrain a été crédité. Vous gagnerez chacun un bonus à votre première commande.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
             } else {
-                return ctx.reply('❌ Code parrainage invalide ou déjà utilisé.');
+                return safeEdit(ctx, '❌ Code parrainage invalide ou déjà utilisé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
             }
         } catch (e) {
             console.error('Referral code error:', e);
-            return ctx.reply('❌ Erreur lors de la validation du code. Réessayez plus tard.');
+            return safeEdit(ctx, '❌ Erreur lors de la validation du code. Réessayez plus tard.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
         }
     });
 }
@@ -249,10 +314,20 @@ function getMainMenuKeyboard(settings, user = null) {
         [Markup.button.callback(`${settings.ui_icon_channel} ${settings.label_channel}`, 'channel_link')],
         [Markup.button.callback(`${settings.ui_icon_welcome} ${settings.label_welcome}`, 'welcome_message')],
         [Markup.button.callback(`${settings.ui_icon_profile} ${settings.label_profile}`, 'my_referrals')],
+        [Markup.button.callback(`${settings.ui_icon_help || '❓'} ${settings.label_help || 'Aide / Support'}`, 'help_menu')],
     ];
 
+    // Vérifier si un panier existe pour proposer de le reprendre
+    const { userCarts } = require('./order_system');
+    const userId = user ? (String(user.platform_id || user.id).replace('telegram_', '')) : null;
+    const cart = userId ? userCarts.get(parseInt(userId)) : null;
+
+    if (cart && cart.length > 0) {
+        buttons.unshift([Markup.button.callback('➡️ 🛒 REPRENDRE MON PANIER', 'view_cart')]);
+    }
+
     if (user && user.is_livreur) {
-        buttons.push([Markup.button.callback(`${settings.ui_icon_livreur} ${settings.label_livreur_space}`, 'livreur_menu')]);
+        buttons.push([Markup.button.callback(`${settings.ui_icon_livreur} ${settings.label_livreur}`, 'livreur_menu')]);
     }
 
     // Boutons Admin
@@ -270,28 +345,36 @@ function getMainMenuKeyboard(settings, user = null) {
     return Markup.inlineKeyboard(buttons);
 }
 
-function getLivreurMenuKeyboard(settings, user) {
-    const dispoBtn = user.is_available
-        ? Markup.button.callback(`${settings.ui_icon_error} Passer Indisponible`, 'set_dispo_false')
-        : Markup.button.callback(`${settings.ui_icon_success} Passer Disponible`, 'set_dispo_true');
+function getLivreurMenuKeyboard(settings, user, hasActiveOrders = false) {
+    const isAvail = user?.is_available || user?.data?.is_available;
+    const dispoBtn = isAvail
+        ? Markup.button.callback(`${settings.ui_icon_error || '❌'} Passer Indisponible`, 'set_dispo_false')
+        : Markup.button.callback(`${settings.ui_icon_success || '✅'} Passer Disponible`, 'set_dispo_true');
 
     const buttons = [
-        [dispoBtn],
-        [Markup.button.callback(`${settings.ui_icon_orders} Commandes disponibles`, 'show_city_orders')],
-        [Markup.button.callback('📍 Changer de secteur', 'change_city')],
-        [Markup.button.callback(`${settings.ui_icon_stats} Mon historique livraisons`, 'my_deliveries')],
-        [Markup.button.callback('🛒 Mode Client (commander)', 'client_menu')],
+        [dispoBtn]
     ];
+
+    if (hasActiveOrders) {
+        buttons.push([Markup.button.callback('🚚 MES LIVRAISONS EN COURS 🔥', 'active_deliveries')]);
+    }
+
+    buttons.push([Markup.button.callback(`${settings.ui_icon_orders || '📦'} Commandes disponibles`, 'show_available_orders')]);
+    buttons.push([Markup.button.callback('🗓 Commandes planifiées', 'show_planned_orders')]);
+    buttons.push([Markup.button.callback('📡 Tracking Live (Aide)', 'tracking_info')]);
+    buttons.push([Markup.button.callback(`${settings.ui_icon_stats || '📈'} Mon historique livraisons`, 'my_deliveries')]);
+    buttons.push([Markup.button.callback('🛒 Mode Client (commander)', 'client_menu')]);
+    buttons.push([Markup.button.callback('◀️ Retour au menu principal', 'main_menu')]);
 
     // Bouton Admin si le livreur est aussi admin
     if (user && settings.admin_telegram_id) {
         const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
         if (adminIds.includes(String(user.platform_id))) {
-            buttons.push([Markup.button.callback(`${settings.ui_icon_admin} ${settings.label_admin_bot}`, 'admin_menu')]);
+            buttons.push([Markup.button.callback(`${settings.ui_icon_admin || '⚙️'} ${settings.label_admin_bot || 'Gestion Bot'}`, 'admin_menu')]);
         }
     }
 
     return Markup.inlineKeyboard(buttons);
 }
 
-module.exports = { setupStartHandler, getLivreurMenuKeyboard };
+module.exports = { setupStartHandler, getLivreurMenuKeyboard, getMainMenuKeyboard };

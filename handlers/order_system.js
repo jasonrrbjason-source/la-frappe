@@ -1042,19 +1042,37 @@ function setupOrderSystem(bot) {
 
         const order = await getOrder(orderId);
         const count = parseInt(order?.chat_count) || 0;
+        const isLivreur = `telegram_${ctx.from.id}` === order.livreur_id;
+
+        // Validation stricte du schéma : 1. Client -> 2. Livreur -> 3. Client
         if (count >= 3) {
-            return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nVous avez déjà utilisé les 3 messages autorisés pour cette commande. Pour toute urgence, contactez le support.", { parse_mode: 'HTML' });
+            return ctx.reply("⚠️ <b>Limite d'échanges atteinte.</b>\n\nLe chat est clôturé (3/3).", { parse_mode: 'HTML' });
+        }
+
+        if (count === 0 && isLivreur) {
+            return ctx.reply("⏳ <b>Attendez l'initiative du client.</b>\n\nLe schéma de chat est : Client -> Livreur -> Client.", { parse_mode: 'HTML' });
+        }
+        if (count === 1 && !isLivreur) {
+            return ctx.reply("⏳ <b>Attendez la réponse du livreur.</b> (Message 1/3 déjà envoyé)", { parse_mode: 'HTML' });
+        }
+        if (count === 2 && isLivreur) {
+            return ctx.reply("✅ <b>Vous avez déjà répondu.</b>\n\nLe client a le dernier message de conclusion (3/3).", { parse_mode: 'HTML' });
         }
 
         // Nettoyage des autres états
         awaitingDelayReason.delete(userId);
 
-        const isLivreur = `telegram_${ctx.from.id}` === order.livreur_id;
         const targetId = isLivreur ? order.user_id : order.livreur_id;
         const targetRole = isLivreur ? "client" : "livreur";
 
         awaitingChatReply.set(`telegram_${ctx.from.id}`, { orderId, targetId, role: targetRole });
-        await ctx.reply(`💬 <b>Message au ${targetRole} (${3 - count} restants)</b>\n\nEnvoyez votre message ci-dessous :`, { parse_mode: 'HTML' });
+
+        let promptText = "";
+        if (count === 0) promptText = "💬 <b>Initier la discussion (Message 1/3)</b>\nEnvoyez votre message pour le livreur :";
+        if (count === 1) promptText = "💬 <b>Répondre au client (Message 2/3)</b>\nEnvoyez votre réponse :";
+        if (count === 2) promptText = "💬 <b>Dernière réponse au livreur (Conclusion 3/3)</b>\nEnvoyez votre message final :";
+
+        await ctx.reply(promptText, { parse_mode: 'HTML' });
     });
 
     bot.action(/^finish_(.+)$/, async (ctx) => {
@@ -1239,16 +1257,16 @@ function setupOrderSystem(bot) {
                         await ctx.reply("❌ Impossible d'envoyer : Limite de 3 échanges déjà atteinte.");
                     } else {
                         const reason = String(ctx.message.text || '');
-                        const newCount = await incrementChatCount(orderId);
+                        // On ne compte plus le signalement de retard comme un message de chat (notification système)
                         const shortId = String(orderId).substring(0, 5);
 
                         const targetId = String(order.user_id).replace('telegram_', '');
                         await bot.telegram.sendMessage(targetId,
-                            `⚠️ <b>Un retard est à prévoir</b>\n\nVotre livreur nous signale un imprévu :\n"<i>${safeHtml(reason)}</i>"\n\nIl fait le maximum pour arriver vite !${newCount >= 3 ? '\n\n<i>(Limite d\'échanges atteinte)</i>' : ''}`,
+                            `⚠️ <b>Un retard est à prévoir</b>\n\nVotre livreur nous signale un imprévu :\n"<i>${safeHtml(reason)}</i>"\n\nIl fait le maximum pour arriver vite !${count >= 3 ? '\n\n<i>(Limite d\'échanges atteinte)</i>' : ''}`,
                             {
                                 parse_mode: 'HTML',
                                 ...Markup.inlineKeyboard([
-                                    ...(newCount < 3 ? [[Markup.button.callback('💬 Répondre au livreur', `chat_livreur_${orderId}`)]] : []),
+                                    ...(count < 3 ? [[Markup.button.callback(`💬 Répondre (Tour ${count + 1}/3)`, `chat_livreur_${orderId}`)]] : []),
                                     [Markup.button.callback('❓ Aide / Support', 'help_menu')],
                                     [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]
                                 ])
@@ -1302,14 +1320,15 @@ function setupOrderSystem(bot) {
 
                     const targetId = String(targetIdRaw).replace('telegram_', '');
                     const roleLabel = isLivreur ? "livreur" : "client";
-                    const targetLabel = isLivreur ? "livreur" : "client"; // Label du bouton pour le DESTINATAIRE
+                    const targetLabelText = isLivreur ? "le livreur" : "au client"; // Inversé pour la logique de bouton
 
                     await bot.telegram.sendMessage(targetId,
-                        `💬 <b>Réponse du ${roleLabel} (Commande #${shortId})</b>\n\n"<i>${safeHtml(reply)}</i>"${newCount >= 3 ? '\n\n⚠️ <i>Dernier message autorisé envoyé.</i>' : ''}`,
+                        `💬 <b>Message du ${roleLabel} (Commande #${shortId})</b>\n\n"<i>${safeHtml(reply)}</i>"\n\n` +
+                        `📊 <i>Message ${newCount}/3</i>${newCount >= 3 ? '\n⚠️ <b>Dernier échange consommé.</b>' : ''}`,
                         {
                             parse_mode: 'HTML',
                             ...Markup.inlineKeyboard([
-                                ...(newCount < 3 ? [[Markup.button.callback(`💬 Répondre au ${roleLabel} (${3 - newCount} restants)`, `chat_livreur_${orderId}`)]] : []),
+                                ...(newCount < 3 ? [[Markup.button.callback(`💬 Répondre (Tour ${newCount + 1}/3)`, `chat_livreur_${orderId}`)]] : []),
                                 [Markup.button.callback('◀️ Menu', isLivreur ? 'livreur_menu' : 'main_menu')]
                             ])
                         }
@@ -1328,7 +1347,8 @@ function setupOrderSystem(bot) {
                         }
                     }
 
-                    await ctx.reply(`✅ Message transmis au ${isLivreur ? 'client' : 'livreur'} (${newCount}/3).`).catch(() => { });
+                    const targetRoleLabel = isLivreur ? "client" : "livreur";
+                    await ctx.reply(`${settings.ui_icon_success || '✅'} Message ${newCount}/3 transmis au ${targetRoleLabel}.`).catch(() => { });
                 } else {
                     await ctx.reply("❌ Commande introuvable pour ce chat.").catch(() => { });
                 }

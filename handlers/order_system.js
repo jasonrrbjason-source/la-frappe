@@ -1339,25 +1339,27 @@ function setupOrderSystem(bot) {
         // Send each review as a separate message to handle photos
         for (const r of reviews) {
             const stars = '⭐'.repeat(r.rating || 0);
-            const date = new Date(r.created_at).toLocaleDateString('fr-FR');
+            const d = new Date(r.created_at);
+            const date = !isNaN(d.getTime()) ? d.toLocaleDateString('fr-FR') : '—';
             const text = `<b>Avis de la famille</b>\n\n${stars}\n"<i>${r.text || 'Sans commentaire'}</i>"\n👤 <b>${r.first_name || 'Anonyme'}</b> - ${date}`;
 
             if (r.photos && r.photos.length > 0) {
                 const photo = r.photos[0];
-                if (photo.startsWith('http')) {
-                    await ctx.replyWithPhoto(photo, { caption: text, parse_mode: 'HTML' }).catch(() => ctx.reply(text, { parse_mode: 'HTML' }));
-                } else {
-                    await ctx.reply(text, { parse_mode: 'HTML' });
-                }
+                // Telegraf's replyWithPhoto handles both file_ids and URLs
+                await ctx.replyWithPhoto(photo, { caption: text, parse_mode: 'HTML' })
+                    .catch(() => ctx.replyWithPhoto(photo).catch(() => ctx.reply(text, { parse_mode: 'HTML' })));
             } else {
-                await ctx.reply(text, { parse_mode: 'HTML' });
+                await ctx.reply(text, { parse_mode: 'HTML' }).catch(() => { });
             }
         }
 
-        await ctx.reply('🏮 <i>Fin des avis récents.</i>', Markup.inlineKeyboard([
-            [Markup.button.callback('⭐️ Laisser un avis', 'leave_review')],
-            [Markup.button.callback('◀️ Retour Menu', 'main_menu')]
-        ]));
+        await ctx.reply('🏮 <i>Fin des avis récents.</i>', {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+                [Markup.button.callback('⭐️ Laisser un avis', 'leave_review')],
+                [Markup.button.callback('◀️ Retour Menu', 'main_menu')]
+            ])
+        });
     });
 
     // Capture des messages spéciaux (Feedback, Retard, Chat)
@@ -1373,6 +1375,18 @@ function setupOrderSystem(bot) {
 
             // Save to bot_orders feedback fields
             await saveFeedback(orderId, parseInt(rate), text);
+
+            let finalPhotoUrls = [];
+            if (photo) {
+                try {
+                    const link = await ctx.telegram.getFileLink(photo);
+                    const permanentUrl = await uploadMediaFromUrl(link.href, `rev_${Date.now()}.jpg`);
+                    finalPhotoUrls.push(permanentUrl);
+                } catch (e) {
+                    finalPhotoUrls.push(photo); // fallback to file_id
+                }
+            }
+
             // Also save to generic bot_reviews
             await saveReview({
                 user_id: userId,
@@ -1381,7 +1395,7 @@ function setupOrderSystem(bot) {
                 text,
                 rating: parseInt(rate),
                 order_id: orderId,
-                photos: photo ? [photo] : []
+                photos: finalPhotoUrls
             });
 
             await sendFeedbackNotifications(orderId, rate, text, ctx);
@@ -1404,8 +1418,11 @@ function setupOrderSystem(bot) {
             if (photo) {
                 try {
                     const link = await ctx.telegram.getFileLink(photo);
-                    photoUrls.push(link.href);
-                } catch (e) { }
+                    const permanentUrl = await uploadMediaFromUrl(link.href, `rev_${Date.now()}.jpg`);
+                    photoUrls.push(permanentUrl);
+                } catch (e) {
+                    photoUrls.push(photo);
+                }
             }
 
             const { saveReview, getAppSettings } = require('../services/database');

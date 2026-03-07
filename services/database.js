@@ -1159,6 +1159,25 @@ async function deleteReview(id) {
     await supabase.from(COL_REVIEWS).delete().eq('id', id);
 }
 
+async function uploadMediaFromUrl(url, fileName) {
+    try {
+        const axios = require('axios');
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        const buffer = Buffer.from(response.data, 'binary');
+
+        const { data, error } = await supabase.storage.from('uploads').upload(fileName, buffer, {
+            contentType: response.headers['content-type'],
+            upsert: true
+        });
+
+        if (error) throw error;
+        const { data: publicUrlData } = supabase.storage.from('uploads').getPublicUrl(fileName);
+        return publicUrlData.publicUrl;
+    } catch (e) {
+        console.error("❌ uploadMediaFromUrl failed:", e.message);
+        return url; // Fallback to provided URL
+    }
+}
 
 module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
@@ -1173,7 +1192,7 @@ module.exports = {
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings, getClientActiveOrders,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getOrdersByUser, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,
-    saveReview, getReviews, getPublicReviews, deleteReview,
+    saveReview, getReviews, getPublicReviews, deleteReview, uploadMediaFromUrl,
     incrementChatCount, saveClientReply, logHelpRequest,
     getUpcomingPlannedOrders, markNotifSent, registerUser, addToStat,
     _userCache

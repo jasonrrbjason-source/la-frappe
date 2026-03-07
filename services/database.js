@@ -68,7 +68,7 @@ async function activeUsersQuery(platform, type = null, limit = null) {
         q = q.eq('is_livreur', true);
     } else if (type === 'user') {
         // Inclure 'user' OU NULL (si non défini) mais exclure explicitement 'group'
-        q = q.neq('type', 'group');
+        q = q.or('type.is.null,type.eq.user');
     } else if (type === 'group') {
         q = q.eq('type', 'group');
     } else if (type) {
@@ -101,13 +101,16 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         // Optimisation : Ne mettre à jour last_active en DB que toutes les 5 minutes
         const lastUpdated = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
         const needsDbUpdate = (nowMs - lastUpdated) > 300000; // 5 minutes
+        const needsTypeHealing = !existing.type;
 
-        if (needsDbUpdate) {
+        if (needsDbUpdate || needsTypeHealing) {
             const updateData = {
                 last_active: ts(),
                 updated_at: ts(),
                 is_active: true
             };
+
+            if (needsTypeHealing) updateData.type = isGroup ? 'group' : 'user';
 
             // Si on a des infos fraîches sur le nom/username
             if (platformUser.username) updateData.username = !isGroup ? encryption.encrypt(platformUser.username) : platformUser.username;
@@ -197,6 +200,25 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
 async function getAllActiveUsers(platform = null, type = null) {
     const list = await activeUsersQuery(platform, type);
     console.log(`[DB] getAllActiveUsers(platform=${platform}, type=${type}) -> ${list.length} trouvés`);
+    return list.map(d => decryptUser(d));
+}
+
+// Nouvelle fonction pour le broadcast : inclut TOUS les utilisateurs (même bloqués)
+async function getAllUsersForBroadcast(platform = null, type = null) {
+    let q = supabase.from(COL_USERS).select('id, platform, platform_id, type, username, first_name, last_name, order_count, wallet_balance, points, date_inscription, is_livreur, is_available, is_blocked, current_city, data, blocked_at');
+    if (platform && platform !== 'all') q = q.eq('platform', platform);
+    if (type === 'livreurs') {
+        q = q.eq('is_livreur', true);
+    } else if (type === 'user') {
+        q = q.or('type.is.null,type.eq.user');
+    } else if (type === 'group') {
+        q = q.eq('type', 'group');
+    } else if (type) {
+        q = q.eq('type', type);
+    }
+    const { data } = await q;
+    const list = data || [];
+    console.log(`[DB] getAllUsersForBroadcast(platform=${platform}, type=${type}) -> ${list.length} trouvés (dont bloqués)`);
     return list.map(d => decryptUser(d));
 }
 async function markUserBlocked(docId) {
@@ -966,14 +988,14 @@ const SETTINGS_DEFAULTS = {
     label_catalog: 'Catalogue Produits',
     label_my_orders: 'Mes Commandes',
     label_contact: 'Contact Admin',
-    label_channel: 'Canal Telegram',
+    label_channel: 'Lien Canal Telegram',
     label_welcome: 'Message d\'accueil',
     label_profile: 'Mon Profil / Parrainage',
     label_admin_bot: 'Gestion Bot',
     label_admin_web: 'Dashboard Web',
     label_livreur: 'Espace Livreur',
     label_livreur_space: 'Espace Livreur',
-    label_help: 'Aide / Support',
+    label_help: 'Aide & Support',
     status_pending_label: 'Attente Validation',
     status_taken_label: 'En cours de livraison',
     status_delivered_label: 'Livré ✅',
@@ -1113,8 +1135,8 @@ async function nukeDatabase() {
 module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
     incr, ts, makeDocId, decryptUser,
-    registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
-    getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
+    registerUser, getAllActiveUsers, getAllUsersForBroadcast, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
+    getAllActiveUsers, getAllUsersForBroadcast, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers, searchLivreurs,
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,

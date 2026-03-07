@@ -78,4 +78,4 @@ Ce projet est prêt pour le déploiement sur Railway ou Render :
 ## 📈 Onboarding Admin
 1. **Démarrer le bot** : Envoyez `/start` à votre bot.
 2. **Accéder au Web** : Ouvrez `http://localhost:3000` (ou votre URL de déploiement).
-3. **Tester le Broadcast** : Utilisez `/broadcast Hello members!` sur Telegram ou utilisez l'onglet "Broadcast" sur le dashboard web.
+3. **Diffuser un message** : Utilisez `/broadcast Hello members!` sur Telegram ou utilisez l'onglet "Broadcast" sur le dashboard web.

@@ -1199,6 +1199,7 @@
                             <th>Message</th>
                             <th>Cibles</th>
                             <th>Succès</th>
+                            <th>Bloqués</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -1352,6 +1353,10 @@
                 <h3 style="margin-top:25px;">Message de Bienvenue</h3>
                 <label>Texte de Bienvenue (/start)</label>
                 <textarea id="set_welcome_msg" style="height:100px;"></textarea>
+                <label>Modes de paiement acceptés</label>
+                <input id="set_payment_modes" placeholder="💵 Espèces">
+                <small style="color:#888;">Affiché dans le message de bienvenue. Ex: 💵 Espèces, 💳 CB</small>
+
                 <label>Message de sélection quantité</label>
                 <input id="set_msg_qty" placeholder="Choisissez la quantité souhaitée :">
 
@@ -1984,6 +1989,7 @@
                                     </td>
                                     <td data-label="Cibles"><b>${h.total_target || 0}</b></td>
                                     <td data-label="Succès"><span style="color:#4caf50; font-weight:bold">${h.success || 0}</span></td>
+                                    <td data-label="Bloqués"><span style="color:#ff453a; font-weight:bold">${h.blocked || 0}</span></td>
                                     <td data-label="Actions" class="action-btns">
                                         <button class="btn btn-outline btn-sm" onclick="republishBC('${h.id}')" title="Republier">🔄</button>
                                         <button class="btn btn-outline btn-sm text-danger" onclick="deleteBC('${h.id}')" title="Supprimer">🗑️</button>
@@ -2086,6 +2092,7 @@
 
                     // Nouveaux champs
                     document.getElementById('set_welcome_msg').value = s.welcome_message || '';
+                    document.getElementById('set_payment_modes').value = s.payment_modes || '💵 Espèces';
                     document.getElementById('set_msg_qty').value = s.msg_choose_qty || 'Choisissez la quantité souhaitée :';
                     document.getElementById('set_ui_icon_livreur').value = s.ui_icon_livreur || '🛵';
                     document.getElementById('set_label_livreur').value = s.label_livreur_space || 'Espace Livreur';
@@ -2860,6 +2867,7 @@
                     languages: document.getElementById('set_lang').value || 'fr',
 
                     welcome_message: document.getElementById('set_welcome_msg').value,
+                    payment_modes: document.getElementById('set_payment_modes').value,
                     msg_choose_qty: document.getElementById('set_msg_qty').value,
 
                     ui_icon_catalog: document.getElementById('set_ui_icon_catalog').value,

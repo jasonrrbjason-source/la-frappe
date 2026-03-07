@@ -361,8 +361,8 @@ function setupOrderSystem(bot) {
         // Step 1: Address Validation -> Suite vers SCHEDULING
         if (addrState && addrState.step === 1) {
             const addr = ctx.message.text.trim();
-            const hasNumber = /\d/.test(addr);
-            const hasPostalCode = /\b\d{5}\b/.test(addr);
+            const hasNumber = addr.match(/\d/);
+            const hasPostalCode = addr.match(/\b\d{5}\b/);
 
             if (addr.length < 8 || !hasNumber || !hasPostalCode) {
                 let errorMsg = "❌ <b>Adresse incomplète.</b>\n\n";
@@ -1034,7 +1034,7 @@ function setupOrderSystem(bot) {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard([
                     [Markup.button.callback('💬 Parler au livreur', `chat_livreur_${orderId}`)],
-                    [Markup.button.callback('❓ Aide / Support', 'help_menu')],
+                    [Markup.button.callback('❓ Aide & Support', 'help_menu')],
                     [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]
                 ])
             }
@@ -1264,16 +1264,10 @@ function setupOrderSystem(bot) {
             await saveFeedback(orderId, parseInt(rate), text);
             await sendFeedbackNotifications(orderId, rate, text, ctx);
 
-            const thankMsg = await ctx.reply('🙏 Merci pour votre retour ! Votre avis a bien été enregistré.');
-
-            // Après 10s : vider et réafficher le menu principal
-            setTimeout(async () => {
-                try {
-                    await ctx.deleteMessage(thankMsg.message_id).catch(() => { });
-                    await ctx.deleteMessage(ctx.message.message_id).catch(() => { });
-                } catch (e) { }
-            }, 10000);
-
+            await safeEdit(ctx,
+                '🙏 <b>Merci pour votre retour !</b>\n\nVotre avis a bien été enregistré.',
+                Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu', 'main_menu')]])
+            );
             return;
         }
 
@@ -1302,7 +1296,7 @@ function setupOrderSystem(bot) {
                                 parse_mode: 'HTML',
                                 ...Markup.inlineKeyboard([
                                     ...(count < 3 ? [[Markup.button.callback(`💬 Répondre (Tour ${count + 1}/3)`, `chat_livreur_${orderId}`)]] : []),
-                                    [Markup.button.callback('❓ Aide / Support', 'help_menu')],
+                                    [Markup.button.callback('❓ Aide & Support', 'help_menu')],
                                     [Markup.button.callback('❌ Annuler ma commande', `cancel_order_client_${orderId}`)]
                                 ])
                             }
@@ -1503,12 +1497,25 @@ function setupOrderSystem(bot) {
     });
 
     // --- Fonctions Partagées ---
+    // --- COMMANDES TG ---
+    bot.command('menu', async (ctx) => displayCatalog(ctx));
+    bot.command('orders', async (ctx) => {
+        if (ctx.callbackQuery) await ctx.answerCbQuery();
+        const activeOrders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
+        if (activeOrders.length === 0) return safeEdit(ctx, '📭 Vous n\'avez aucune commande active.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
+        const buttons = activeOrders.map(o => [Markup.button.callback(`📦 Commande #${o.id.substring(0, 5)} (${o.status})`, `view_order_${o.id}`)]);
+        buttons.push([Markup.button.callback('◀️ Retour', 'main_menu')]);
+        await safeEdit(ctx, '🔔 <b>Vos commandes actives :</b>', Markup.inlineKeyboard(buttons));
+    });
+
+    bot.command('help', async (ctx) => showHelpMenu(ctx));
+
     async function showHelpMenu(ctx) {
         if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => { });
         const settings = await getAppSettings();
         const activeOrders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
 
-        let text = `<b>${settings.label_help || 'Aide / Support'}</b>\n\n` +
+        let text = `<b>${settings.label_help || 'Aide & Support'}</b>\n\n` +
             `${settings.msg_help_intro || 'Besoin d\'aide ? Choisissez une option ci-dessous :'}`;
 
         const buttons = [];

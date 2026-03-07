@@ -77,7 +77,7 @@ class TelegramChannel extends Channel {
             }
 
             // Vérifier si le texte contient du HTML intentionnel
-            const hasHtmlTags = /<[a-z/][\s\S]*>/i.test(text);
+            const hasHtmlTags = text.match(/<[a-z/][\s\S]*>/i);
 
             let finalMsg = text;
             if (!hasHtmlTags) {

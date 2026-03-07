@@ -1,4 +1,4 @@
-const { getAllActiveUsers, saveBroadcast, updateBroadcast, markUserBlocked } = require('./database');
+const { getAllUsersForBroadcast, saveBroadcast, updateBroadcast, markUserBlocked } = require('./database');
 const fs = require('fs');
 const path = require('path');
 
@@ -31,7 +31,8 @@ async function broadcastMessage(platform, message, options = {}) {
 
     // On récupère TOUTES les cibles sans filtrer par plateforme pour être sûr de n'oublier personne
     // Et si on cible les 'users', on prend tout ce qui n'est pas un groupe (pour inclure les types non définis)
-    const targets = await getAllActiveUsers(null, bType);
+    // NOUVEAU: On utilise getAllUsersForBroadcast pour inclure aussi les utilisateurs bloqués
+    const targets = await getAllUsersForBroadcast(null, bType);
     const totalTargets = targets.length;
     debugLog(`[BC-TARGETS] ${totalTargets} cibles trouvées (Argument Platform: ${platform}, InternalType: ${bType}).`);
 

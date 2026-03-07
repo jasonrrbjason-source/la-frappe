@@ -347,7 +347,10 @@ function createServer() {
             }
             await updateAppSettings(updates);
             res.json({ success: true });
-        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+        } catch (e) {
+            console.error('❌ Settings update error:', e);
+            res.status(500).json({ error: 'Erreur serveur' });
+        }
     });
 
     app.post('/api/orders/status', authMiddleware, async (req, res) => {

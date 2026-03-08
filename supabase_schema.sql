@@ -142,7 +142,10 @@ CREATE TABLE IF NOT EXISTS bot_settings (
   points_ratio NUMERIC,
   points_exchange NUMERIC,
   ref_bonus NUMERIC,
-  fidelity_bonus_thresholds TEXT DEFAULT '5,9,10',
+  points_credit_value NUMERIC DEFAULT 5,
+  fidelity_wallet_max_pct NUMERIC DEFAULT 50,
+  fidelity_min_spend NUMERIC DEFAULT 50,
+  fidelity_bonus_thresholds TEXT DEFAULT '5,10,15,20',
   fidelity_bonus_amount NUMERIC DEFAULT 10,
   
   -- UI / Boutons / Labels
@@ -183,10 +186,18 @@ CREATE TABLE IF NOT EXISTS bot_settings (
   ui_icon_orders TEXT,
   ui_icon_success TEXT,
   ui_icon_help TEXT,
+  ui_icon_taken TEXT,
+  ui_icon_points TEXT,
   label_help TEXT,
   msg_help_intro TEXT,
   payment_modes TEXT,
-  ui_icon_points TEXT
+  private_contact_url TEXT,
+  bot_description TEXT,
+  bot_short_description TEXT,
+  list_admins JSONB DEFAULT '[]'::jsonb,
+  maintenance_mode BOOLEAN DEFAULT false,
+  maintenance_message TEXT,
+  maintenance_contact TEXT
 );
 
 -- =========================================================================

@@ -189,6 +189,10 @@ async function main() {
             const { checkAbandonedCarts } = require('./handlers/order_system');
             setInterval(() => checkAbandonedCarts(bot), 1800000);
 
+            // 5. Automatisation Sync & Check Statuts (toutes les 15 minutes)
+            setInterval(() => runAutomatedSync(bot), 900000);
+            setTimeout(() => runAutomatedSync(bot), 60000); // Premier run après 1 min
+
         } catch (err) {
             console.error('❌ Erreur au démarrage du bot:', err.message);
         }
@@ -320,6 +324,48 @@ function startAutomatedTimer(bot) {
             console.error('❌ Erreur timer automatique:', err.message);
         }
     }, SIX_HOURS);
+}
+
+// --- Sync Automatique Statuts (Check si bot bloqué) ---
+async function runAutomatedSync(bot) {
+    try {
+        const { getAllUsersForBroadcast, markUserBlocked, markUserUnblocked } = require('./services/database');
+        // On récupère tout le monde pour voir qui a bloqué/débloqué
+        const users = await getAllUsersForBroadcast('telegram', 'user');
+        if (!users || users.length === 0) return;
+
+        console.log(`🔄 Automation : Sync & Check de ${users.length} utilisateurs...`);
+
+        // Batch de 5 pour éviter flood
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < users.length; i += BATCH_SIZE) {
+            const batch = users.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (u) => {
+                try {
+                    const chatId = String(u.platform_id || '').replace('telegram_', '');
+                    if (!chatId) return;
+
+                    // On check le statut via typing
+                    await bot.telegram.sendChatAction(chatId, 'typing');
+
+                    // Si succès et qu'il était marqué bloqué (sauf ban admin), on réactive
+                    if (u.is_blocked && (!u.data || u.data.blocked_by_admin !== true)) {
+                        await markUserUnblocked(u.id);
+                    }
+                } catch (err) {
+                    const desc = err.description || '';
+                    if (err.code === 403 || desc.includes('blocked') || desc.includes('chat not found')) {
+                        if (!u.is_blocked) {
+                            await markUserBlocked(u.id, false);
+                        }
+                    }
+                }
+            }));
+            if (i + BATCH_SIZE < users.length) await new Promise(r => setTimeout(r, 1000));
+        }
+    } catch (e) {
+        console.error('❌ Erreur automation Sync:', e.message);
+    }
 }
 
 main().catch((error) => {

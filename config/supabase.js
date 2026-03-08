@@ -1,6 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 const { validateLicense } = require('../services/license');
-require('dotenv').config();
+require('dotenv').config({ path: process.env.RAILWAY_ENVIRONMENT ? '.env.railway' : '.env' });
 
 if (!validateLicense()) {
     console.error('❌ Licence invalide.');

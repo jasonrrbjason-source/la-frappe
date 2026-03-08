@@ -1,6 +1,6 @@
-# 🤖 Bot Telegram Prestige Club (V5)
+# 🤖 Bot Telegram Bot Client (V5)
 
-Un bot Telegram robuste conçu avec **Node.js (Telegraf)** et **Firebase Firestore**, incluant une **interface web d'administration premium**.
+Un bot Telegram robuste conçu avec **Node.js (Telegraf)** et **Supabase**, incluant une **interface web d'administration premium**.
 
 ## ✨ Fonctionnalités
 
@@ -8,16 +8,17 @@ Un bot Telegram robuste conçu avec **Node.js (Telegraf)** et **Firebase Firesto
 - **Inscription automatique** : Sauvegarde de l'ID, username, prénom et date d'inscription.
 - **Système de parrainage** : Lien unique par utilisateur, compteur de filleuls et classement.
 - **Menu interactif** : Accès rapide au contact privé, au canal Telegram et au message d'accueil.
-- **Détection de blocage** : Le bot détecte automatiquement si un utilisateur l'a bloqué pour nettoyer la base de données.
+- **Fidélité & Portefeuille** : Système de points de fidélité et solde de portefeuille pour les commandes.
+- **Suivi de commande** : Notifications en temps réel lors du changement d'état d'une commande.
 
 ### 🛠 Administration (Bot & Web)
-- **Dashboard Premium** : Statistiques en temps réel, graphiques d'inscription (Chart.js), gestion des utilisateurs.
+- **Dashboard Premium** : Statistiques en temps réel, graphiques d'inscription (Chart.js), gestion des utilisateurs et des commandes.
 - **Système de Broadcast** : 
-  - Envoi à TOUS les utilisateurs.
-  - Gestion des **Rate Limits** de Telegram (30 msg/sec).
-  - Saut automatique des comptes bloqués/supprimés.
-- **Statistiques avancées** : Inscriptions quotidiennes, taux de rétention, top parrains.
-- **Commandes Admin (Telegram)** : `/broadcast`, `/stats`, `/users`, `/leaderboard`.
+  - Envoi à TOUS les utilisateurs (y compris ceux ayant supprimé le bot, avec détection automatique).
+  - Statistiques précises : Succès, Échecs, Nouveaux Bloqués, Déjà Bloqués.
+  - Gestion des **Rate Limits** de Telegram.
+- **Gestion des Produits** : Ajout, modification et suppression de produits via le dashboard.
+- **Commandes Admin (Telegram)** : Accès rapide aux fonctions de gestion via le bot.
 
 ---
 
@@ -25,22 +26,21 @@ Un bot Telegram robuste conçu avec **Node.js (Telegraf)** et **Firebase Firesto
 
 ### 1. Prérequis
 - [Node.js v18+](https://nodejs.org/)
-- Un compte [Firebase](https://console.firebase.google.com/) (Gratuit)
+- Un compte [Supabase](https://supabase.com/) (Gratuit)
 - Un token de bot via [@BotFather](https://t.me/BotFather)
 
-### 2. Configuration Firebase
-1. Créez un projet sur la console Firebase.
-2. Activez **Firestore Database** en mode production (puis passez les règles en "allow read, write: if true;" pour le développement ou utilisez le SDK Admin).
-3. Allez dans **Paramètres du projet** > **Comptes de service**.
-4. Cliquez sur **Générer une nouvelle clé privée**.
-5. Renommez le fichier téléchargé en `serviceAccountKey.json` et placez-le à la racine du projet.
+### 2. Configuration Supabase
+1. Créez un projet sur Supabase.
+2. Configurez les tables nécessaires (`users`, `orders`, `products`, `settings`, etc.).
+3. Récupérez votre **URL de projet** et votre **Clé API anon**.
 
 ### 3. Variables d'environnement
-Créez un fichier `.env` à la racine (utilisez `.env.example` comme modèle) :
+Créez un fichier `.env` à la racine :
 ```env
 BOT_TOKEN=123456789:ABCDEF...
-ADMIN_TELEGRAM_ID=VotreIDTelegram
 ADMIN_PASSWORD=votre_mot_de_passe_dashboard
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
 PORT=3000
 ```
 
@@ -63,19 +63,18 @@ npm start
 ### Railway / Render
 Ce projet est prêt pour le déploiement sur Railway ou Render :
 1. Connectez votre dépôt GitHub.
-2. Ajoutez les variables d'environnement (du `.env`) dans les paramètres du service.
-3. Pour la clé Firebase en production, copiez le contenu du JSON dans `FIREBASE_PRIVATE_KEY` et remplissez `FIREBASE_CLIENT_EMAIL` et `FIREBASE_PROJECT_ID` (voir `config/firebase.js`).
+2. Ajoutez les variables d'environnement dans les paramètres du service.
 
 ---
 
 ## 🛠 Maintenance & Sécurité
-- **Doublons** : Gérés par l'utilisation de l'ID Telegram comme ID de document Firestore.
-- **Rate Limits** : Le service de broadcast utilise un système de batching (25 messages par lot avec délai) pour éviter le bannissement par Telegram.
-- **Erreurs API** : Chaque envoi est wrappé dans un bloc try/catch pour assurer la stabilité globale.
+- **Doublons** : Gérés par l'utilisation de l'ID Telegram comme identifiant unique.
+- **Rate Limits** : Le service de broadcast utilise un système de batching intelligent pour respecter les limites de l'API Telegram.
+- **Sécurité** : Accès au dashboard protégé par mot de passe admin.
 
 ---
 
 ## 📈 Onboarding Admin
 1. **Démarrer le bot** : Envoyez `/start` à votre bot.
-2. **Accéder au Web** : Ouvrez `http://localhost:3000` (ou votre URL de déploiement).
-3. **Tester le Broadcast** : Utilisez `/broadcast Hello members!` sur Telegram ou utilisez l'onglet "Broadcast" sur le dashboard web.
+2. **Accéder au Web** : Ouvrez votre URL de déploiement (ou localhost).
+3. **Paramétrage** : Rendez-vous dans l'onglet "Settings" pour configurer les messages d'accueil et les seuils de fidélité.

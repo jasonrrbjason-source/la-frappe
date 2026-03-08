@@ -170,17 +170,19 @@ function setupAdminHandlers(bot) {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
         const livreurs = await searchLivreurs('');
-        const active = livreurs.filter(l => l.is_active && l.is_available);
 
-        if (active.length === 0) return safeEdit(ctx, '❌ Aucun livreur disponible actuellement.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', `admin_order_view_${orderId}`)]]));
+        if (livreurs.length === 0) return safeEdit(ctx, '❌ Aucun livreur enregistré.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', `admin_order_view_${orderId}`)]]));
 
-        const buttons = active.map(l => [Markup.button.callback(`🚴 ${l.first_name} (${l.current_city || '?'})`, `admin_order_do_assign_${orderId}_${l.id}`)]);
+        const buttons = livreurs.map(l => {
+            const dispoIcon = l.is_available ? '🟢' : '🔴';
+            return [Markup.button.callback(`${dispoIcon} ${l.first_name} (${l.current_city || '?'})`, `admin_order_do_assign_${orderId}::${l.id}`)];
+        });
         buttons.push([Markup.button.callback('◀️ Annuler', `admin_order_view_${orderId}`)]);
 
-        await safeEdit(ctx, `🤝 <b>Assignation manuelle</b>\n\nChoisissez le livreur pour la commande #${orderId.slice(-6)} :`, Markup.inlineKeyboard(buttons));
+        await safeEdit(ctx, `🤝 <b>Assignation manuelle</b>\n\nChoisissez le livreur pour la commande #${orderId.slice(-6)} :\n🟢 = Disponible  🔴 = Indisponible`, Markup.inlineKeyboard(buttons));
     });
 
-    bot.action(/^admin_order_do_assign_(.+)_(.+)$/, async (ctx) => {
+    bot.action(/^admin_order_do_assign_(.+?)::(.+)$/, async (ctx) => {
         const [, orderId, lid] = ctx.match;
         const livreur = await getUser(lid);
         if (!livreur) return ctx.answerCbQuery('❌ Erreur');
@@ -242,11 +244,12 @@ function setupAdminHandlers(bot) {
         await ctx.answerCbQuery();
 
         const msg = `👤 <b>Profil de ${u.first_name}</b>\n\n` +
+            (u.is_blocked ? (u.data && u.data.blocked_by_admin === false ? '🚫 <b>Statut : BOT BLOQUÉ PAR CLIENT</b>\n' : '🚫 <b>Statut : BANNI PAR ADMIN</b>\n') : '✅ Statut : Actif\n') +
             `🆔 ID : <code>${u.id}</code>\n` +
             `💰 Solde : ${u.wallet_balance || 0}€\n` +
             `⭐️ Points : ${u.points || 0}\n` +
             `📦 Commandes : ${u.order_count || 0}\n` +
-            `🚴 Est Livreur : ${u.is_livreur ? '✅ OUI' : '❌ NON'}`;
+            `🏃 Est Livreur : ${u.is_livreur ? '✅ OUI' : '❌ NON'}\n`;
 
         const buttons = [
             [Markup.button.callback(u.is_livreur ? '🚫 Retirer Livreur' : '🚴 Passer Livreur', `admin_user_toggle_livreur_${u.id}`)],
@@ -375,8 +378,19 @@ function setupAdminHandlers(bot) {
     // Bloquer un utilisateur
     bot.action(/^admin_user_block_(.+)$/, async (ctx) => {
         const uid = ctx.match[1];
-        await markUserBlocked(uid);
-        await ctx.answerCbQuery('✅ Utilisateur bloqué');
+        const u = await getUser(uid);
+        if (!u) return ctx.answerCbQuery('❌ Utilisateur introuvable');
+
+        const { markUserBlocked, markUserUnblocked } = require('../services/database');
+
+        if (u.is_blocked) {
+            await markUserUnblocked(uid);
+            await ctx.answerCbQuery('✅ Utilisateur débloqué');
+        } else {
+            await markUserBlocked(uid, true);
+            await ctx.answerCbQuery('🚫 Utilisateur bloqué');
+        }
+
         return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `admin_user_view_${uid}` } });
     });
 
@@ -388,16 +402,37 @@ function setupAdminHandlers(bot) {
             `📛 Nom Bot : ${s.bot_name}\n` +
             `🔑 Admin Root : <code>${s.admin_telegram_id || 'Non défini'}</code>\n` +
             `👥 Admins supplémentaires : <b>${(s.list_admins || []).length}</b>\n\n` +
-            `💰 Bonus Parrainage : ${s.ref_bonus || 5}€\n` +
-            `🔄 Fidelity : ${s.fidelity_bonus_amount || 10}€ dès ${s.fidelity_bonus_thresholds || '?'} achats\n\n` +
+            `📢 <b>Canal :</b> ${s.channel_url || 'Non configuré'}\n` +
+            `📱 <b>Contact :</b> ${s.private_contact_url || 'Non configuré'}\n\n` +
+            `💰 Bonus Parrainage : ${s.ref_bonus || 5}€\n\n` +
             `<i>Utilisez les boutons ci-dessous pour gérer les admins ou voir la config web complète.</i>`;
 
         await safeEdit(ctx, msg, Markup.inlineKeyboard([
             [Markup.button.callback('👥 Gérer les Admins (+/-)', 'admin_manage_list')],
+            [Markup.button.callback('📢 Changer Lien Canal', 'admin_set_channel')],
+            [Markup.button.callback('📱 Changer Contact Admin', 'admin_set_contact')],
             [Markup.button.url('🌐 Dashboard Web Complet', s.dashboard_url || 'https://google.com')],
             [Markup.button.callback('◀️ Retour', 'admin_menu')]
         ]));
     });
+
+    const pendingSettingsUpdate = new Map();
+
+    bot.action('admin_set_channel', async (ctx) => {
+        await ctx.answerCbQuery();
+        pendingSettingsUpdate.set(ctx.from.id, 'channel_url');
+        await safeEdit(ctx, `📢 <b>Changer le lien du Canal</b>\n\nEnvoyez le nouveau lien (ex: https://t.me/moncanal) :`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', 'admin_settings')]]));
+    });
+
+    bot.action('admin_set_contact', async (ctx) => {
+        await ctx.answerCbQuery();
+        pendingSettingsUpdate.set(ctx.from.id, 'private_contact_url');
+        await safeEdit(ctx, `📱 <b>Changer le contact Admin</b>\n\nEnvoyez le nouveau lien ou username (ex: https://t.me/monuser) :`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Annuler', 'admin_settings')]]));
+    });
+
+
 
     // Gestion list_admins (+/-)
     bot.action('admin_manage_list', async (ctx) => {
@@ -443,7 +478,7 @@ function setupAdminHandlers(bot) {
         if (pendingAdminAdd.has(ctx.from.id)) {
             pendingAdminAdd.delete(ctx.from.id);
             const newId = ctx.message.text.trim();
-            if (!/^\d+$/.test(newId)) return ctx.reply("❌ L'ID doit être composé uniquement de chiffres. Annulé.");
+            if (!newId.match(/^\d+$/)) return ctx.reply("❌ L'ID doit être composé uniquement de chiffres. Annulé.");
 
             const s = await getAppSettings();
             let admins = Array.isArray(s.list_admins) ? s.list_admins : [];
@@ -457,23 +492,218 @@ function setupAdminHandlers(bot) {
                 callback_query: { id: '0', from: ctx.from, data: 'admin_manage_list', message: ctx.message }
             });
         }
+
+        if (pendingSettingsUpdate.has(ctx.from.id)) {
+            const field = pendingSettingsUpdate.get(ctx.from.id);
+            pendingSettingsUpdate.delete(ctx.from.id);
+            let val = ctx.message.text.trim();
+            if (field.endsWith('_url') && !val.startsWith('http')) {
+                val = 'https://' + val.replace(/^@/, 't.me/');
+            }
+            await updateAppSettings({ [field]: val });
+            await ctx.reply(`✅ Paramètre <b>${field}</b> mis à jour !`, { parse_mode: 'HTML' });
+            return bot.handleUpdate({
+                ...ctx.update,
+                callback_query: { id: '0', from: ctx.from, data: 'admin_settings', message: ctx.message }
+            });
+        }
         return next();
     });
 
-    // On-onglet des fonctionnalités
+
+    // On-onglet des fonctionnalités (Menu principal)
     bot.action('admin_features', async (ctx) => {
         await ctx.answerCbQuery();
-        const msg = `✨ <b>GUIDE DES FONCTIONNALITÉS BOT</b>\n\n` +
-            `• <b>🛒 Catalogue</b> : Affiche les produits par ville. Gestion des stocks en 1 clic.\n` +
-            `• <b>🚴 Système Livreur</b> : Chaque livreur a son bouton "Espace Livreur". Il voit ses commandes prises, son solde et gère ses dispos.\n` +
-            `• <b>💬 Communication Directe</b> : Client et Livreur peuvent chatter (limite 3 messages) pour les détails de livraison.\n` +
-            `• <b>⚠️ Signalement Retard</b> : Le livreur peut prévenir d'un retard; le client peut alors annuler si trop long.\n` +
-            `• <b>🎁 Fidélité & Parrainage</b> : Wallet intégré, bonus toutes les X commandes, crédit automatique.\n` +
-            `• <b>📊 Dashboard Admin</b> : Stats en temps réel, diffusion de masse, gestion des bannissements et des accès admins.\n` +
-            `• <b>❓ Menu Aide</b> : Intégré aux commandes pour traquer la position ou contacter l'admin.\n\n` +
-            `<i>Chaque bouton du menu admin permet de gérer une de ces briques.</i>`;
+        const msg = `✨ <b>GUIDE DES FONCTIONNALITÉS</b>\n\n` +
+            `Explorez chaque section du bot en détail.\nCliquez sur un onglet pour en savoir plus :`;
 
-        await safeEdit(ctx, msg, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu Admin', 'admin_menu')]]));
+        await safeEdit(ctx, msg, Markup.inlineKeyboard([
+            [Markup.button.callback('🛒 Catalogue & Commandes', 'feat_catalog')],
+            [Markup.button.callback('🚴 Système Livreur', 'feat_livreur')],
+            [Markup.button.callback('💬 Chat & Communication', 'feat_chat')],
+            [Markup.button.callback('🎁 Fidélité & Parrainage', 'feat_fidelity')],
+            [Markup.button.callback('📣 Diffusion (Broadcast)', 'feat_broadcast')],
+            [Markup.button.callback('📊 Statistiques & Dashboard', 'feat_stats')],
+            [Markup.button.callback('👥 Gestion Utilisateurs', 'feat_users')],
+            [Markup.button.callback('⚙️ Paramètres Bot', 'feat_settings')],
+            [Markup.button.callback('◀️ Menu Admin', 'admin_menu')]
+        ]));
+    });
+
+    // --- Sous-pages Fonctionnalités ---
+    bot.action('feat_catalog', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `🛒 <b>CATALOGUE & COMMANDES</b>\n\n` +
+            `<b>Pour le client :</b>\n` +
+            `• Le bouton "Catalogue" affiche tous les produits disponibles par catégorie/ville\n` +
+            `• Le client choisit un produit, sélectionne la quantité, puis entre son adresse\n` +
+            `• Il peut planifier une commande à un horaire précis (commande planifiée)\n` +
+            `• Le panier est sauvegardé et reprendre possible depuis le menu principal\n\n` +
+            `<b>Pour l'admin :</b>\n` +
+            `• "Gestion Produits" dans le menu admin : ajouter, modifier, supprimer des produits\n` +
+            `• Chaque produit a un nom, prix, photo, ville et disponibilité\n` +
+            `• "Commandes Récentes" : voir toutes les commandes, leur statut, et les assigner à un livreur\n` +
+            `• L'admin peut annuler ou réassigner une commande à tout moment\n\n` +
+            `<b>Notifications :</b>\n` +
+            `• L'admin reçoit une alerte à chaque nouvelle commande\n` +
+            `• Le client est notifié quand un livreur prend sa commande et quand elle est livrée`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Fonctionnalités', 'admin_features')]])
+        );
+    });
+
+    bot.action('feat_livreur', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `🚴 <b>SYSTÈME LIVREUR</b>\n\n` +
+            `<b>Espace Livreur (bouton dans le menu) :</b>\n` +
+            `• Passer Disponible / Indisponible : le livreur gère sa dispo en 1 clic\n` +
+            `• "Commandes disponibles" : voir les commandes en attente à prendre\n` +
+            `• "Mes livraisons en cours" : gérer les commandes acceptées\n` +
+            `• "Commandes planifiées" : voir les commandes prévues à l'avance\n` +
+            `• "Mon historique" : voir toutes ses livraisons passées\n\n` +
+            `<b>Cycle d'une livraison :</b>\n` +
+            `1. Le livreur voit une commande et clique "Prendre la commande"\n` +
+            `2. Il envoie une ETA (estimation d'arrivée) au client\n` +
+            `3. Il peut signaler un retard si nécessaire (motif obligatoire)\n` +
+            `4. Il marque "Livré" quand c'est fait → le client reçoit une notif + demande de feedback\n\n` +
+            `<b>Gestion Admin :</b>\n` +
+            `• "Gestion Livreurs" : nommer/retirer un livreur, voir son historique\n` +
+            `• L'admin peut assigner manuellement une commande à un livreur\n` +
+            `• L'admin voit les changements de disponibilité en temps réel`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Fonctionnalités', 'admin_features')]])
+        );
+    });
+
+    bot.action('feat_chat', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `💬 <b>CHAT & COMMUNICATION</b>\n\n` +
+            `<b>Chat Client ↔ Livreur :</b>\n` +
+            `• Système de chat intégré directement dans la commande\n` +
+            `• Limité à 3 messages au total (client + livreur) pour garder le focus\n` +
+            `• Le client et le livreur ont chacun un bouton "Envoyer un message"\n` +
+            `• Les messages sont relayés via le bot (pas de numéro échangé)\n\n` +
+            `<b>Signalement de retard :</b>\n` +
+            `• Le livreur clique "Signaler un retard" dans sa commande active\n` +
+            `• Il doit taper un motif (obligatoire)\n` +
+            `• Le client reçoit le motif et peut choisir d'annuler\n` +
+            `• L'admin est notifié de chaque signalement\n\n` +
+            `<b>Contact Admin :</b>\n` +
+            `• Bouton "Parler à l'Admin" dans le menu Aide\n` +
+            `• Redirige vers le lien de contact privé configuré dans les paramètres`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Fonctionnalités', 'admin_features')]])
+        );
+    });
+
+    bot.action('feat_fidelity', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `🎁 <b>FIDÉLITÉ & PARRAINAGE</b>\n\n` +
+            `<b>Système de points :</b>\n` +
+            `• Le client gagne des points à chaque commande livrée (ratio configurable)\n` +
+            `• Les points sont automatiquement convertis en crédit quand le seuil est atteint\n` +
+            `• Ex: 100 points = 10€ de crédit (configurable dans les paramètres)\n\n` +
+            `<b>Portefeuille (Wallet) :</b>\n` +
+            `• Crédit utilisable sur la prochaine commande\n` +
+            `• Alimenté par les conversions de points et les bonus\n\n` +
+            `<b>Parrainage :</b>\n` +
+            `• Chaque utilisateur a un lien de parrainage unique\n` +
+            `• Quand un filleul passe sa 1ère commande, parrain ET filleul reçoivent un bonus (configurable)\n\n` +
+            `<b>Bonus Fidélité :</b>\n` +
+            `• Bonus automatique à la Xème commande (ex: 5ème, 10ème)\n` +
+            `• Seuils et montant configurables dans les paramètres`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Fonctionnalités', 'admin_features')]])
+        );
+    });
+
+    bot.action('feat_broadcast', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `📣 <b>DIFFUSION (BROADCAST)</b>\n\n` +
+            `<b>Envoi de masse :</b>\n` +
+            `• Envoyer un message à tous les utilisateurs non bloqués en 1 clic\n` +
+            `• Supporte texte + médias (photos, vidéos) en pièces jointes\n` +
+            `• Envoi par lots pour respecter les limites Telegram\n\n` +
+            `<b>Depuis le Dashboard Web :</b>\n` +
+            `• Onglet "Diffusion" : rédiger le message, joindre des médias, envoyer\n` +
+            `• Historique des diffusions (succès, échecs, bloqués)\n\n` +
+            `<b>Depuis le Bot :</b>\n` +
+            `• "Diffusion Message" dans le menu admin → redirige vers le dashboard\n\n` +
+            `<b>Message Automatique :</b>\n` +
+            `• Un message configurable est envoyé automatiquement toutes les 6h\n` +
+            `• Configurable dans les paramètres du dashboard (champ "Message auto timer")`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Fonctionnalités', 'admin_features')]])
+        );
+    });
+
+    bot.action('feat_stats', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `📊 <b>STATISTIQUES & DASHBOARD</b>\n\n` +
+            `<b>Onglet Statistiques (Bot) :</b>\n` +
+            `• Nombre total d'utilisateurs et utilisateurs actifs\n` +
+            `• Chiffre d'affaires total et nombre de commandes\n` +
+            `• Nombre de livreurs actifs\n\n` +
+            `<b>Onglet Analytiques (Bot) :</b>\n` +
+            `• CA par jour, semaine, mois\n` +
+            `• Top produits vendus\n` +
+            `• Temps moyen de livraison\n\n` +
+            `<b>Dashboard Web :</b>\n` +
+            `• Vue d'ensemble avec compteurs en temps réel\n` +
+            `• Onglet Commandes : liste, filtres, détails\n` +
+            `• Onglet Utilisateurs : recherche, profils, bannissement\n` +
+            `• Onglet Livreurs : gestion, historique par livreur\n` +
+            `• Onglet Produits : CRUD complet avec photos\n` +
+            `• Onglet Diffusion : envoi + historique\n` +
+            `• Onglet Paramètres : personnalisation complète du bot`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Fonctionnalités', 'admin_features')]])
+        );
+    });
+
+    bot.action('feat_users', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `👥 <b>GESTION UTILISATEURS</b>\n\n` +
+            `<b>Depuis le Bot :</b>\n` +
+            `• "Gestion Utilisateurs" : rechercher un utilisateur par nom ou ID\n` +
+            `• Voir le profil complet (commandes, points, wallet)\n` +
+            `• Bloquer / Débloquer un utilisateur\n\n` +
+            `<b>Depuis le Dashboard :</b>\n` +
+            `• Liste complète avec recherche\n` +
+            `• Modifier le solde, les points, le statut livreur\n` +
+            `• Voir l'historique des commandes par utilisateur\n\n` +
+            `<b>Blocage :</b>\n` +
+            `• Un utilisateur bloqué ne peut plus interagir avec le bot\n` +
+            `• Il reçoit un message "Accès refusé" s'il essaie\n` +
+            `• Il ne reçoit plus les diffusions`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Fonctionnalités', 'admin_features')]])
+        );
+    });
+
+    bot.action('feat_settings', async (ctx) => {
+        await ctx.answerCbQuery();
+        await safeEdit(ctx,
+            `⚙️ <b>PARAMÈTRES DU BOT</b>\n\n` +
+            `<b>Personnalisation visuelle :</b>\n` +
+            `• Icônes de chaque bouton du menu (émojis)\n` +
+            `• Libellés des boutons (noms affichés)\n` +
+            `• Message de bienvenue pour les nouveaux utilisateurs\n` +
+            `• Modes de paiement affichés dans le message de bienvenue\n\n` +
+            `<b>Fidélité & Parrainage :</b>\n` +
+            `• Ratio points/euro, seuil de conversion\n` +
+            `• Bonus parrainage, bonus fidélité\n` +
+            `• Plafond d'utilisation du wallet\n\n` +
+            `<b>Liens & Contact :</b>\n` +
+            `• URL du canal Telegram\n` +
+            `• Lien de contact privé admin\n` +
+            `• Description du bot (carte de partage Telegram)\n\n` +
+            `<b>Accès :</b>\n` +
+            `• ID Telegram de l'admin (notifications)\n` +
+            `• Mot de passe du dashboard web\n` +
+            `• Tous les paramètres sont modifiables en temps réel depuis le dashboard`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Fonctionnalités', 'admin_features')]])
+        );
     });
 
     // Analytics rapide

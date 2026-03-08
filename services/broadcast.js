@@ -1,4 +1,4 @@
-const { getAllActiveUsers, saveBroadcast, updateBroadcast, markUserBlocked } = require('./database');
+const { getAllUsersForBroadcast, saveBroadcast, updateBroadcast, markUserBlocked } = require('./database');
 const fs = require('fs');
 const path = require('path');
 
@@ -6,7 +6,7 @@ function debugLog(msg) {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${msg}\n`;
     try {
-        fs.appendFileSync(path.join(process.cwd(), 'debug_la_frappe.log'), line);
+        fs.appendFileSync(path.join(process.cwd(), 'debug_bot_client.log'), line);
     } catch (e) { }
     console.log(msg);
 }
@@ -31,7 +31,8 @@ async function broadcastMessage(platform, message, options = {}) {
 
     // On récupère TOUTES les cibles sans filtrer par plateforme pour être sûr de n'oublier personne
     // Et si on cible les 'users', on prend tout ce qui n'est pas un groupe (pour inclure les types non définis)
-    const targets = await getAllActiveUsers(null, bType);
+    // NOUVEAU: On utilise getAllUsersForBroadcast pour inclure aussi les utilisateurs bloqués
+    const targets = await getAllUsersForBroadcast(null, bType);
     const totalTargets = targets.length;
     debugLog(`[BC-TARGETS] ${totalTargets} cibles trouvées (Argument Platform: ${platform}, InternalType: ${bType}).`);
 
@@ -89,14 +90,25 @@ async function broadcastMessage(platform, message, options = {}) {
 
     let successCount = 0;
     let failedCount = 0;
-    let blockedCount = 0;
+    let newlyBlockedCount = 0;
+    let previouslyBlockedCount = 0;
+    const newlyBlockedNames = [];
 
     const currentBatchSize = unifiedMediaList.length > 0 ? MEDIA_BATCH_SIZE : TEXT_BATCH_SIZE;
 
-    let targetsToProcess = [...targets];
+    // On sépare ceux déjà bloqués en DB
+    const eligibleTargets = [];
+    for (const u of targets) {
+        if (u.is_blocked) {
+            previouslyBlockedCount++;
+        } else {
+            eligibleTargets.push(u);
+        }
+    }
+
+    let targetsToProcess = [...eligibleTargets];
 
     // Seed Telegram file_ids by sending to the first user synchronously.
-    // This allows subsequent batch sends to use file_ids (CDN pointers) instead of uploading massive buffers, avoiding memory and network crashes.
     if (unifiedMediaList.length > 0 && targetsToProcess.length > 0) {
         debugLog("[BC-SEED] Initializing file_id caching with first user...");
         let seederSuccess = false;
@@ -108,8 +120,10 @@ async function broadcastMessage(platform, message, options = {}) {
                 seederSuccess = true;
                 debugLog("[BC-SEED] Cached Telegram file_ids successfully.");
             } else {
-                if (res.blocked) blockedCount++;
-                else failedCount++;
+                if (res.blocked) {
+                    newlyBlockedCount++;
+                    newlyBlockedNames.push(seedUser.first_name || seedUser.platform_id);
+                } else failedCount++;
             }
             await new Promise(r => setTimeout(r, 500));
         }
@@ -130,8 +144,10 @@ async function broadcastMessage(platform, message, options = {}) {
                 if (success) {
                     successCount++;
                 } else {
-                    if (blocked) blockedCount++;
-                    else failedCount++;
+                    if (blocked) {
+                        newlyBlockedCount++;
+                        newlyBlockedNames.push(batch[idx].first_name || batch[idx].platform_id);
+                    } else failedCount++;
                     debugLog(`[BC-FAILED] ${batch[idx].platform_id}: ${error}`);
                 }
             } else {
@@ -140,7 +156,7 @@ async function broadcastMessage(platform, message, options = {}) {
             }
         }
 
-        if (i + currentBatchSize < targets.length) {
+        if (i + currentBatchSize < eligibleTargets.length) {
             await new Promise(r => setTimeout(r, DELAY_BETWEEN_BATCHES_MS));
         }
     }
@@ -150,12 +166,14 @@ async function broadcastMessage(platform, message, options = {}) {
         status: 'completed',
         success: successCount,
         failed: failedCount,
-        blocked: blockedCount,
-        completed_at: new Date().toISOString()
+        blocked: newlyBlockedCount, // On garde 'blocked' pour les nouveaux
+        previously_blocked: previouslyBlockedCount,
+        blocked_names: newlyBlockedNames.length > 0 ? newlyBlockedNames.join(', ') : null,
+        completed_at: ts()
     }).catch(e => debugLog(`[BC-LOG-ERR] ${e.message}`));
 
-    debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Bloqués: ${blockedCount}`);
-    return { success: successCount, failed: failedCount, blocked: blockedCount, total: totalTargets, broadcastId };
+    debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Nouveaux Bloqués: ${newlyBlockedCount}, Déjà Bloqués: ${previouslyBlockedCount}`);
+    return { success: successCount, failed: failedCount, blocked: newlyBlockedCount, previously_blocked: previouslyBlockedCount, total: totalTargets, broadcastId };
 }
 
 async function sendToUser(user, message, unifiedMediaList = []) {
@@ -281,12 +299,27 @@ async function sendToUser(user, message, unifiedMediaList = []) {
         }
         return { success: true };
     } catch (error) {
-        const desc = error.description || error.message || "Erreur inconnue";
+        const desc = (error.description || error.message || "Erreur inconnue").toLowerCase();
         const errorName = error.name || "Error";
-        debugLog(`[BC-ERROR] Cible ${chatId}: [${errorName}] ${desc}`);
+        const code = error.code || 0;
 
-        if (error.code === 403 || desc.includes('blocked') || desc.includes('chat not found') || desc.includes('kicked')) {
-            if (user.doc_id) await markUserBlocked(user.doc_id).catch(() => { });
+        debugLog(`[BC-ERROR] Cible ${chatId}: [${errorName}] ${desc} (Code: ${code})`);
+
+        // Liste exhaustive des erreurs indiquant un blocage ou un bot supprimé
+        const isBlockedError = code === 403 ||
+            desc.includes('blocked') ||
+            desc.includes('chat not found') ||
+            desc.includes('kicked') ||
+            desc.includes('user is deactivated') ||
+            desc.includes('forbidden');
+
+        if (isBlockedError) {
+            if (user.id || user.doc_id) {
+                const { markUserBlocked } = require('./database');
+                await markUserBlocked(user.id || user.doc_id, false).catch(e => {
+                    debugLog(`[BC-MARK-ERR] Failed to mark ${chatId} as blocked: ${e.message}`);
+                });
+            }
             return { success: false, blocked: true, error: desc };
         }
         return { success: false, error: desc };

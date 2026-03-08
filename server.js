@@ -11,7 +11,7 @@ const {
     deleteUser, incrementOrderCount, makeDocId, getOrderAnalytics, searchLivreurs,
     getBroadcastHistory, deleteBroadcast, getDetailedLivreurActivity,
     nukeDatabase, decryptUser, supabase, COL_USERS,
-    registerUser, getLivreurHistory
+    registerUser, getLivreurHistory, getReviews, deleteReview
 } = require('./services/database');
 const { broadcastMessage } = require('./services/broadcast');
 const fs = require('fs');
@@ -25,7 +25,7 @@ function debugLog(msg) {
     console.log(msg);
 }
 
-require('dotenv').config();
+require('dotenv').config({ path: process.env.RAILWAY_ENVIRONMENT ? '.env.railway' : '.env' });
 
 // Référence partagée au bot Telegram (définie par index.js)
 let _bot = null;
@@ -139,6 +139,52 @@ function createServer() {
             console.error('Add user error:', e.message);
             res.status(500).json({ error: e.message });
         }
+    });
+
+    app.post('/api/users/block', authMiddleware, async (req, res) => {
+        try {
+            const { markUserBlocked } = require('./services/database');
+            await markUserBlocked(req.body.id, true);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/users/check-status', authMiddleware, async (req, res) => {
+        try {
+            const { getUser, markUserBlocked, markUserUnblocked } = require('./services/database');
+            const u = await getUser(req.body.id);
+            if (!u || !u.platform_id) return res.json({ success: false, error: 'User introuvable' });
+
+            const bot = getBotInstance();
+            if (!bot) return res.status(500).json({ error: 'Bot non initialisé' });
+
+            try {
+                // On tente une petite action "typing" pour voir si le bot est bloqué
+                const chatId = u.platform_id.replace('telegram_', '');
+                await bot.telegram.sendChatAction(chatId, 'typing');
+
+                // Si ça réussit et qu'il était marqué bloqué par le client, on le débloque
+                if (u.is_blocked && u.data && u.data.blocked_by_admin === false) {
+                    await markUserUnblocked(u.id);
+                }
+                res.json({ success: true, status: 'active' });
+            } catch (err) {
+                const desc = err.description || '';
+                if (err.code === 403 || desc.includes('blocked') || desc.includes('chat not found')) {
+                    await markUserBlocked(u.id, false);
+                    return res.json({ success: true, status: 'blocked' });
+                }
+                throw err;
+            }
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
+    app.post('/api/users/unblock', authMiddleware, async (req, res) => {
+        try {
+            const { markUserUnblocked } = require('./services/database');
+            await markUserUnblocked(req.body.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
     app.post('/api/users/order', authMiddleware, async (req, res) => {
@@ -509,6 +555,18 @@ function createServer() {
     app.get('/api/broadcasts', authMiddleware, async (req, res) => {
         try { res.json(await getBroadcastHistory()); }
         catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.get('/api/reviews', authMiddleware, async (req, res) => {
+        try { res.json(await getReviews(parseInt(req.query.limit) || 100)); }
+        catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/reviews/delete', authMiddleware, async (req, res) => {
+        try {
+            await deleteReview(req.body.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
     });
 
     app.delete('/api/broadcasts/:id', authMiddleware, async (req, res) => {

@@ -9,6 +9,7 @@ const COL_SETTINGS = 'bot_settings';
 const COL_PRODUCTS = 'bot_products';
 const COL_ORDERS = 'bot_orders';
 const COL_DAILY_STATS = 'bot_daily_stats';
+const COL_REVIEWS = 'bot_reviews';
 
 function ts() { return new Date().toISOString(); }
 
@@ -68,7 +69,7 @@ async function activeUsersQuery(platform, type = null, limit = null) {
         q = q.eq('is_livreur', true);
     } else if (type === 'user') {
         // Inclure 'user' OU NULL (si non défini) mais exclure explicitement 'group'
-        q = q.neq('type', 'group');
+        q = q.or('type.is.null,type.eq.user');
     } else if (type === 'group') {
         q = q.eq('type', 'group');
     } else if (type) {
@@ -101,13 +102,16 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
         // Optimisation : Ne mettre à jour last_active en DB que toutes les 5 minutes
         const lastUpdated = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
         const needsDbUpdate = (nowMs - lastUpdated) > 300000; // 5 minutes
+        const needsTypeHealing = !existing.type;
 
-        if (needsDbUpdate) {
+        if (needsDbUpdate || needsTypeHealing) {
             const updateData = {
                 last_active: ts(),
                 updated_at: ts(),
                 is_active: true
             };
+
+            if (needsTypeHealing) updateData.type = isGroup ? 'group' : 'user';
 
             // Si on a des infos fraîches sur le nom/username
             if (platformUser.username) updateData.username = !isGroup ? encryption.encrypt(platformUser.username) : platformUser.username;
@@ -199,8 +203,53 @@ async function getAllActiveUsers(platform = null, type = null) {
     console.log(`[DB] getAllActiveUsers(platform=${platform}, type=${type}) -> ${list.length} trouvés`);
     return list.map(d => decryptUser(d));
 }
-async function markUserBlocked(docId) {
-    await supabase.from(COL_USERS).update({ is_blocked: true, blocked_at: ts() }).eq('id', docId);
+
+// Nouvelle fonction pour le broadcast : inclut TOUS les utilisateurs (même bloqués)
+async function getAllUsersForBroadcast(platform = null, type = null) {
+    let q = supabase.from(COL_USERS).select('id, platform, platform_id, type, username, first_name, last_name, order_count, wallet_balance, points, date_inscription, is_livreur, is_available, is_blocked, current_city, data, blocked_at');
+    if (platform && platform !== 'all') q = q.eq('platform', platform);
+    if (type === 'livreurs') {
+        q = q.eq('is_livreur', true);
+    } else if (type === 'user') {
+        q = q.or('type.is.null,type.eq.user');
+    } else if (type === 'group') {
+        q = q.eq('type', 'group');
+    } else if (type) {
+        q = q.eq('type', type);
+    }
+    const { data } = await q;
+    const list = data || [];
+    console.log(`[DB] getAllUsersForBroadcast(platform=${platform}, type=${type}) -> ${list.length} trouvés (dont bloqués)`);
+    return list.map(d => decryptUser(d));
+}
+/**
+ * Marque un utilisateur comme bloqué.
+ * @param {string} docId 
+ * @param {boolean} byAdmin true si bloqué par l'admin, false si le bot a été bloqué par l'utilisateur (détecté par broadcast)
+ */
+async function markUserBlocked(docId, byAdmin = false) {
+    const updateData = { is_blocked: true, blocked_at: ts() };
+    console.log(`[DB] Marking user ${docId} as BLOCKED (byAdmin: ${byAdmin})`);
+
+    const u = await getUser(docId);
+    if (u) {
+        const newData = { ...(u.data || {}), blocked_by_admin: byAdmin };
+        updateData.data = newData;
+    }
+
+    await supabase.from(COL_USERS).update(updateData).eq('id', docId);
+    _userCache.delete(docId);
+}
+async function markUserUnblocked(docId) {
+    console.log(`[DB] Marking user ${docId} as UNBLOCKED`);
+    const updateData = { is_blocked: false, blocked_at: null };
+    const u = await getUser(docId);
+    if (u) {
+        const newData = { ...(u.data || {}) };
+        delete newData.blocked_by_admin;
+        updateData.data = newData;
+    }
+    await supabase.from(COL_USERS).update(updateData).eq('id', docId);
     _userCache.delete(docId);
 }
 async function deleteUser(docId) {
@@ -329,9 +378,22 @@ async function getActiveLivreursCount() {
 async function addMessageToTrack(docId, messageId) {
     const user = await getUser(docId);
     if (!user) return;
+
+    // Stratégie : Garder seulement les 10 derniers messages pour éviter l'accumulation
     let tracked = user.tracked_messages || [];
-    if (!tracked.includes(messageId)) tracked.push(messageId);
-    await supabase.from(COL_USERS).update({ tracked_messages: tracked, last_menu_id: messageId }).eq('id', docId);
+    if (!tracked.includes(messageId)) {
+        tracked.push(messageId);
+        // Limiter à 10 messages maximum (FIFO - First In First Out)
+        if (tracked.length > 10) {
+            tracked = tracked.slice(-10); // Garde les 10 derniers
+        }
+    }
+
+    await supabase.from(COL_USERS).update({
+        tracked_messages: tracked,
+        last_menu_id: messageId
+    }).eq('id', docId);
+
     _userCache.delete(docId);
 }
 
@@ -662,7 +724,9 @@ async function searchUsers(query) {
     }
 
     // Otherwise fetch a larger batch and filter in memory (for encrypted names)
-    const { data } = await supabase.from(COL_USERS).select('*').order('last_active', { ascending: false }).limit(1000);
+    // Otherwise fetch a larger batch and filter in memory (for encrypted names)
+    // Augmentation de la limite à 2000 pour retrouver les anciens utilisateurs
+    const { data } = await supabase.from(COL_USERS).select('*').order('last_active', { ascending: false }).limit(2000);
     const decrypted = (data || []).map(decryptUser);
 
     if (!query) return decrypted.slice(0, 50);
@@ -771,7 +835,6 @@ async function getStatsOverview() {
     const total = await getUserCount();
     const active = await getActiveUserCount();
     const stats = await getGlobalStats();
-
     const { data: bcSnap } = await supabase.from(COL_BROADCASTS).select('id, created_at, success, failed, message').order('created_at', { ascending: false }).limit(5);
 
     // Optimized count for active drivers (direct query, no memory decryption needed)
@@ -784,7 +847,11 @@ async function getStatsOverview() {
         .select('*', { count: 'exact', head: true })
         .eq('is_livreur', true);
 
-    const totalCA = parseFloat(stats.total_ca || stats.global?.total_ca || 0);
+    // Get CA from Sum of delivered orders (more reliable than just global_stats)
+    const { data: caData } = await supabase.from(COL_ORDERS).select('total_price').eq('status', 'delivered');
+    const calculatedCA = (caData || []).reduce((acc, curr) => acc + (parseFloat(curr.total_price) || 0), 0);
+
+    const totalCA = calculatedCA || parseFloat(stats.total_ca || stats.global?.total_ca || 0);
 
     // Get total count of all orders separately if needed, or just delivered
     const { count: totalOrdersCount } = await supabase.from(COL_ORDERS).select('*', { count: 'exact', head: true });
@@ -925,11 +992,12 @@ async function getAllLivreurs() {
 
 // --- Settings ---
 const SETTINGS_DEFAULTS = {
-    bot_name: 'LE BOT CLIENT',
+    bot_name: 'Bot Client Telegram',
+    dashboard_title: 'Bot Client Telegram - Admin',
     welcome_message: 'Bienvenue ! Vous faites partie de la famille.',
-    admin_password: process.env.ADMIN_PASSWORD || 'admin123456',
+    admin_password: process.env.ADMIN_PASSWORD || 'botclient2024',
     admin_telegram_id: String(process.env.ADMIN_TELEGRAM_ID || ''),
-    ui_icon_catalog: '🍔',
+    ui_icon_catalog: '👟',
     ui_icon_orders: '📦',
     ui_icon_contact: '📱',
     ui_icon_channel: '📢',
@@ -945,37 +1013,48 @@ const SETTINGS_DEFAULTS = {
     ui_icon_wallet: '💰',
     ui_icon_points: '⭐',
     ui_icon_stats: '📊',
-    ui_icon_broadcast: '📢',
+    ui_icon_broadcast: '📣',
     ui_icon_logout: '🚪',
+    ui_icon_taken: '🚚',
+    ui_icon_help: '❓',
     label_catalog: 'Catalogue Produits',
     label_my_orders: 'Mes Commandes',
-    label_contact: 'Mon contact privé',
-    label_channel: 'Lien canal Telegram',
+    label_contact: 'Contact Admin',
+    label_channel: 'Lien Canal Telegram',
     label_welcome: 'Message d\'accueil',
-    label_profile: 'Mon Profil & Parrainage',
-    label_admin_bot: 'Console Admin (Bot)',
+    label_profile: 'Mon Profil / Parrainage',
+    label_admin_bot: 'Gestion Bot',
     label_admin_web: 'Dashboard Web',
+    label_livreur: 'Espace Livreur',
     label_livreur_space: 'Espace Livreur',
-    status_pending_label: 'EN ATTENTE',
-    status_taken_label: 'PRIS EN CHARGE',
-    status_delivered_label: 'LIVRÉE',
-    status_cancelled_label: 'ANNULÉE',
+    label_help: 'Aide & Support',
+    status_pending_label: 'Attente Validation',
+    status_taken_label: 'En cours de livraison',
+    status_delivered_label: 'Livré ✅',
+    status_cancelled_label: 'Annulé ❌',
     msg_auto_timer: '🔥 <b>Le catalogue est à jour !</b>\nProfitez de nos nouveaux produits et de nos promos en cours. 🚀',
-    ui_icon_taken: '🚚',
-    msg_choose_qty: 'Choisissez la quantité :',
+    msg_choose_qty: 'Choisissez la quantité souhaitée :',
     msg_search_livreur: '⏳ Recherche d\'un livreur en cours...',
     msg_order_success: '✅ <b>Commande enregistrée !</b>',
-    points_credit_value: 5,
+    msg_help_intro: 'Besoin d\'aide ? Choisissez une option ci-dessous :',
+    points_exchange: 100,
+    points_ratio: 1,
+    ref_bonus: 5,
+    points_credit_value: 10,
     fidelity_wallet_max_pct: 50,
     fidelity_min_spend: 50,
-    list_admins: [], // Liste JSON des IDs admin
-    msg_help_intro: 'Besoin d\'aide ? Choisissez une option ci-dessous :',
-    msg_help_where_order: 'Où en est ma commande ?',
-    msg_help_contact_admin: 'Parler à l\'Admin',
-    msg_help_return: 'Retour au Menu',
+    fidelity_bonus_thresholds: '5,10,15,20',
+    fidelity_bonus_amount: 10,
+    list_admins: [],
     dashboard_url: process.env.DASHBOARD_URL || '',
-    private_contact_url: '',
-    channel_url: ''
+    private_contact_url: 'https://t.me/admin',
+    channel_url: 'https://t.me/canal',
+    bot_description: '',
+    bot_short_description: '',
+    payment_modes: 'Espèces, Carte Bancaire, Crypto',
+    maintenance_mode: false,
+    maintenance_message: '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @botclientx',
+    maintenance_contact: 'https://t.me/botclientx'
 };
 
 let _settingsCache = null;
@@ -987,7 +1066,7 @@ async function getAppSettings() {
     }
 
     const { data } = await supabase.from(COL_SETTINGS).select('*').eq('id', 'config').limit(1);
-    let settings = SETTINGS_DEFAULTS;
+    let settings = { ...SETTINGS_DEFAULTS };
 
     if (!data || data.length === 0) {
         await supabase.from(COL_SETTINGS).insert([{ id: 'config', ...SETTINGS_DEFAULTS }]);
@@ -995,13 +1074,48 @@ async function getAppSettings() {
         settings = { ...SETTINGS_DEFAULTS, ...data[0] };
     }
 
+    // Auto-réparation légère (évite les valeurs "test" collatérales)
+    const repairs = {};
+    for (const key of Object.keys(SETTINGS_DEFAULTS)) {
+        const val = settings[key];
+        // On ne répare que SI c'est exactement "test" (pas si ça contient "test" comme "testateur")
+        if (typeof val === 'string' && val.toLowerCase() === 'test') {
+            settings[key] = SETTINGS_DEFAULTS[key];
+            repairs[key] = SETTINGS_DEFAULTS[key];
+        }
+        // Pour les icônes vide ou non-emoji (fallback securisé)
+        if (key.startsWith('ui_icon_') && (!val || val.length > 5 || /^[a-zA-Z0-9]+$/.test(val))) {
+            settings[key] = SETTINGS_DEFAULTS[key];
+            repairs[key] = SETTINGS_DEFAULTS[key];
+        }
+    }
+
+    // Synchronisation label_livreur
+    if (!settings.label_livreur || settings.label_livreur === '') {
+        settings.label_livreur = settings.label_livreur_space || SETTINGS_DEFAULTS.label_livreur;
+    }
+
+    if (Object.keys(repairs).length > 0) {
+        console.log(`🔧 [DB] Auto-réparation de ${Object.keys(repairs).length} champs :`, Object.keys(repairs).join(', '));
+        supabase.from(COL_SETTINGS).update(repairs).eq('id', 'config').then(() => { }).catch(() => { });
+    }
+
+
     _settingsCache = settings;
     _settingsExpire = Date.now() + 10000; // Cache valid for 10 seconds
     return settings;
 }
 
 async function updateAppSettings(settings) {
-    const { error } = await supabase.from(COL_SETTINGS).update(settings).eq('id', 'config');
+    // Robustesse: On ne garde que les champs définis dans SETTINGS_DEFAULTS pour éviter les crashs si la table n'est pas à jour
+    const filtered = {};
+    for (const key in settings) {
+        if (Object.prototype.hasOwnProperty.call(SETTINGS_DEFAULTS, key) || key === 'id') {
+            filtered[key] = settings[key];
+        }
+    }
+
+    const { error } = await supabase.from(COL_SETTINGS).update(filtered).eq('id', 'config');
     if (error) {
         console.error('❌ Error updating settings:', error);
         throw error;
@@ -1059,25 +1173,76 @@ async function getBroadcastHistory(limit = 50) {
 }
 
 async function nukeDatabase() {
-    const collections = [COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS, COL_DAILY_STATS, COL_REFERRALS, COL_SETTINGS];
+    const collections = [COL_REVIEWS, COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS, COL_DAILY_STATS, COL_REFERRALS, COL_SETTINGS];
     for (const col of collections) {
         await supabase.from(col).delete().neq('id', 'neverMatchThisString12345'); // Deletes all rows where ID != "..."
     }
 }
 
+// --- Reviews ---
+async function saveReview(reviewData) {
+    const id = reviewData.id || `rev_${Date.now()}`;
+    const { error } = await supabase.from(COL_REVIEWS).upsert([{ id, ...reviewData, created_at: ts() }]);
+    if (error) throw error;
+    return id;
+}
+
+async function getReviews(limit = 50) {
+    const { data } = await supabase.from(COL_REVIEWS).select('*').order('created_at', { ascending: false }).limit(limit);
+    return data || [];
+}
+
+async function getPublicReviews(limit = 20) {
+    const { data } = await supabase.from(COL_REVIEWS).select('*').eq('is_public', true).order('created_at', { ascending: false }).limit(limit);
+    return data || [];
+}
+
+async function deleteReview(id) {
+    await supabase.from(COL_REVIEWS).delete().eq('id', id);
+}
+
+async function uploadMediaFromUrl(url, fileName) {
+    if (!url) return null;
+    try {
+        const axios = require('axios');
+        const response = await axios.get(url, {
+            responseType: 'arraybuffer',
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 5000
+        });
+
+        const buffer = Buffer.from(response.data);
+        const { error } = await supabase.storage.from('uploads').upload(fileName, buffer, {
+            contentType: response.headers['content-type'] || 'image/jpeg',
+            upsert: true
+        });
+
+        if (error) throw error;
+        const { data: publicUrlData } = supabase.storage.from('uploads').getPublicUrl(fileName);
+        return publicUrlData.publicUrl;
+    } catch (e) {
+        console.error("❌ uploadMediaFromUrl failed:", e.message);
+        throw e;
+    }
+}
+
+async function markUserUnblocked(userId) {
+    await supabase.from(COL_USERS).update({ is_blocked: false }).eq('id', userId);
+}
+
 module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
     incr, ts, makeDocId, decryptUser,
-    registerUser, getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
-    getAllActiveUsers, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
+    registerUser, getAllActiveUsers, getAllUsersForBroadcast, markUserBlocked, markUserUnblocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers, searchLivreurs,
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,
     createOrder, updateOrderStatus, assignOrderLivreur, getOrder, getAvailableOrders, getAllOrders,
     saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
-    getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings,
+    getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings, getClientActiveOrders,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getOrdersByUser, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,
+    saveReview, getReviews, getPublicReviews, deleteReview, uploadMediaFromUrl,
     incrementChatCount, saveClientReply, logHelpRequest,
     getUpcomingPlannedOrders, markNotifSent, registerUser, addToStat,
     _userCache

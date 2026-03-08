@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: process.env.RAILWAY_ENVIRONMENT ? '.env.railway' : '.env' });
 const { validateLicense } = require('./services/license');
 if (!validateLicense()) {
     console.error('❌ Licence invalide ou manquante. Arrêt.');
@@ -27,14 +27,45 @@ async function main() {
     setBotInstance(bot);
     setBroadcastBot(bot);
 
-    // Suppression de la description "Que peut faire ce bot ?" (Card d'accueil Telegram)
-    bot.telegram.setMyDescription('').catch(() => { });
-    bot.telegram.setMyShortDescription('').catch(() => { });
-
     // 2. Middleware Global : Tracking & Nettoyage
     const { registerUser, getAppSettings } = require('./services/database');
+
+    // Configuration de la carte de partage du bot (Description Telegram)
+    getAppSettings().then(settings => {
+        if (settings.bot_description) bot.telegram.setMyDescription(settings.bot_description).catch(() => { });
+        if (settings.bot_short_description) bot.telegram.setMyShortDescription(settings.bot_short_description).catch(() => { });
+    }).catch(() => { });
+    // Middleware de maintenance - intercept ALL messages
     bot.use(async (ctx, next) => {
         try {
+            const settings = await getAppSettings();
+
+            // Check if maintenance mode is enabled
+            if (settings.maintenance_mode === true || settings.maintenance_mode === 'true') {
+                const adminContact = settings.maintenance_contact || 'https://t.me/botclientx';
+                const maintenanceMessage = settings.maintenance_message || '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @botclientx';
+
+                if (ctx.callbackQuery) {
+                    await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
+                    return;
+                }
+
+                if (ctx.message) {
+                    await ctx.reply(maintenanceMessage + `\n\n📱 Contact : ${adminContact}`, { parse_mode: 'HTML' }).catch(() => { });
+                    await ctx.deleteMessage().catch(() => { });
+                    return;
+                }
+
+                // Pour les autres types de updates, on répond aussi
+                if (ctx.updateType === 'callback_query') {
+                    await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
+                    return;
+                }
+
+                return;
+            }
+
+            // Continue with normal middleware only if not in maintenance
             const user = ctx.from;
             if (user && !user.is_bot) {
                 // Enregistrement / Mise à jour automatique (inclut last_active)
@@ -47,7 +78,7 @@ async function main() {
                     language_code: user.language_code
                 };
 
-                const [{ user: registeredUser }, settings] = await Promise.all([
+                const [{ user: registeredUser }, currentSettings] = await Promise.all([
                     registerUser(platformUser),
                     getAppSettings()
                 ]);
@@ -60,7 +91,7 @@ async function main() {
                 }
 
                 ctx.state.user = registeredUser;
-                ctx.state.settings = settings;
+                ctx.state.settings = currentSettings;
             } else {
                 ctx.state.settings = await getAppSettings();
             }
@@ -82,10 +113,13 @@ async function main() {
 
     // ERROR HANDLER — empêche le bot de crash sur une erreur
     bot.catch(async (err, ctx) => {
-        console.error(`❌ Erreur bot [${ctx.updateType}]:`, err.message);
+        console.error(`❌ Bot Error [${ctx.updateType}]:`, err.message);
         try {
-            const { safeEdit } = require('./services/utils');
-            await safeEdit(ctx, '⚠️ Une erreur est survenue, réessayez.').catch(() => { });
+            if (ctx.callbackQuery) {
+                await ctx.answerCbQuery("⚠️ Une erreur technique est survenue.", { show_alert: true }).catch(() => { });
+            } else {
+                await ctx.reply("⚠️ Désolé, une erreur est survenue. Retour au menu : /start").catch(() => { });
+            }
         } catch (e) { }
     });
 
@@ -143,6 +177,10 @@ async function main() {
 
             // Lancement de la vérification des commandes planifiées (toutes les minutes)
             setInterval(() => checkPlannedOrders(bot), 60000);
+
+            // Lancement de la vérification des paniers abandonnés (toutes les 30 minutes)
+            const { checkAbandonedCarts } = require('./handlers/order_system');
+            setInterval(() => checkAbandonedCarts(bot), 1800000);
 
         } catch (err) {
             console.error('❌ Erreur au démarrage du bot:', err.message);

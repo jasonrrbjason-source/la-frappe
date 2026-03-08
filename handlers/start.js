@@ -49,20 +49,26 @@ function setupStartHandler(bot) {
                         `\n\n<i>Cliquez sur "Mes livraisons en cours" pour les gérer.</i>`;
                 }
             } else {
+                const paymentLine = settings.payment_modes
+                    ? `\n🚨 <b>Le paiement s'effectue en : ${settings.payment_modes}</b>‼️\n`
+                    : '';
                 if (isNew) {
                     welcomeText = `✨ <b>Bienvenue sur ${settings.bot_name}, ${user.first_name} !</b>\n\n` +
-                        `${settings.welcome_message}\n\n` +
+                        `${settings.welcome_message}\n${paymentLine}\n` +
                         `📍 <i>En utilisant ce service, vous acceptez d'être localisé tacitement.</i>\n\n` +
                         `🔗 <b>Votre lien de parrainage :</b>\n` +
                         `<code>https://t.me/${ctx.botInfo.username}?start=${registeredUser.referral_code}</code>`;
                     if (!referrerId) pendingReferralInput.set(docId, true);
                 } else {
-                    welcomeText = `👋 <b>Ravi de vous revoir, ${user.first_name} !</b>\n\nVous êtes déjà membre du ${settings.bot_name}.`;
+                    welcomeText = `👋 <b>Ravi de vous revoir, ${user.first_name} !</b>\n\nVous êtes déjà membre du ${settings.bot_name}.${paymentLine}`;
                 }
             }
 
             const keyboard = registeredUser.is_livreur ? getLivreurMenuKeyboard(settings, registeredUser, hasActive) : getMainMenuKeyboard(settings, registeredUser);
-            await safeEdit(ctx, welcomeText, keyboard);
+            await safeEdit(ctx, welcomeText, {
+                photo: settings.welcome_photo || null,
+                ...keyboard
+            });
 
             // Forcer le bouton "Menu" au lieu de "Démarrer"
             ctx.telegram.setChatMenuButton(ctx.chat.id, { type: 'commands' }).catch(() => { });
@@ -200,6 +206,14 @@ function setupStartHandler(bot) {
 
     bot.action('main_menu', async (ctx) => {
         await ctx.answerCbQuery();
+        // Nettoyage des états en attente (delay/chat)
+        try {
+            const { awaitingDelayReason, awaitingChatReply } = require('./order_system');
+            const uid = `telegram_${ctx.from.id}`;
+            awaitingDelayReason.delete(uid);
+            awaitingChatReply.delete(uid);
+        } catch (e) { }
+
         const settings = await getAppSettings();
         const user = await getUser(`telegram_${ctx.from.id}`);
 
@@ -228,7 +242,10 @@ function setupStartHandler(bot) {
             keyboard = getLivreurMenuKeyboard(settings, user, hasActive);
         }
 
-        await safeEdit(ctx, text, keyboard);
+        await safeEdit(ctx, text, {
+            photo: settings.welcome_photo || null,
+            ...keyboard
+        });
     });
 
     // ========== GESTION GPS / LOCALISATION ==========
@@ -310,11 +327,13 @@ function getMainMenuKeyboard(settings, user = null) {
     const buttons = [
         [Markup.button.callback(`${settings.ui_icon_catalog} ${settings.label_catalog}`, 'view_catalog')],
         [Markup.button.callback(`${settings.ui_icon_orders} ${settings.label_my_orders}`, 'my_orders')],
+        [Markup.button.callback(`⭐️ Laisser un avis / Commentaire`, 'leave_review')],
+        [Markup.button.callback(`👥 Consulter les avis`, 'view_reviews')],
         [Markup.button.callback(`${settings.ui_icon_contact} ${settings.label_contact}`, 'private_contact')],
         [Markup.button.callback(`${settings.ui_icon_channel} ${settings.label_channel}`, 'channel_link')],
         [Markup.button.callback(`${settings.ui_icon_welcome} ${settings.label_welcome}`, 'welcome_message')],
         [Markup.button.callback(`${settings.ui_icon_profile} ${settings.label_profile}`, 'my_referrals')],
-        [Markup.button.callback(`${settings.ui_icon_help || '❓'} ${settings.label_help || 'Aide / Support'}`, 'help_menu')],
+        [Markup.button.callback(`${settings.ui_icon_help || '❓'} ${settings.label_help || 'Aide & Support'}`, 'help_menu')],
     ];
 
     // Vérifier si un panier existe pour proposer de le reprendre

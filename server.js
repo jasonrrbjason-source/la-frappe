@@ -156,6 +156,9 @@ function createServer() {
             if (!u || !u.platform_id) return res.json({ success: false, error: 'User introuvable' });
 
             try {
+                const bot = getBotInstance();
+                if (!bot) return res.status(500).json({ error: 'Bot non initialisé' });
+
                 // On tente une petite action "typing" pour voir si le bot est bloqué
                 const chatId = u.platform_id.replace('telegram_', '');
                 await bot.telegram.sendChatAction(chatId, 'typing');
@@ -392,7 +395,7 @@ function createServer() {
             res.json({ success: true });
         } catch (e) {
             console.error('❌ Settings update error:', e);
-            res.status(500).json({ error: 'Erreur serveur' });
+            res.status(500).json({ error: e.message || 'Erreur serveur' });
         }
     });
 

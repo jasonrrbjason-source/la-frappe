@@ -1160,7 +1160,20 @@ async function saveBroadcast(data) {
     return id;
 }
 async function updateBroadcast(broadcastId, data) {
-    await supabase.from(COL_BROADCASTS).update(data).eq('id', broadcastId);
+    // Liste des colonnes de base garanties (pour le repli si les nouvelles colonnes n'existent pas)
+    const baseColumns = ['status', 'success', 'failed', 'blocked', 'completed_at'];
+
+    const { error } = await supabase.from(COL_BROADCASTS).update(data).eq('id', broadcastId);
+
+    // Si erreur (probablement colonnes manquantes), on tente de sauver uniquement les colonnes de base
+    if (error) {
+        console.warn(`[DB-WARN] updateBroadcast fallack: ${error.message}`);
+        const filtered = {};
+        for (const key of baseColumns) {
+            if (data[key] !== undefined) filtered[key] = data[key];
+        }
+        await supabase.from(COL_BROADCASTS).update(filtered).eq('id', broadcastId).catch(() => { });
+    }
 }
 async function deleteBroadcast(id) {
     await supabase.from(COL_BROADCASTS).delete().eq('id', id);

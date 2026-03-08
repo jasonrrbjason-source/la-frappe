@@ -183,7 +183,8 @@ async function sendToUser(user, message, unifiedMediaList = []) {
         return { success: false, error: "Bot non prêt" };
     }
 
-    const chatId = user.platform_id;
+    // On nettoie le chatId pour Telegram (retirer le préfixe 'telegram_' si présent)
+    const chatId = String(user.platform_id || '').replace('telegram_', '');
     // Captions are limited to 1024 chars in Telegram
     const maxCaption = 1020;
     const caption = message ? (message.length > maxCaption ? message.substring(0, maxCaption - 3) + '...' : message) : '';

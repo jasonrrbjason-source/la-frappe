@@ -226,6 +226,10 @@ async function markUserBlocked(docId) {
     await supabase.from(COL_USERS).update({ is_blocked: true, blocked_at: ts() }).eq('id', docId);
     _userCache.delete(docId);
 }
+async function markUserUnblocked(docId) {
+    await supabase.from(COL_USERS).update({ is_blocked: false, blocked_at: null }).eq('id', docId);
+    _userCache.delete(docId);
+}
 async function deleteUser(docId) {
     await supabase.from(COL_USERS).delete().eq('id', docId);
 }
@@ -1015,13 +1019,18 @@ const SETTINGS_DEFAULTS = {
     points_credit_value: 10,
     fidelity_wallet_max_pct: 50,
     fidelity_min_spend: 50,
+    fidelity_bonus_thresholds: '5,10,15,20',
+    fidelity_bonus_amount: 10,
     list_admins: [],
     dashboard_url: process.env.DASHBOARD_URL || '',
     private_contact_url: 'https://t.me/lafrappex',
     channel_url: 'https://t.me/lafrappe_canal',
     bot_description: '',
     bot_short_description: '',
-    payment_modes: '💵 Espèces'
+    payment_modes: '💵 Espèces',
+    maintenance_mode: false,
+    maintenance_message: '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @lafrappex',
+    maintenance_contact: 'https://t.me/lafrappex'
 };
 
 let _settingsCache = null;
@@ -1041,11 +1050,12 @@ async function getAppSettings() {
         settings = { ...SETTINGS_DEFAULTS, ...data[0] };
     }
 
-    // Auto-réparation agressive : remplacer tout ce qui contient "test"
+    // Auto-réparation légère (évite les valeurs "test" collatérales)
     const repairs = {};
     for (const key of Object.keys(SETTINGS_DEFAULTS)) {
         const val = settings[key];
-        if (typeof val === 'string' && val.toLowerCase().includes('test')) {
+        // On ne répare que SI c'est exactement "test" (pas si ça contient "test" comme "testateur")
+        if (typeof val === 'string' && val.toLowerCase() === 'test') {
             settings[key] = SETTINGS_DEFAULTS[key];
             repairs[key] = SETTINGS_DEFAULTS[key];
         }
@@ -1184,11 +1194,14 @@ async function uploadMediaFromUrl(url, fileName) {
     }
 }
 
+async function markUserUnblocked(userId) {
+    await supabase.from(COL_USERS).update({ is_blocked: false }).eq('id', userId);
+}
+
 module.exports = {
     supabase, COL_USERS, COL_PRODUCTS, COL_ORDERS, COL_SETTINGS, COL_BROADCASTS, COL_REFERRALS,
     incr, ts, makeDocId, decryptUser,
-    registerUser, getAllActiveUsers, getAllUsersForBroadcast, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
-    getAllActiveUsers, getAllUsersForBroadcast, markUserBlocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
+    registerUser, getAllActiveUsers, getAllUsersForBroadcast, markUserBlocked, markUserUnblocked, deleteUser, getUser, updateUserWallet, updateUserPoints,
     getUserCount, getActiveUserCount, getRecentUsers, searchUsers, searchLivreurs,
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,

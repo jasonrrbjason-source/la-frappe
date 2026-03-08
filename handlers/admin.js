@@ -377,8 +377,19 @@ function setupAdminHandlers(bot) {
     // Bloquer un utilisateur
     bot.action(/^admin_user_block_(.+)$/, async (ctx) => {
         const uid = ctx.match[1];
-        await markUserBlocked(uid);
-        await ctx.answerCbQuery('✅ Utilisateur bloqué');
+        const u = await getUser(uid);
+        if (!u) return ctx.answerCbQuery('❌ Utilisateur introuvable');
+
+        const { markUserBlocked, markUserUnblocked } = require('../services/database');
+
+        if (u.is_blocked) {
+            await markUserUnblocked(uid);
+            await ctx.answerCbQuery('✅ Utilisateur débloqué');
+        } else {
+            await markUserBlocked(uid);
+            await ctx.answerCbQuery('🚫 Utilisateur bloqué');
+        }
+
         return bot.handleUpdate({ ...ctx.update, callback_query: { ...ctx.callbackQuery, data: `admin_user_view_${uid}` } });
     });
 

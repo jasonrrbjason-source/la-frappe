@@ -141,6 +141,22 @@ function createServer() {
         }
     });
 
+    app.post('/api/users/block', authMiddleware, async (req, res) => {
+        try {
+            const { markUserBlocked } = require('./services/database');
+            await markUserBlocked(req.body.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/users/unblock', authMiddleware, async (req, res) => {
+        try {
+            const { markUserUnblocked } = require('./services/database');
+            await markUserUnblocked(req.body.id);
+            res.json({ success: true });
+        } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
     app.post('/api/users/order', authMiddleware, async (req, res) => {
         try {
             await incrementOrderCount(req.body.id);

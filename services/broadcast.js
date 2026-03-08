@@ -90,15 +90,25 @@ async function broadcastMessage(platform, message, options = {}) {
 
     let successCount = 0;
     let failedCount = 0;
-    let blockedCount = 0;
-    const blockedNames = [];
+    let newlyBlockedCount = 0;
+    let previouslyBlockedCount = 0;
+    const newlyBlockedNames = [];
 
     const currentBatchSize = unifiedMediaList.length > 0 ? MEDIA_BATCH_SIZE : TEXT_BATCH_SIZE;
 
-    let targetsToProcess = [...targets];
+    // On sépare ceux déjà bloqués en DB
+    const eligibleTargets = [];
+    for (const u of targets) {
+        if (u.is_blocked) {
+            previouslyBlockedCount++;
+        } else {
+            eligibleTargets.push(u);
+        }
+    }
+
+    let targetsToProcess = [...eligibleTargets];
 
     // Seed Telegram file_ids by sending to the first user synchronously.
-    // This allows subsequent batch sends to use file_ids (CDN pointers) instead of uploading massive buffers, avoiding memory and network crashes.
     if (unifiedMediaList.length > 0 && targetsToProcess.length > 0) {
         debugLog("[BC-SEED] Initializing file_id caching with first user...");
         let seederSuccess = false;
@@ -111,8 +121,8 @@ async function broadcastMessage(platform, message, options = {}) {
                 debugLog("[BC-SEED] Cached Telegram file_ids successfully.");
             } else {
                 if (res.blocked) {
-                    blockedCount++;
-                    blockedNames.push(seedUser.first_name || seedUser.platform_id);
+                    newlyBlockedCount++;
+                    newlyBlockedNames.push(seedUser.first_name || seedUser.platform_id);
                 } else failedCount++;
             }
             await new Promise(r => setTimeout(r, 500));
@@ -135,8 +145,8 @@ async function broadcastMessage(platform, message, options = {}) {
                     successCount++;
                 } else {
                     if (blocked) {
-                        blockedCount++;
-                        blockedNames.push(batch[idx].first_name || batch[idx].platform_id);
+                        newlyBlockedCount++;
+                        newlyBlockedNames.push(batch[idx].first_name || batch[idx].platform_id);
                     } else failedCount++;
                     debugLog(`[BC-FAILED] ${batch[idx].platform_id}: ${error}`);
                 }
@@ -146,7 +156,7 @@ async function broadcastMessage(platform, message, options = {}) {
             }
         }
 
-        if (i + currentBatchSize < targets.length) {
+        if (i + currentBatchSize < eligibleTargets.length) {
             await new Promise(r => setTimeout(r, DELAY_BETWEEN_BATCHES_MS));
         }
     }
@@ -156,13 +166,14 @@ async function broadcastMessage(platform, message, options = {}) {
         status: 'completed',
         success: successCount,
         failed: failedCount,
-        blocked: blockedCount,
-        blocked_names: blockedNames.length > 0 ? blockedNames.join(', ') : null,
-        completed_at: new Date().toISOString()
+        blocked: newlyBlockedCount, // On garde 'blocked' pour les nouveaux
+        previously_blocked: previouslyBlockedCount,
+        blocked_names: newlyBlockedNames.length > 0 ? newlyBlockedNames.join(', ') : null,
+        completed_at: ts()
     }).catch(e => debugLog(`[BC-LOG-ERR] ${e.message}`));
 
-    debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Bloqués: ${blockedCount}`);
-    return { success: successCount, failed: failedCount, blocked: blockedCount, total: totalTargets, broadcastId };
+    debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Nouveaux Bloqués: ${newlyBlockedCount}, Déjà Bloqués: ${previouslyBlockedCount}`);
+    return { success: successCount, failed: failedCount, blocked: newlyBlockedCount, previously_blocked: previouslyBlockedCount, total: totalTargets, broadcastId };
 }
 
 async function sendToUser(user, message, unifiedMediaList = []) {

@@ -1259,7 +1259,7 @@
                             <th>Message</th>
                             <th>Cibles</th>
                             <th>Succès</th>
-                            <th>Bloqués</th>
+                            <th>Échecs / Bloqués</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -2121,8 +2121,12 @@
                                         </td>
                                         <td data-label="Cibles"><b>${h.total_target || 0}</b></td>
                                         <td data-label="Succès"><span style="color:#4caf50; font-weight:bold">${h.success || 0}</span></td>
-                                        <td data-label="Nouv. Bloqués">${h.blocked ? `<span style="color:#ff453a; font-weight:bold; cursor:pointer" title="${h.blocked_names || 'Inconnu'}">${h.blocked} ⚠️</span>` : '<span style="color:#4caf50">0</span>'}</td>
-                                        <td data-label="Déjà Bloqués">${h.previously_blocked || 0}</span></td>
+                                        <td data-label="Bloqués">
+                                            <span style="color:#ff453a; font-weight:bold; cursor:pointer" 
+                                                  title="Nouveaux: ${h.blocked - (h.previously_blocked || 0)}, Anciens: ${h.previously_blocked || 0}. Noms: ${h.blocked_names || 'Aucun'}">
+                                                ${(parseInt(h.blocked) || 0) + (parseInt(h.failed) || 0)} ⚠️
+                                            </span>
+                                        </td>
                                         <td data-label="Actions" class="action-btns">
                                             <button class="btn btn-outline btn-sm" onclick="republishBC('${h.id}')" title="Republier">🔄</button>
                                             <button class="btn btn-outline btn-sm text-danger" onclick="deleteBC('${h.id}')" title="Supprimer">🗑️</button>

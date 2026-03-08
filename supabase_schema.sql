@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS bot_broadcasts (
   target_platform TEXT,
   media_count NUMERIC DEFAULT 0,
   status TEXT,
+  previously_blocked NUMERIC DEFAULT 0,
+  blocked_names TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   completed_at TEXT
 );

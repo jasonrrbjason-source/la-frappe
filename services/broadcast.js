@@ -162,18 +162,19 @@ async function broadcastMessage(platform, message, options = {}) {
     }
 
     // Finaliser log en DB
+    const finalBlockedCount = newlyBlockedCount + previouslyBlockedCount;
     await updateBroadcast(broadcastId, {
         status: 'completed',
         success: successCount,
         failed: failedCount,
-        blocked: newlyBlockedCount, // On garde 'blocked' pour les nouveaux
+        blocked: finalBlockedCount, // Total bloqués (nouveaux + anciens)
         previously_blocked: previouslyBlockedCount,
         blocked_names: newlyBlockedNames.length > 0 ? newlyBlockedNames.join(', ') : null,
         completed_at: ts()
     }).catch(e => debugLog(`[BC-LOG-ERR] ${e.message}`));
 
-    debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Nouveaux Bloqués: ${newlyBlockedCount}, Déjà Bloqués: ${previouslyBlockedCount}`);
-    return { success: successCount, failed: failedCount, blocked: newlyBlockedCount, previously_blocked: previouslyBlockedCount, total: totalTargets, broadcastId };
+    debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Total Bloqués: ${finalBlockedCount} (Nouveaux: ${newlyBlockedCount}, Anciens: ${previouslyBlockedCount})`);
+    return { success: successCount, failed: failedCount, blocked: finalBlockedCount, total: totalTargets, broadcastId };
 }
 
 async function sendToUser(user, message, unifiedMediaList = []) {

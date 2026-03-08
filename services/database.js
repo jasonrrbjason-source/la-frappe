@@ -222,12 +222,34 @@ async function getAllUsersForBroadcast(platform = null, type = null) {
     console.log(`[DB] getAllUsersForBroadcast(platform=${platform}, type=${type}) -> ${list.length} trouvés (dont bloqués)`);
     return list.map(d => decryptUser(d));
 }
-async function markUserBlocked(docId) {
-    await supabase.from(COL_USERS).update({ is_blocked: true, blocked_at: ts() }).eq('id', docId);
+/**
+ * Marque un utilisateur comme bloqué.
+ * @param {string} docId 
+ * @param {boolean} byAdmin true si bloqué par l'admin, false si le bot a été bloqué par l'utilisateur (détecté par broadcast)
+ */
+async function markUserBlocked(docId, byAdmin = false) {
+    const updateData = { is_blocked: true, blocked_at: ts() };
+    console.log(`[DB] Marking user ${docId} as BLOCKED (byAdmin: ${byAdmin})`);
+
+    const u = await getUser(docId);
+    if (u) {
+        const newData = { ...(u.data || {}), blocked_by_admin: byAdmin };
+        updateData.data = newData;
+    }
+
+    await supabase.from(COL_USERS).update(updateData).eq('id', docId);
     _userCache.delete(docId);
 }
 async function markUserUnblocked(docId) {
-    await supabase.from(COL_USERS).update({ is_blocked: false, blocked_at: null }).eq('id', docId);
+    console.log(`[DB] Marking user ${docId} as UNBLOCKED`);
+    const updateData = { is_blocked: false, blocked_at: null };
+    const u = await getUser(docId);
+    if (u) {
+        const newData = { ...(u.data || {}) };
+        delete newData.blocked_by_admin;
+        updateData.data = newData;
+    }
+    await supabase.from(COL_USERS).update(updateData).eq('id', docId);
     _userCache.delete(docId);
 }
 async function deleteUser(docId) {
@@ -702,7 +724,8 @@ async function searchUsers(query) {
     }
 
     // Otherwise fetch a larger batch and filter in memory (for encrypted names)
-    const { data } = await supabase.from(COL_USERS).select('*').order('last_active', { ascending: false }).limit(1000);
+    // Augmentation de la limite à 2000 pour retrouver les anciens utilisateurs
+    const { data } = await supabase.from(COL_USERS).select('*').order('last_active', { ascending: false }).limit(2000);
     const decrypted = (data || []).map(decryptUser);
 
     if (!query) return decrypted.slice(0, 50);
@@ -1026,6 +1049,15 @@ const SETTINGS_DEFAULTS = {
     private_contact_url: 'https://t.me/lafrappex',
     channel_url: 'https://t.me/lafrappe_canal',
     bot_description: '',
+    payment_modes: 'Espèces, Carte Bancaire, Crypto',
+    label_help: 'Aide & Support',
+    ui_icon_help: '❓',
+    msg_help_intro: 'Besoin d\'aide ? Choisissez une option ci-dessous :',
+    fidelity_min_spend: 50,
+    points_credit_value: 5,
+    fidelity_wallet_max_pct: 50,
+    fidelity_bonus_thresholds: '5,10,15,20',
+    fidelity_bonus_amount: 10,
     bot_short_description: '',
     payment_modes: '💵 Espèces',
     maintenance_mode: false,
@@ -1083,7 +1115,15 @@ async function getAppSettings() {
 }
 
 async function updateAppSettings(settings) {
-    const { error } = await supabase.from(COL_SETTINGS).update(settings).eq('id', 'config');
+    // Robustesse: On ne garde que les champs définis dans SETTINGS_DEFAULTS pour éviter les crashs si la table n'est pas à jour
+    const filtered = {};
+    for (const key in settings) {
+        if (Object.prototype.hasOwnProperty.call(SETTINGS_DEFAULTS, key) || key === 'id') {
+            filtered[key] = settings[key];
+        }
+    }
+
+    const { error } = await supabase.from(COL_SETTINGS).update(filtered).eq('id', 'config');
     if (error) {
         console.error('❌ Error updating settings:', error);
         throw error;

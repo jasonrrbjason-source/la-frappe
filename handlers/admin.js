@@ -244,11 +244,12 @@ function setupAdminHandlers(bot) {
         await ctx.answerCbQuery();
 
         const msg = `👤 <b>Profil de ${u.first_name}</b>\n\n` +
+            (u.is_blocked ? (u.data && u.data.blocked_by_admin === false ? '🚫 <b>Statut : BOT BLOQUÉ PAR CLIENT</b>\n' : '🚫 <b>Statut : BANNI PAR ADMIN</b>\n') : '✅ Statut : Actif\n') +
             `🆔 ID : <code>${u.id}</code>\n` +
             `💰 Solde : ${u.wallet_balance || 0}€\n` +
             `⭐️ Points : ${u.points || 0}\n` +
             `📦 Commandes : ${u.order_count || 0}\n` +
-            `🚴 Est Livreur : ${u.is_livreur ? '✅ OUI' : '❌ NON'}`;
+            `🏃 Est Livreur : ${u.is_livreur ? '✅ OUI' : '❌ NON'}\n`;
 
         const buttons = [
             [Markup.button.callback(u.is_livreur ? '🚫 Retirer Livreur' : '🚴 Passer Livreur', `admin_user_toggle_livreur_${u.id}`)],
@@ -386,7 +387,7 @@ function setupAdminHandlers(bot) {
             await markUserUnblocked(uid);
             await ctx.answerCbQuery('✅ Utilisateur débloqué');
         } else {
-            await markUserBlocked(uid);
+            await markUserBlocked(uid, true);
             await ctx.answerCbQuery('🚫 Utilisateur bloqué');
         }
 

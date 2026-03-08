@@ -144,9 +144,36 @@ function createServer() {
     app.post('/api/users/block', authMiddleware, async (req, res) => {
         try {
             const { markUserBlocked } = require('./services/database');
-            await markUserBlocked(req.body.id);
+            await markUserBlocked(req.body.id, true);
             res.json({ success: true });
         } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
+    });
+
+    app.post('/api/users/check-status', authMiddleware, async (req, res) => {
+        try {
+            const { getUser, markUserBlocked, markUserUnblocked } = require('./services/database');
+            const u = await getUser(req.body.id);
+            if (!u || !u.platform_id) return res.json({ success: false, error: 'User introuvable' });
+
+            try {
+                // On tente une petite action "typing" pour voir si le bot est bloqué
+                const chatId = u.platform_id.replace('telegram_', '');
+                await bot.telegram.sendChatAction(chatId, 'typing');
+
+                // Si ça réussit et qu'il était marqué bloqué par le client, on le débloque
+                if (u.is_blocked && u.data && u.data.blocked_by_admin === false) {
+                    await markUserUnblocked(u.id);
+                }
+                res.json({ success: true, status: 'active' });
+            } catch (err) {
+                const desc = err.description || '';
+                if (err.code === 403 || desc.includes('blocked') || desc.includes('chat not found')) {
+                    await markUserBlocked(u.id, false);
+                    return res.json({ success: true, status: 'blocked' });
+                }
+                throw err;
+            }
+        } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
     app.post('/api/users/unblock', authMiddleware, async (req, res) => {

@@ -299,12 +299,27 @@ async function sendToUser(user, message, unifiedMediaList = []) {
         }
         return { success: true };
     } catch (error) {
-        const desc = error.description || error.message || "Erreur inconnue";
+        const desc = (error.description || error.message || "Erreur inconnue").toLowerCase();
         const errorName = error.name || "Error";
-        debugLog(`[BC-ERROR] Cible ${chatId}: [${errorName}] ${desc}`);
+        const code = error.code || 0;
 
-        if (error.code === 403 || desc.includes('blocked') || desc.includes('chat not found') || desc.includes('kicked')) {
-            if (user.doc_id) await markUserBlocked(user.doc_id).catch(() => { });
+        debugLog(`[BC-ERROR] Cible ${chatId}: [${errorName}] ${desc} (Code: ${code})`);
+
+        // Liste exhaustive des erreurs indiquant un blocage ou un bot supprimé
+        const isBlockedError = code === 403 ||
+            desc.includes('blocked') ||
+            desc.includes('chat not found') ||
+            desc.includes('kicked') ||
+            desc.includes('user is deactivated') ||
+            desc.includes('forbidden');
+
+        if (isBlockedError) {
+            if (user.id || user.doc_id) {
+                const { markUserBlocked } = require('./database');
+                await markUserBlocked(user.id || user.doc_id, false).catch(e => {
+                    debugLog(`[BC-MARK-ERR] Failed to mark ${chatId} as blocked: ${e.message}`);
+                });
+            }
             return { success: false, blocked: true, error: desc };
         }
         return { success: false, error: desc };

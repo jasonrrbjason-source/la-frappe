@@ -182,6 +182,10 @@ CREATE TABLE IF NOT EXISTS bot_settings (
   ui_icon_admin TEXT,
   ui_icon_orders TEXT,
   ui_icon_success TEXT,
+  ui_icon_help TEXT,
+  label_help TEXT,
+  msg_help_intro TEXT,
+  payment_modes TEXT,
   ui_icon_points TEXT
 );
 
@@ -239,6 +243,10 @@ ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS private_contact_url TEXT;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS channel_url TEXT;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS label_livreur TEXT;
 ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ui_icon_taken TEXT;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ui_icon_help TEXT;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS label_help TEXT;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS msg_help_intro TEXT;
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS payment_modes TEXT;
 
 -- bot_products : bundles
 ALTER TABLE bot_products ADD COLUMN IF NOT EXISTS is_bundle BOOLEAN DEFAULT false;

@@ -531,6 +531,10 @@
 
         /* --- RESPONSIVE --- */
         @media (max-width: 1024px) {
+            body {
+                flex-direction: column;
+            }
+
             .sidebar {
                 display: none;
             }
@@ -543,9 +547,15 @@
                 display: flex;
             }
 
+            #desktop-header {
+                display: none;
+            }
+
             .main {
                 padding: 20px;
-                height: calc(100vh - 100px);
+                flex-grow: 1;
+                height: 0;
+                min-height: 0;
             }
 
             h1 {

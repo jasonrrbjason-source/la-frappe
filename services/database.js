@@ -479,6 +479,14 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
                     const referrer = await getUser(user.referred_by);
                     if (referrer) {
                         await updateUserWallet(referrer.id, (referrer.wallet_balance || 0) + refBonus);
+
+                        // Notifier le parrain
+                        const { getBotInstance } = require('../server');
+                        const bot = getBotInstance();
+                        if (bot) {
+                            const refTgId = String(referrer.id).replace('telegram_', '');
+                            bot.telegram.sendMessage(refTgId, `👥 <b>GÉNIAL ! Récompense Parrainage !</b>\n\nVotre ami <b>${user.first_name || 'anonyme'}</b> vient de passer sa première commande.\n\nNous venons de créditer votre portefeuille de <b>+${refBonus.toFixed(2)}€</b>. Partagez encore votre lien ! 🎁`, { parse_mode: 'HTML' }).catch(() => { });
+                        }
                     }
                 }
 
@@ -492,7 +500,14 @@ async function updateOrderStatus(orderId, status, extraData = {}) {
 
                 if (thresholds.includes(newOrderCount)) {
                     await updateUserWallet(user.id, (user.wallet_balance || 0) + bonusAmount);
-                    // On pourrait aussi notifier le client via bot.telegram.sendMessage ici si on avait accès à bot
+
+                    // Notifier le client du bonus
+                    const { getBotInstance } = require('../server');
+                    const bot = getBotInstance();
+                    if (bot) {
+                        const tgId = String(user.id).replace('telegram_', '');
+                        bot.telegram.sendMessage(tgId, `🏮 <b>C'EST VOTRE JOUR DE CHANCE ! Bonus Fidélité !</b>\n\nFélicitations pour votre <b>${newOrderCount}ème</b> commande !\n\nEn récompense, votre portefeuille a été crédité de <b>+${bonusAmount.toFixed(2)}€</b>. Merci de votre fidélité ! ⭐️`, { parse_mode: 'HTML' }).catch(() => { });
+                    }
                     console.log(`🎁 Bonus fidélité de ${bonusAmount}€ accordé à ${user.id} pour sa ${newOrderCount}ème commande.`);
                 }
 
@@ -723,7 +738,6 @@ async function searchUsers(query) {
         if (exact && exact.length > 0) return exact.map(decryptUser);
     }
 
-    // Otherwise fetch a larger batch and filter in memory (for encrypted names)
     // Otherwise fetch a larger batch and filter in memory (for encrypted names)
     // Augmentation de la limite à 2000 pour retrouver les anciens utilisateurs
     const { data } = await supabase.from(COL_USERS).select('*').order('last_active', { ascending: false }).limit(2000);
@@ -992,10 +1006,10 @@ async function getAllLivreurs() {
 
 // --- Settings ---
 const SETTINGS_DEFAULTS = {
-    bot_name: 'Bot Client Telegram',
-    dashboard_title: 'Bot Client Telegram - Admin',
+    bot_name: 'Mon Shop',
+    dashboard_title: 'Mon Shop - Admin',
     welcome_message: 'Bienvenue ! Vous faites partie de la famille.',
-    admin_password: process.env.ADMIN_PASSWORD || 'botclient2024',
+    admin_password: process.env.ADMIN_PASSWORD || 'lafrappe2024',
     admin_telegram_id: String(process.env.ADMIN_TELEGRAM_ID || ''),
     ui_icon_catalog: '👟',
     ui_icon_orders: '📦',
@@ -1014,9 +1028,12 @@ const SETTINGS_DEFAULTS = {
     ui_icon_points: '⭐',
     ui_icon_stats: '📊',
     ui_icon_broadcast: '📣',
+    ui_icon_info: 'ℹ️',
     ui_icon_logout: '🚪',
     ui_icon_taken: '🚚',
     ui_icon_help: '❓',
+    ui_icon_review: '⭐️',
+    ui_icon_reviews_list: '👥',
     label_catalog: 'Catalogue Produits',
     label_my_orders: 'Mes Commandes',
     label_contact: 'Contact Admin',
@@ -1028,6 +1045,11 @@ const SETTINGS_DEFAULTS = {
     label_livreur: 'Espace Livreur',
     label_livreur_space: 'Espace Livreur',
     label_help: 'Aide & Support',
+    label_broadcasts: 'Informations',
+    label_leave_review: 'Laisser un avis',
+    label_view_reviews: 'Consulter les avis',
+    show_broadcasts_btn: true,
+    show_reviews_btn: true,
     status_pending_label: 'Attente Validation',
     status_taken_label: 'En cours de livraison',
     status_delivered_label: 'Livré ✅',
@@ -1047,14 +1069,14 @@ const SETTINGS_DEFAULTS = {
     fidelity_bonus_amount: 10,
     list_admins: [],
     dashboard_url: process.env.DASHBOARD_URL || '',
-    private_contact_url: 'https://t.me/admin',
-    channel_url: 'https://t.me/canal',
+    private_contact_url: 'https://t.me/lafrappex',
+    channel_url: 'https://t.me/lafrappe_canal',
     bot_description: '',
     bot_short_description: '',
-    payment_modes: 'Espèces, Carte Bancaire, Crypto',
+    payment_modes: '💵 Espèces',
     maintenance_mode: false,
-    maintenance_message: '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @botclientx',
-    maintenance_contact: 'https://t.me/botclientx'
+    maintenance_message: '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @lafrappex',
+    maintenance_contact: 'https://t.me/lafrappex'
 };
 
 let _settingsCache = null;
@@ -1071,7 +1093,13 @@ async function getAppSettings() {
     if (!data || data.length === 0) {
         await supabase.from(COL_SETTINGS).insert([{ id: 'config', ...SETTINGS_DEFAULTS }]);
     } else {
-        settings = { ...SETTINGS_DEFAULTS, ...data[0] };
+        // Robust merging: Only use DB values if they are NOT null or undefined
+        const dbSettings = data[0];
+        for (const key in dbSettings) {
+            if (dbSettings[key] !== null && dbSettings[key] !== undefined) {
+                settings[key] = dbSettings[key];
+            }
+        }
     }
 
     // Auto-réparation légère (évite les valeurs "test" collatérales)
@@ -1157,18 +1185,45 @@ async function deleteProduct(id) {
 // --- Broadcasts ---
 async function saveBroadcast(data) {
     const id = `${Date.now()}`;
-    await supabase.from(COL_BROADCASTS).insert([{ id, ...data, created_at: ts() }]);
+    const now = ts();
+    // On s'assure que created_at et start_at sont cohérents pour l'affichage instantané
+    await supabase.from(COL_BROADCASTS).insert([{
+        id,
+        ...data,
+        created_at: now,
+        start_at: data.start_at || now
+    }]);
     return id;
 }
 async function updateBroadcast(broadcastId, data) {
-    await supabase.from(COL_BROADCASTS).update(data).eq('id', broadcastId);
+    // Liste des colonnes de base garanties (pour le repli si les nouvelles colonnes n'existent pas)
+    const baseColumns = ['status', 'success', 'failed', 'blocked', 'completed_at'];
+
+    const { error } = await supabase.from(COL_BROADCASTS).update(data).eq('id', broadcastId);
+
+    // Si erreur (probablement colonnes manquantes), on tente de sauver uniquement les colonnes de base
+    if (error) {
+        console.warn(`[DB-WARN] updateBroadcast fallack: ${error.message}`);
+        const filtered = {};
+        for (const key of baseColumns) {
+            if (data[key] !== undefined) filtered[key] = data[key];
+        }
+        await supabase.from(COL_BROADCASTS).update(filtered).eq('id', broadcastId).catch(() => { });
+    }
 }
 async function deleteBroadcast(id) {
     await supabase.from(COL_BROADCASTS).delete().eq('id', id);
 }
 
-async function getBroadcastHistory(limit = 50) {
-    const { data } = await supabase.from(COL_BROADCASTS).select('*').order('created_at', { ascending: false }).limit(limit);
+async function getBroadcastHistory(limit = 50, onlyActive = false) {
+    let query = supabase.from(COL_BROADCASTS).select('*').order('created_at', { ascending: false });
+
+    if (onlyActive) {
+        const now = new Date().toISOString();
+        query = query.or(`end_at.is.null,end_at.gt.${now}`).lte('start_at', now);
+    }
+
+    const { data } = await query.limit(limit);
     return data || [];
 }
 

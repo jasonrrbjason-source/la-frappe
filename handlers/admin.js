@@ -13,6 +13,7 @@ require('dotenv').config();
 
 const authenticatedAdmins = new Set();
 const pendingAdminLogins = new Set();
+const pendingPasswordReset = new Set();
 
 async function isAdmin(ctx) {
     const settings = ctx.state.settings || {};
@@ -100,11 +101,38 @@ function setupAdminHandlers(bot) {
         return ctx.reply('🔐 Veuillez entrer le mot de passe administrateur :');
     });
 
+    // Handler pour la réinitialisation de mot de passe (via notification auto ou admin manuel)
+    bot.action('admin_trigger_password_reset', async (ctx) => {
+        if (!(await isAdmin(ctx))) return ctx.answerCbQuery('❌ Accès réservé.');
+        pendingPasswordReset.add(ctx.from.id);
+        await ctx.answerCbQuery();
+        return ctx.reply('🆕 <b>RÉINITIALISATION MOT DE PASSE</b>\n\nVeuillez envoyer le nouveau mot de passe d\'administration souhaité :', { parse_mode: 'HTML' });
+    });
+
     // Handler texte (Pass et recherche)
     bot.on('text', async (ctx, next) => {
-        if (pendingAdminLogins.has(ctx.from.id)) {
-            pendingAdminLogins.delete(ctx.from.id);
+        const userId = ctx.from.id;
+        if (pendingAdminLogins.has(userId)) {
+            pendingAdminLogins.delete(userId);
             return handleAdminLogin(ctx, ctx.message.text.trim());
+        }
+
+        if (pendingPasswordReset.has(userId)) {
+            if (!(await isAdmin(ctx))) {
+                pendingPasswordReset.delete(userId);
+                return ctx.reply('❌ Action non autorisée.');
+            }
+            const newPass = ctx.message.text.trim();
+            if (newPass.length < 4) return ctx.reply('❌ Le mot de passe doit faire au moins 4 caractères.');
+
+            try {
+                await updateAppSettings({ admin_password: newPass });
+                pendingPasswordReset.delete(userId);
+                return ctx.reply(`✅ <b>MOT DE PASSE MIS À JOUR</b>\n\nLe nouveau mot de passe a été enregistré avec succès.\n\nNouveau pass : <code>${newPass}</code>`, { parse_mode: 'HTML' });
+            } catch (e) {
+                console.error('Reset pwd error:', e);
+                return ctx.reply('❌ Erreur lors de la mise à jour.');
+            }
         }
         return next();
     });

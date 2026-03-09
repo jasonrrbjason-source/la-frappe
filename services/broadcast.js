@@ -6,7 +6,7 @@ function debugLog(msg) {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${msg}\n`;
     try {
-        fs.appendFileSync(path.join(process.cwd(), 'debug_bot_client.log'), line);
+        fs.appendFileSync(path.join(process.cwd(), 'debug_la_frappe.log'), line);
     } catch (e) { }
     console.log(msg);
 }
@@ -20,7 +20,13 @@ let _bot = null;
 function setBroadcastBot(bot) { _bot = bot; }
 
 async function broadcastMessage(platform, message, options = {}) {
-    const { mediaFiles = [], mediaUrls: existingUrls = [] } = options;
+    const {
+        mediaFiles = [],
+        mediaUrls: existingUrls = [],
+        start_at = ts(),
+        end_at = null,
+        badge = null
+    } = options;
     debugLog(`[BC-START] Plateforme: ${platform}, Médias: ${mediaFiles.length}, URLs: ${existingUrls.length}, Message: "${(message || '').substring(0, 30)}..."`);
 
     // Récupérer toutes les cibles (users + groups)
@@ -35,6 +41,11 @@ async function broadcastMessage(platform, message, options = {}) {
     const targets = await getAllUsersForBroadcast(null, bType);
     const totalTargets = targets.length;
     debugLog(`[BC-TARGETS] ${totalTargets} cibles trouvées (Argument Platform: ${platform}, InternalType: ${bType}).`);
+
+    // --- NOUVEAU : Vérification de la planification ---
+    const now = new Date();
+    const startTime = new Date(start_at);
+    const isFuture = startTime > now;
 
     if (totalTargets === 0) {
         return { success: 0, failed: 0, blocked: 0, total: 0 };
@@ -79,14 +90,30 @@ async function broadcastMessage(platform, message, options = {}) {
     const finalMessageStr = message ? message : `[Médias: ${unifiedMediaList.length}]`;
     const payloadMessage = `${finalMessageStr}|||MEDIA_URLS|||${mediaUrlsJson}`;
 
-    const broadcastId = await saveBroadcast({
-        message: payloadMessage,
-        media_count: unifiedMediaList.length,
-        total_target: totalTargets,
-        target_platform: platform,
-        status: 'in_progress',
-        success: 0, failed: 0, blocked: 0
-    });
+    let broadcastId = options.id;
+    if (!broadcastId) {
+        broadcastId = await saveBroadcast({
+            message: payloadMessage,
+            media_count: unifiedMediaList.length,
+            total_target: totalTargets,
+            target_platform: platform,
+            status: isFuture ? 'pending' : 'in_progress',
+            success: 0, failed: 0, blocked: 0,
+            start_at,
+            end_at,
+            badge
+        });
+    } else {
+        // Si on a déjà un ID, on met à jour son statut au lancement réel
+        if (!isFuture) {
+            await updateBroadcast(broadcastId, { status: 'in_progress' });
+        }
+    }
+
+    if (isFuture) {
+        debugLog(`[BC-SCHEDULED] Diffusion ${broadcastId} planifiée pour ${start_at}.`);
+        return { success: 0, failed: 0, blocked: 0, total: totalTargets, scheduled: true, broadcastId };
+    }
 
     let successCount = 0;
     let failedCount = 0;
@@ -162,18 +189,19 @@ async function broadcastMessage(platform, message, options = {}) {
     }
 
     // Finaliser log en DB
+    const finalBlockedCount = newlyBlockedCount + previouslyBlockedCount;
     await updateBroadcast(broadcastId, {
         status: 'completed',
         success: successCount,
         failed: failedCount,
-        blocked: newlyBlockedCount, // On garde 'blocked' pour les nouveaux
+        blocked: finalBlockedCount, // Total bloqués (nouveaux + anciens)
         previously_blocked: previouslyBlockedCount,
         blocked_names: newlyBlockedNames.length > 0 ? newlyBlockedNames.join(', ') : null,
         completed_at: ts()
     }).catch(e => debugLog(`[BC-LOG-ERR] ${e.message}`));
 
-    debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Nouveaux Bloqués: ${newlyBlockedCount}, Déjà Bloqués: ${previouslyBlockedCount}`);
-    return { success: successCount, failed: failedCount, blocked: newlyBlockedCount, previously_blocked: previouslyBlockedCount, total: totalTargets, broadcastId };
+    debugLog(`[BC-END] Terminé. Succès: ${successCount}, Échecs: ${failedCount}, Total Bloqués: ${finalBlockedCount} (Nouveaux: ${newlyBlockedCount}, Anciens: ${previouslyBlockedCount})`);
+    return { success: successCount, failed: failedCount, blocked: finalBlockedCount, total: totalTargets, broadcastId };
 }
 
 async function sendToUser(user, message, unifiedMediaList = []) {
@@ -182,7 +210,8 @@ async function sendToUser(user, message, unifiedMediaList = []) {
         return { success: false, error: "Bot non prêt" };
     }
 
-    const chatId = user.platform_id;
+    // On nettoie le chatId pour Telegram (retirer le préfixe 'telegram_' si présent)
+    const chatId = String(user.platform_id || '').replace('telegram_', '');
     // Captions are limited to 1024 chars in Telegram
     const maxCaption = 1020;
     const caption = message ? (message.length > maxCaption ? message.substring(0, maxCaption - 3) + '...' : message) : '';

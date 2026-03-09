@@ -1,4 +1,4 @@
-# 🤖 Bot Telegram Bot Client (V5)
+# 🤖 Bot Telegram Template (V5)
 
 Un bot Telegram robuste conçu avec **Node.js (Telegraf)** et **Supabase**, incluant une **interface web d'administration premium**.
 

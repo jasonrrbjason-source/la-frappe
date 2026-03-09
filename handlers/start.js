@@ -1,13 +1,18 @@
 const { Markup } = require('telegraf');
 const { registerUser, getUser, incrementDailyStat, getAppSettings, addMessageToTrack, getLastMenuId } = require('../services/database');
 const { safeEdit } = require('../services/utils');
+const { createPersistentMap } = require('../services/persistent_map');
+
+const pendingReferralInput = createPersistentMap('pendingReferral');
+
+async function initStartState() {
+    await pendingReferralInput.load();
+}
 
 /**
  * Enregistre les handlers pour la commande /start
  */
 function setupStartHandler(bot) {
-    // Map pour gérer la saisie manuelle d'un code parrain
-    const pendingReferralInput = new Map();
 
     bot.command('start', async (ctx) => {
         try {
@@ -326,15 +331,24 @@ function setupStartHandler(bot) {
 function getMainMenuKeyboard(settings, user = null) {
     const buttons = [
         [Markup.button.callback(`${settings.ui_icon_catalog} ${settings.label_catalog}`, 'view_catalog')],
-        [Markup.button.callback(`${settings.ui_icon_orders} ${settings.label_my_orders}`, 'my_orders')],
-        [Markup.button.callback(`⭐️ Laisser un avis / Commentaire`, 'leave_review')],
-        [Markup.button.callback(`👥 Consulter les avis`, 'view_reviews')],
-        [Markup.button.callback(`${settings.ui_icon_contact} ${settings.label_contact}`, 'private_contact')],
-        [Markup.button.callback(`${settings.ui_icon_channel} ${settings.label_channel}`, 'channel_link')],
-        [Markup.button.callback(`${settings.ui_icon_welcome} ${settings.label_welcome}`, 'welcome_message')],
-        [Markup.button.callback(`${settings.ui_icon_profile} ${settings.label_profile}`, 'my_referrals')],
-        [Markup.button.callback(`${settings.ui_icon_help || '❓'} ${settings.label_help || 'Aide & Support'}`, 'help_menu')],
+        [Markup.button.callback(`${settings.ui_icon_orders} ${settings.label_my_orders}`, 'my_orders')]
     ];
+
+    if (settings.show_reviews_btn !== false) {
+        buttons.push([Markup.button.callback(`${settings.ui_icon_review || '⭐️'} ${settings.label_leave_review || 'Laisser un avis'}`, 'leave_review')]);
+        buttons.push([Markup.button.callback(`${settings.ui_icon_reviews_list || '👥'} ${settings.label_view_reviews || 'Consulter les avis'}`, 'view_reviews')]);
+    }
+
+    buttons.push([Markup.button.callback(`${settings.ui_icon_contact} ${settings.label_contact}`, 'private_contact')]);
+    buttons.push([Markup.button.callback(`${settings.ui_icon_channel} ${settings.label_channel}`, 'channel_link')]);
+    buttons.push([Markup.button.callback(`${settings.ui_icon_welcome} ${settings.label_welcome}`, 'welcome_message')]);
+    buttons.push([Markup.button.callback(`${settings.ui_icon_profile} ${settings.label_profile}`, 'my_referrals')]);
+
+    if (settings.show_broadcasts_btn !== false) {
+        buttons.push([Markup.button.callback(`${settings.ui_icon_info || 'ℹ️'} ${settings.label_broadcasts || 'Informations'}`, 'view_broadcasts')]);
+    }
+
+    buttons.push([Markup.button.callback(`${settings.ui_icon_help || '❓'} ${settings.label_help || 'Aide & Support'}`, 'help_menu')]);
 
     // Vérifier si un panier existe pour proposer de le reprendre
     const { userCarts } = require('./order_system');
@@ -396,4 +410,4 @@ function getLivreurMenuKeyboard(settings, user, hasActiveOrders = false) {
     return Markup.inlineKeyboard(buttons);
 }
 
-module.exports = { setupStartHandler, getLivreurMenuKeyboard, getMainMenuKeyboard };
+module.exports = { setupStartHandler, initStartState, getLivreurMenuKeyboard, getMainMenuKeyboard };

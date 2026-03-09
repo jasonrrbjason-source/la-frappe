@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Connexion — Bot Client</title>
+  <title>Connexion — Mon Shop</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap"
     rel="stylesheet">
@@ -67,6 +67,7 @@
       margin-bottom: 40px;
       background: linear-gradient(to bottom, #fff 0%, #aaa 100%);
       -webkit-background-clip: text;
+      background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
@@ -232,6 +233,14 @@
           IDENTIFICATION
         </button>
       </form>
+
+      <div style="text-align: center; margin-top: 20px;">
+        <a href="#" id="forgotPass"
+          style="color: var(--text-muted); font-size: 13px; text-decoration: none; transition: color 0.3s;"
+          onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-muted)'">
+          Mot de passe oublié ?
+        </a>
+      </div>
     </div>
 
     <div class="footer-text">Security Protocol v5.1.0</div>
@@ -273,6 +282,34 @@
 
       btn.disabled = false;
       btn.textContent = 'IDENTIFICATION';
+    });
+
+    document.getElementById('forgotPass').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const link = e.target;
+      if (link.dataset.loading) return;
+
+      link.dataset.loading = 'true';
+      link.textContent = 'Notification en cours...';
+
+      try {
+        const res = await fetch('/api/forgot-password', { method: 'POST' });
+        if (res.ok) {
+          link.textContent = 'Notification envoyée sur Telegram !';
+          link.style.color = '#00ff88';
+        } else {
+          link.textContent = 'Erreur lors de l\'envoi.';
+          link.style.color = 'var(--accent)';
+        }
+      } catch (err) {
+        link.textContent = 'Erreur réseau.';
+      }
+
+      setTimeout(() => {
+        link.textContent = 'Mot de passe oublié ?';
+        link.style.color = 'var(--text-muted)';
+        delete link.dataset.loading;
+      }, 5000);
     });
   </script>
 </body>

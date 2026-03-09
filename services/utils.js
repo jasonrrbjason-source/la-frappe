@@ -18,6 +18,7 @@ async function safeEdit(ctx, text, opts = {}) {
     let photo = opts.photo || null;
     const video = opts.video || null;
     if (photo === '') photo = null;
+    console.log('[SAFE-EDIT] Received opts.photo:', opts.photo ? JSON.stringify(opts.photo).substring(0, 120) : null);
 
     // Résolution Photo (Base URL si path relatif + Extraction Liste)
     if (photo) {
@@ -101,6 +102,7 @@ async function safeEdit(ctx, text, opts = {}) {
                         }, { reply_markup });
                     }
                     await addMessageToTrack(userId, currentMsg.message_id).catch(() => { });
+                    runCleanup(currentMsg.message_id); // Toujours nettoyer même sur Edit réussi
                     return;
                 } catch (e) {
                     if (String(e.description || '').includes('not modified')) return;
@@ -112,11 +114,12 @@ async function safeEdit(ctx, text, opts = {}) {
         // B. ENVOI DU NOUVEAU
         let newMsg;
         if (photo || video) {
+            console.log('[SAFE-EDIT] Sending media, photo URL:', photo ? photo.substring(0, 80) : null);
             try {
                 if (photo) newMsg = await ctx.replyWithPhoto(photo, { caption: text, ...extra });
                 else newMsg = await ctx.replyWithVideo(video, { caption: text, ...extra });
             } catch (err) {
-                console.error('safeEdit: Media Send failed', err.message);
+                console.error('[SAFE-EDIT] Media Send FAILED:', err.message, '| photo was:', photo ? photo.substring(0, 100) : null);
                 newMsg = await ctx.replyWithHTML(text, extra);
             }
         } else {
@@ -146,7 +149,7 @@ function debugLog(msg) {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${msg}\n`;
     try {
-        fs.appendFileSync(path.join(process.cwd(), 'debug_bot_client.log'), line);
+        fs.appendFileSync(path.join(process.cwd(), 'debug_la_frappe.log'), line);
     } catch (e) { }
     console.log(msg);
 }

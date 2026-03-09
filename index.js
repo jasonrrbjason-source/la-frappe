@@ -6,10 +6,11 @@ if (!validateLicense()) {
 }
 const { createServer, setBotInstance } = require('./server');
 const { Telegraf } = require('telegraf');
-const { setupStartHandler } = require('./handlers/start');
+const { setupStartHandler, initStartState } = require('./handlers/start');
 const { setupAdminHandlers } = require('./handlers/admin');
-const { setupOrderSystem } = require('./handlers/order_system');
+const { setupOrderSystem, initOrderState } = require('./handlers/order_system');
 const { setBroadcastBot } = require('./services/broadcast');
+const { safeEdit } = require('./services/utils');
 
 const PORT = process.env.PORT || 3000;
 
@@ -42,8 +43,8 @@ async function main() {
 
             // Check if maintenance mode is enabled
             if (settings.maintenance_mode === true || settings.maintenance_mode === 'true') {
-                const adminContact = settings.maintenance_contact || 'https://t.me/botclientx';
-                const maintenanceMessage = settings.maintenance_message || '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @botclientx';
+                const adminContact = settings.maintenance_contact || 'https://t.me/lafrappex';
+                const maintenanceMessage = settings.maintenance_message || '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @lafrappex';
 
                 if (ctx.callbackQuery) {
                     await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
@@ -83,11 +84,22 @@ async function main() {
                     getAppSettings()
                 ]);
 
+                // Update last activity for abandoned cart tracking
+                const { userLastActivity } = require('./handlers/order_system');
+                if (userLastActivity) userLastActivity.set(user.id, Date.now());
+
                 if (registeredUser && registeredUser.is_blocked) {
-                    if (ctx.callbackQuery) {
-                        return ctx.answerCbQuery("⛔️ Votre compte est suspendu.", { show_alert: true }).catch(() => { });
+                    // Si le blocage n'est PAS un bannissement admin (ex: juste bot bloqué par le client), on débloque auto dès qu'il revient
+                    if (!registeredUser.data || registeredUser.data.blocked_by_admin !== true) {
+                        const { markUserUnblocked } = require('./services/database');
+                        await markUserUnblocked(registeredUser.id);
+                        registeredUser.is_blocked = false;
+                    } else {
+                        if (ctx.callbackQuery) {
+                            return ctx.answerCbQuery("⛔️ Votre compte est suspendu.", { show_alert: true }).catch(() => { });
+                        }
+                        return ctx.reply("⛔️ <b>ACCÈS REFUSÉ</b>\n\nVotre compte a été suspendu par l'administration. Contactez le support pour plus d'informations.", { parse_mode: 'HTML' }).catch(() => { });
                     }
-                    return ctx.reply("⛔️ <b>ACCÈS REFUSÉ</b>\n\nVotre compte a été suspendu par l'administration. Contactez le support pour plus d'informations.", { parse_mode: 'HTML' }).catch(() => { });
                 }
 
                 ctx.state.user = registeredUser;
@@ -106,8 +118,11 @@ async function main() {
                 await next();
             }
         } catch (e) {
-            console.error('Middleware error:', e.message);
-            await next();
+            console.error('❌ Middleware Fatal Error:', e.message);
+            // Si next() n'a pas été appelé, on l'appelle une fois
+            // Mais pour un bot, il est souvent préférable de ne pas continuer si l'erreur est grave
+            // ou de renvoyer une erreur à l'utilisateur via le handler global
+            throw e; // Propager à bot.catch
         }
     });
 
@@ -118,7 +133,9 @@ async function main() {
             if (ctx.callbackQuery) {
                 await ctx.answerCbQuery("⚠️ Une erreur technique est survenue.", { show_alert: true }).catch(() => { });
             } else {
-                await ctx.reply("⚠️ Désolé, une erreur est survenue. Retour au menu : /start").catch(() => { });
+                await safeEdit(ctx, "⚠️ <b>Désolé, une erreur est survenue.</b>\n\nRetour au menu : /start", {
+                    parse_mode: 'HTML'
+                }).catch(() => { });
             }
         } catch (e) { }
     });
@@ -145,7 +162,9 @@ async function main() {
                 resolve();
             }).on('error', (err) => {
                 if (err.code === 'EADDRINUSE') {
-                    console.error(`⚠️ Port ${PORT} déjà utilisé.`);
+                    console.error(`❌ Port ${PORT} déjà utilisé. Une autre instance du bot tourne probablement.`);
+                    console.error('   Arrêtez l\'autre instance ou changez le PORT.');
+                    process.exit(1);
                 } else {
                     console.error('❌ Erreur serveur:', err.message);
                 }
@@ -157,7 +176,10 @@ async function main() {
         }
     });
 
-    // 4. Démarrage du Bot Telegram
+    // 4. Restauration de l'état persistant
+    await Promise.all([initOrderState(), initStartState()]);
+
+    // 5. Démarrage du Bot Telegram
     const botStarted = (async () => {
         console.log('🤖 Lancement du bot Telegram...');
         try {
@@ -178,9 +200,16 @@ async function main() {
             // Lancement de la vérification des commandes planifiées (toutes les minutes)
             setInterval(() => checkPlannedOrders(bot), 60000);
 
+            // Lancement de la vérification des diffusions planifiées (toutes les minutes)
+            setInterval(() => checkScheduledBroadcasts(), 60000);
+
             // Lancement de la vérification des paniers abandonnés (toutes les 30 minutes)
             const { checkAbandonedCarts } = require('./handlers/order_system');
             setInterval(() => checkAbandonedCarts(bot), 1800000);
+
+            // 5. Automatisation Sync & Check Statuts (toutes les 15 minutes)
+            setInterval(() => runAutomatedSync(bot), 900000);
+            setTimeout(() => runAutomatedSync(bot), 60000); // Premier run après 1 min
 
         } catch (err) {
             console.error('❌ Erreur au démarrage du bot:', err.message);
@@ -241,6 +270,46 @@ async function checkPlannedOrders(bot) {
         }
     } catch (e) {
         console.error('❌ Error checkPlannedOrders:', e.message);
+    }
+}
+
+async function checkScheduledBroadcasts() {
+    try {
+        const { supabase, COL_BROADCASTS } = require('./services/database');
+        const { broadcastMessage } = require('./services/broadcast');
+
+        const now = new Date().toISOString();
+        const { data: pending, error } = await supabase.from(COL_BROADCASTS)
+            .select('*')
+            .eq('status', 'pending')
+            .lte('start_at', now);
+
+        if (error || !pending || pending.length === 0) return;
+
+        console.log(`📡 [SCHEDULER] Activation de ${pending.length} diffusion(s) planifiée(s)...`);
+
+        for (const bc of pending) {
+            // Extraire le message et les médias du payload stocké
+            let finalMsg = bc.message || '';
+            let mediaUrls = [];
+
+            if (finalMsg.includes('|||MEDIA_URLS|||')) {
+                const parts = finalMsg.split('|||MEDIA_URLS|||');
+                finalMsg = parts[0];
+                try { mediaUrls = JSON.parse(parts[1]); } catch (e) { }
+            }
+
+            // Lancer la diffusion (le statut passera en in_progress puis completed dans broadcastMessage)
+            await broadcastMessage(bc.target_platform, finalMsg, {
+                id: bc.id, // RÉUTILISER L'ID EXISTANT !
+                mediaUrls: mediaUrls,
+                start_at: bc.start_at,
+                end_at: bc.end_at,
+                badge: bc.badge
+            });
+        }
+    } catch (e) {
+        console.error('❌ Error checkScheduledBroadcasts:', e.message);
     }
 }
 
@@ -313,6 +382,48 @@ function startAutomatedTimer(bot) {
             console.error('❌ Erreur timer automatique:', err.message);
         }
     }, SIX_HOURS);
+}
+
+// --- Sync Automatique Statuts (Check si bot bloqué) ---
+async function runAutomatedSync(bot) {
+    try {
+        const { getAllUsersForBroadcast, markUserBlocked, markUserUnblocked } = require('./services/database');
+        // On récupère tout le monde pour voir qui a bloqué/débloqué
+        const users = await getAllUsersForBroadcast('telegram', 'user');
+        if (!users || users.length === 0) return;
+
+        console.log(`🔄 Automation : Sync & Check de ${users.length} utilisateurs...`);
+
+        // Batch de 5 pour éviter flood
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < users.length; i += BATCH_SIZE) {
+            const batch = users.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (u) => {
+                try {
+                    const chatId = String(u.platform_id || '').replace('telegram_', '');
+                    if (!chatId) return;
+
+                    // On check le statut via typing
+                    await bot.telegram.sendChatAction(chatId, 'typing');
+
+                    // Si succès et qu'il était marqué bloqué (sauf ban admin), on réactive
+                    if (u.is_blocked && (!u.data || u.data.blocked_by_admin !== true)) {
+                        await markUserUnblocked(u.id);
+                    }
+                } catch (err) {
+                    const desc = err.description || '';
+                    if (err.code === 403 || desc.includes('blocked') || desc.includes('chat not found')) {
+                        if (!u.is_blocked) {
+                            await markUserBlocked(u.id, false);
+                        }
+                    }
+                }
+            }));
+            if (i + BATCH_SIZE < users.length) await new Promise(r => setTimeout(r, 1000));
+        }
+    } catch (e) {
+        console.error('❌ Erreur automation Sync:', e.message);
+    }
 }
 
 main().catch((error) => {

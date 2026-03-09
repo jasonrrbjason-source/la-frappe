@@ -92,6 +92,29 @@ function createServer() {
         }
     });
 
+    app.post('/api/forgot-password', async (req, res) => {
+        try {
+            const settings = await getAppSettings();
+            const bot = getBotInstance();
+            if (!bot) return res.status(500).json({ error: 'Bot non initialisé' });
+
+            const adminIds = String(settings.admin_telegram_id || '').split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
+            const alertMsg = `⚠️ <b>RÉCUPÉRATION DE COMPTE</b>\n\nUne demande de réinitialisation du mot de passe a été faite depuis le Dashboard.\n\nSouhaitez-vous modifier le mot de passe d'administration ?`;
+            const keyboard = {
+                inline_keyboard: [[{ text: '🔄 Modifier le mot de passe', callback_data: 'admin_trigger_password_reset' }]]
+            };
+
+            for (const adminId of adminIds) {
+                if (adminId) bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => { });
+            }
+
+            res.json({ success: true, message: 'Notification envoyée aux administrateurs.' });
+        } catch (e) {
+            console.error('Forgot password error:', e.message);
+            res.status(500).json({ error: 'Erreur serveur' });
+        }
+    });
+
     app.get('/api/stats', authMiddleware, async (req, res) => {
         try { res.json(await getStatsOverview()); }
         catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
@@ -155,10 +178,10 @@ function createServer() {
             const u = await getUser(req.body.id);
             if (!u || !u.platform_id) return res.json({ success: false, error: 'User introuvable' });
 
-            const bot = getBotInstance();
-            if (!bot) return res.status(500).json({ error: 'Bot non initialisé' });
-
             try {
+                const bot = getBotInstance();
+                if (!bot) return res.status(500).json({ error: 'Bot non initialisé' });
+
                 // On tente une petite action "typing" pour voir si le bot est bloqué
                 const chatId = u.platform_id.replace('telegram_', '');
                 await bot.telegram.sendChatAction(chatId, 'typing');
@@ -395,7 +418,7 @@ function createServer() {
             res.json({ success: true });
         } catch (e) {
             console.error('❌ Settings update error:', e);
-            res.status(500).json({ error: 'Erreur serveur' });
+            res.status(500).json({ error: e.message || 'Erreur serveur' });
         }
     });
 
@@ -542,8 +565,18 @@ function createServer() {
             debugLog(`[API-BC-OK] Lancement: "${message.substring(0, 20)}..." Platform: ${platform}, Médias: ${mediaFiles.length}, URLs: ${mediaUrls.length}`);
             res.json({ status: 'started', media_count: mediaFiles.length + mediaUrls.length });
 
+            const start_at = req.body.start_at || new Date().toISOString();
+            const end_at = req.body.end_at || null;
+            const badge = req.body.badge || null;
+
             // Lancer la diffusion
-            broadcastMessage(platform, message, { mediaFiles, mediaUrls }).catch(err => {
+            broadcastMessage(platform, message, {
+                mediaFiles,
+                mediaUrls,
+                start_at,
+                end_at,
+                badge
+            }).catch(err => {
                 debugLog(`[API-BC-FATAL] ${err.message}`);
             });
         } catch (e) {

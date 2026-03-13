@@ -575,7 +575,9 @@ function createServer() {
                 mediaUrls,
                 start_at,
                 end_at,
-                badge
+                badge,
+                poll_options: req.body.poll_options || null,
+                poll_allow_free: req.body.poll_allow_free === 'true' || req.body.poll_allow_free === true
             }).catch(err => {
                 debugLog(`[API-BC-FATAL] ${err.message}`);
             });

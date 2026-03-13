@@ -178,10 +178,19 @@ async function registerUser(platformUser, platform = 'telegram', referrerId = nu
             const { data: refDocs } = await supabase.from(COL_USERS).select('*').eq('referral_code', referrerId).limit(1);
             if (refDocs && refDocs.length > 0) {
                 const referrerDoc = refDocs[0];
+                // Update referrer count
                 await supabase.from(COL_USERS).update({
                     referral_count: (referrerDoc.referral_count || 0) + 1
                 }).eq('id', referrerDoc.id);
+                
+                // CRITICAL FIX: Link the new user to the ACTUAL referrer ID (docId), not the ref_code
+                await supabase.from(COL_USERS).update({
+                    referred_by: referrerDoc.id
+                }).eq('id', docId);
+
                 _userCache.delete(referrerDoc.id);
+                _userCache.delete(docId); // Clear cache for new user to reflect link
+
                 await supabase.from(COL_REFERRALS).insert([{
                     id: `${Date.now()}-${Math.round(Math.random() * 1000)}`,
                     referrer_id: referrerDoc.id,
@@ -1102,6 +1111,13 @@ async function getAppSettings() {
         }
     }
 
+    // Force string for key fields that might be stored as arrays in JSONB
+    if (Array.isArray(settings.admin_telegram_id)) {
+        settings.admin_telegram_id = settings.admin_telegram_id.join(', ');
+    } else if (settings.admin_telegram_id !== null && settings.admin_telegram_id !== undefined) {
+        settings.admin_telegram_id = String(settings.admin_telegram_id);
+    }
+
     // Auto-réparation légère (évite les valeurs "test" collatérales)
     const repairs = {};
     for (const key of Object.keys(SETTINGS_DEFAULTS)) {
@@ -1187,14 +1203,56 @@ async function saveBroadcast(data) {
     const id = `${Date.now()}`;
     const now = ts();
     // On s'assure que created_at et start_at sont cohérents pour l'affichage instantané
-    await supabase.from(COL_BROADCASTS).insert([{
+    const { error } = await supabase.from(COL_BROADCASTS).insert([{
         id,
         ...data,
         created_at: now,
         start_at: data.start_at || now
     }]);
+
+    // Si erreur (probablement colonnes manquantes), on tente de sauver uniquement les colonnes de base
+    if (error) {
+        console.warn(`[DB-WARN] saveBroadcast fallback: ${error.message}`);
+        const filtered = { id, message: data.message, target_platform: data.target_platform, created_at: now, start_at: now };
+        await supabase.from(COL_BROADCASTS).insert([filtered]).catch(() => { });
+    }
     return id;
 }
+
+async function recordPollVote(broadcastId, optionIdx, userId, userName = 'Anonyme') {
+    const { data: bc } = await supabase.from(COL_BROADCASTS).select('poll_data').eq('id', broadcastId).single();
+    if (!bc) return;
+
+    let poll = bc.poll_data || { options: [], title: 'Sondage', votes: {} };
+    if (!poll.votes) poll.votes = {};
+
+    // Enregistrer le vote (écrase le précédent si même utilisateur)
+    // On stocke maintenant un objet avec le nom de l'utilisateur
+    poll.votes[userId] = {
+        option: optionIdx,
+        userName: userName,
+        timestamp: ts()
+    };
+
+    await supabase.from(COL_BROADCASTS).update({ poll_data: poll }).eq('id', broadcastId);
+}
+
+async function recordPollFreeResponse(broadcastId, userId, userName, responseText) {
+    const { data: bc } = await supabase.from(COL_BROADCASTS).select('poll_data').eq('id', broadcastId).single();
+    if (!bc) return;
+
+    let poll = bc.poll_data || { options: [], title: 'Sondage', votes: {} };
+    if (!poll.free_responses) poll.free_responses = {};
+
+    poll.free_responses[userId] = {
+        text: responseText,
+        userName: userName,
+        timestamp: ts()
+    };
+
+    await supabase.from(COL_BROADCASTS).update({ poll_data: poll }).eq('id', broadcastId);
+}
+
 async function updateBroadcast(broadcastId, data) {
     // Liste des colonnes de base garanties (pour le repli si les nouvelles colonnes n'existent pas)
     const baseColumns = ['status', 'success', 'failed', 'blocked', 'completed_at'];
@@ -1293,7 +1351,7 @@ module.exports = {
     generateReferralCode, getReferralLeaderboard, incrementOrderCount,
     setLivreurStatus, updateLivreurPosition, getActiveLivreursCount,
     createOrder, updateOrderStatus, assignOrderLivreur, getOrder, getAvailableOrders, getAllOrders,
-    saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, incrementStat, incrementDailyStat,
+    saveBroadcast, updateBroadcast, deleteBroadcast, getBroadcastHistory, recordPollVote, recordPollFreeResponse, incrementStat, incrementDailyStat,
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings, getClientActiveOrders,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getOrdersByUser, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,

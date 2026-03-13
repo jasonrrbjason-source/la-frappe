@@ -1679,6 +1679,19 @@
                 </div>
                 <textarea id="bcMsg" placeholder="Votre message de diffusion..."
                     style="width:100%; height:120px; margin-bottom:15px; padding:12px; border-radius:8px; border:1px solid var(--border); background:var(--hover); color:var(--text-main); font-size:14px; resize:vertical;"></textarea>
+
+                <!-- Sondage / Options -->
+                <div class="card"
+                    style="background:rgba(255,150,0,0.03); border:1px dashed rgba(255,150,0,0.2); margin-bottom:15px; padding:15px;">
+                    <h4 style="margin:0 0 10px 0; font-size:14px; color:#ffa500; display:flex; align-items:center; gap:8px;">
+                        📊 Créer un Sondage (Optionnel)</h4>
+                    <input type="text" id="bcPollOptions" placeholder="Option 1, Option 2, Option 3... (séparées par des virgules)"
+                        style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--hover); color:var(--text-main); font-size:13px; margin-bottom:10px;">
+                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:13px; color:var(--text-muted);">
+                        <input type="checkbox" id="bcPollFree" style="width:18px; height:18px;">
+                        Autoriser une 🖊 <b>Réponse libre</b> (le client pourra écrire sa propre réponse)
+                    </label>
+                </div>
                 <div id="bc_media_grid"
                     style="display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:10px; margin-bottom:15px;">
                 </div>
@@ -2636,7 +2649,48 @@
                             historyTbody.innerHTML = history.map(h => {
                                 const d = safeDate(h.created_at);
                                 const dateStr = !isNaN(d.getTime()) ? d.toLocaleString('fr-FR') : '—';
-                                return `
+                                    let pollHtml = '';
+                                    if (h.poll_data && h.poll_data.options) {
+                                        const p = h.poll_data;
+                                        const totalVotes = Object.keys(p.votes || {}).length;
+                                        const totalFree = Object.keys(p.free_responses || {}).length;
+                                        
+                                        pollHtml = `<div style="background:rgba(255,165,0,0.05); padding:8px; border-radius:6px; margin-top:8px; border:1px solid rgba(255,165,0,0.1);">
+                                            <div style="font-weight:bold; color:#ffa500; font-size:11px; margin-bottom:5px;">📊 RÉSULTATS DU SONDAGE</div>`;
+                                        
+                                        p.options.forEach((opt, idx) => {
+                                            const voters = Object.entries(p.votes || {})
+                                                .filter(([uid, v]) => v.optionIdx === idx)
+                                                .map(([uid, v]) => v.name || 'Inconnu');
+                                            const count = voters.length;
+                                            const percent = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+                                            pollHtml += `<div style="font-size:11px; margin-bottom:4px;">
+                                                <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                                                    <span>${opt}</span>
+                                                    <b>${count} (${percent}%)</b>
+                                                </div>
+                                                <div style="height:4px; background:rgba(255,255,255,0.1); border-radius:2px; overflow:hidden;">
+                                                    <div style="width:${percent}%; height:100%; background:#ffa500;"></div>
+                                                </div>
+                                                ${voters.length > 0 ? `<div style="font-size:9px; color:rgba(255,255,255,0.5); margin-top:2px;">👥 ${voters.join(', ')}</div>` : ''}
+                                            </div>`;
+                                        });
+
+                                        if (p.poll_allow_free) {
+                                            const freeResp = Object.values(p.free_responses || {});
+                                            pollHtml += `<div style="margin-top:8px; border-top:1px solid rgba(255,165,0,0.1); padding-top:5px;">
+                                                <div style="font-weight:bold; color:#ffa500; font-size:11px;">🖊 RÉPONSES LIBRES (${freeResp.length})</div>`;
+                                            freeResp.forEach(fr => {
+                                                pollHtml += `<div style="font-size:10px; margin-top:4px; font-style:italic;">
+                                                    <b>${fr.name || 'Utilisateur'} :</b> "${fr.text}"
+                                                </div>`;
+                                            });
+                                            pollHtml += `</div>`;
+                                        }
+                                        pollHtml += `</div>`;
+                                    }
+
+                                    return `
                                     <tr>
                                         <td data-label="Date">
                                             <small>${dateStr}</small>
@@ -2644,9 +2698,10 @@
                                         </td>
                                         <td data-label="Média">${h.media_urls && h.media_urls.length > 0 ? `<div style="color:var(--accent); font-size:12px; font-weight:bold;">📁 ${h.media_urls.length} média(s)</div>` : '—'}</td>
                                         <td data-label="Message">
-                                            <div style="font-size:13px; max-width:400px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:80px; overflow-y:auto; padding-right:5px;">
+                                            <div style="font-size:13px; max-width:400px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:150px; overflow-y:auto; padding-right:5px;">
                                                 ${h.message || '<i style="opacity:0.6">(Média uniquement)</i>'}
                                                 ${h.end_at ? `<br><small style="opacity:0.6">⏳ Jusqu'au ${new Date(h.end_at).toLocaleDateString()}</small>` : ''}
+                                                ${pollHtml}
                                             </div>
                                         </td>
                                         <td data-label="Cibles"><b>${h.total_target || 0}</b></td>
@@ -2738,7 +2793,10 @@
                     // Admin Dynamic List
                     const container = document.getElementById('admins_list_container');
                     container.innerHTML = '';
-                    const adminIds = (s.admin_telegram_id || '').split(/[\s,]+/).filter(id => id.trim() !== '');
+                    const adminIds = String(s.admin_telegram_id || '')
+                        .replace(/[\[\]"]/g, '') // Remove brackets and quotes if stored as JSON string
+                        .split(/[\s,]+/)
+                        .filter(id => id.trim() !== '');
                     if (adminIds.length === 0) {
                         addAdminRow('');
                     } else {
@@ -2914,6 +2972,8 @@
             const badge = document.getElementById('bcBadge').value;
             const start_at = document.getElementById('bcStart').value;
             const end_at = document.getElementById('bcEnd').value;
+            const pollOptions = document.getElementById('bcPollOptions').value;
+            const pollAllowFree = document.getElementById('bcPollFree').checked;
 
             if (!message && bcFiles.length === 0) return showToast('Écrivez un message ou ajoutez un média.', 'error');
             const ok = await showModal('Diffusion', `Envoyer à tous les membres ?\n${bcFiles.length > 0 ? bcFiles.length + ' média(s) joints' : 'Texte uniquement'}`);
@@ -2925,6 +2985,10 @@
                 formData.append('badge', badge);
                 if (start_at) formData.append('start_at', new Date(start_at).toISOString());
                 if (end_at) formData.append('end_at', new Date(end_at).toISOString());
+
+                // Poll properties
+                if (pollOptions) formData.append('poll_options', pollOptions);
+                formData.append('poll_allow_free', pollAllowFree);
 
                 // Pre-uploaded URLs for republish
                 if (bcUrls.length > 0) formData.append('media_urls', JSON.stringify(bcUrls));
@@ -2941,6 +3005,8 @@
                 showToast('🚀 Diffusion lancée !', 'success');
                 document.getElementById('bcMsg').value = '';
                 document.getElementById('bcBadge').value = '';
+                document.getElementById('bcPollOptions').value = '';
+                document.getElementById('bcPollFree').checked = false;
                 resetTiming('start');
                 resetTiming('end');
                 bcFiles = [];

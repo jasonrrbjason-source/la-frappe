@@ -13,6 +13,7 @@ const { setBroadcastBot } = require('./services/broadcast');
 const { safeEdit } = require('./services/utils');
 
 const PORT = process.env.PORT || 3000;
+const awaitingPollResponse = new Map();
 
 async function main() {
     console.log('🚀 Démarrage du Bot Telegram...\n');
@@ -145,6 +146,84 @@ async function main() {
     setupAdminHandlers(bot);
     setupOrderSystem(bot);
 
+    // Sondages - Réponses Libres et Votes
+    bot.action(/^poll_free_([\w-]+)$/, async (ctx) => {
+        const bcId = ctx.match[1];
+        const userId = `telegram_${ctx.from.id}`;
+        awaitingPollResponse.set(userId, bcId);
+        await ctx.answerCbQuery();
+        await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => { });
+        await ctx.reply("🖋 <b>Veuillez écrire votre réponse ci-dessous :</b>", { parse_mode: 'HTML' });
+    });
+
+    bot.action(/^poll_vote_([\w-]+)_(\d+)$/, async (ctx) => {
+        const bcId = ctx.match[1];
+        const optIdx = parseInt(ctx.match[2]);
+        const userId = `telegram_${ctx.from.id}`;
+        const { recordPollVote, getAppSettings, getUser } = require('./services/database');
+        const { getMainMenuKeyboard } = require('./handlers/start');
+
+        try {
+            const userName = ctx.from.first_name || 'Utilisateur';
+            const result = await recordPollVote(bcId, optIdx, userId, userName);
+            if (result === 'already_voted') {
+                await ctx.answerCbQuery("⚠️ Vous avez déjà voté pour ce sondage !", { show_alert: true });
+                await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => { });
+                return;
+            }
+
+            await ctx.answerCbQuery("✅ Vote enregistré, merci !");
+
+            const settings = await getAppSettings();
+            const user = await getUser(userId);
+
+            let text = `✅ <b>Merci pour votre participation !</b>\n\nQue souhaitez-vous faire maintenant ?`;
+            let keyboard = await getMainMenuKeyboard(ctx); // Using getMainMenuKeyboard from start.js (exported)
+
+            await safeEdit(ctx, text, keyboard);
+
+        } catch (e) {
+            console.error('[POLL-VOTE] Error:', e);
+            await ctx.answerCbQuery("⚠️ Erreur lors du vote.", { show_alert: true });
+        }
+    });
+
+    // Capture des messages spéciaux (Sondages, Feedback, Retard, Chat)
+    bot.on('message', async (ctx, next) => {
+        const userId = `telegram_${ctx.from.id}`;
+        
+        // 1. Réponses libres aux sondages
+        if (awaitingPollResponse.has(userId)) {
+            const bcId = awaitingPollResponse.get(userId);
+            awaitingPollResponse.delete(userId);
+
+            const text = (ctx.message.text || '').trim();
+            if (text) {
+                const { recordPollFreeResponse, getAppSettings, getUser } = require('./services/database');
+                const { getMainMenuKeyboard } = require('./handlers/start');
+
+                try {
+                    const userName = ctx.from.first_name || 'Utilisateur';
+                    await recordPollFreeResponse(bcId, userId, userName, text);
+
+                    const settings = await getAppSettings();
+                    const user = await getUser(userId);
+
+                    const replyText = `✅ <b>Votre réponse a été enregistrée :</b>\n\n<i>"${text}"</i>\n\nMerci pour votre participation !`;
+                    let keyboard = await getMainMenuKeyboard(ctx);
+
+                    await ctx.reply(replyText, { parse_mode: 'HTML', ...keyboard });
+                    return; // On arrête ici pour ne pas tracker ce message de réponse comme un message normal si c'est indésirable
+                } catch (e) {
+                    console.error('[POLL-FREE] Error:', e);
+                    await ctx.reply("⚠️ Une erreur est survenue lors de l'enregistrement de votre réponse.");
+                }
+            }
+        }
+        
+        await next();
+    });
+
     // Process-level error handlers
     process.on('unhandledRejection', (err) => {
         console.error('⚠️ Unhandled Rejection:', err.message || err);
@@ -177,7 +256,7 @@ async function main() {
     });
 
     // 4. Restauration de l'état persistant
-    await Promise.all([initOrderState(), initStartState()]);
+    await Promise.all([initOrderState(), initStartState(), require('./handlers/admin').initAdminState()]);
 
     // 5. Démarrage du Bot Telegram
     const botStarted = (async () => {

@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const { registerUser, getUser, incrementDailyStat, getAppSettings, addMessageToTrack, getLastMenuId } = require('../services/database');
 const { safeEdit } = require('../services/utils');
 const { createPersistentMap } = require('../services/persistent_map');
+const { isAdmin } = require('./admin');
 
 const pendingReferralInput = createPersistentMap('pendingReferral');
 
@@ -69,7 +70,7 @@ function setupStartHandler(bot) {
                 }
             }
 
-            const keyboard = registeredUser.is_livreur ? getLivreurMenuKeyboard(settings, registeredUser, hasActive) : getMainMenuKeyboard(settings, registeredUser);
+            const keyboard = registeredUser.is_livreur ? await getLivreurMenuKeyboard(ctx, settings, registeredUser, hasActive) : await getMainMenuKeyboard(ctx, settings, registeredUser);
             await safeEdit(ctx, welcomeText, {
                 photo: settings.welcome_photo || null,
                 ...keyboard
@@ -223,7 +224,7 @@ function setupStartHandler(bot) {
         const user = await getUser(`telegram_${ctx.from.id}`);
 
         let text = `📋 <b>Menu principal</b>`;
-        let keyboard = getMainMenuKeyboard(settings, user);
+        let keyboard = await getMainMenuKeyboard(ctx, settings, user);
 
         // Si livreur → menu spécial
         if (user && user.is_livreur) {
@@ -244,7 +245,7 @@ function setupStartHandler(bot) {
                     `\n\n<i>Cliquez sur "Mes livraisons en cours" pour les gérer.</i>`;
             }
 
-            keyboard = getLivreurMenuKeyboard(settings, user, hasActive);
+            keyboard = await getLivreurMenuKeyboard(ctx, settings, user, hasActive);
         }
 
         await safeEdit(ctx, text, {
@@ -328,7 +329,7 @@ function setupStartHandler(bot) {
     });
 }
 
-function getMainMenuKeyboard(settings, user = null) {
+async function getMainMenuKeyboard(ctx, settings, user = null) {
     const buttons = [
         [Markup.button.callback(`${settings.ui_icon_catalog} ${settings.label_catalog}`, 'view_catalog')],
         [Markup.button.callback(`${settings.ui_icon_orders} ${settings.label_my_orders}`, 'my_orders')]
@@ -352,8 +353,8 @@ function getMainMenuKeyboard(settings, user = null) {
 
     // Vérifier si un panier existe pour proposer de le reprendre
     const { userCarts } = require('./order_system');
-    const userId = user ? (String(user.platform_id || user.id).replace('telegram_', '')) : null;
-    const cart = userId ? userCarts.get(parseInt(userId)) : null;
+    const uId = ctx.from.id;
+    const cart = userCarts.get(uId);
 
     if (cart && cart.length > 0) {
         buttons.unshift([Markup.button.callback('➡️ 🛒 REPRENDRE MON PANIER', 'view_cart')]);
@@ -363,22 +364,19 @@ function getMainMenuKeyboard(settings, user = null) {
         buttons.push([Markup.button.callback(`${settings.ui_icon_livreur} ${settings.label_livreur}`, 'livreur_menu')]);
     }
 
-    // Boutons Admin
-    if (user && settings.admin_telegram_id) {
-        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
-        if (adminIds.includes(String(user.platform_id))) {
-            buttons.push([Markup.button.callback(`${settings.ui_icon_admin} ${settings.label_admin_bot}`, 'admin_menu')]);
-            // On cache Dashboard Web si pas d'URL configurée manuellement (pour épurer le bot)
-            if (settings.dashboard_url && settings.dashboard_url.startsWith('http')) {
-                buttons.push([Markup.button.webApp(`${settings.ui_icon_web} ${settings.label_admin_web}`, settings.dashboard_url)]);
-            }
+    // Boutons Admin - Robustesse : On utilise isAdmin(ctx)
+    if (await isAdmin(ctx)) {
+        buttons.push([Markup.button.callback(`${settings.ui_icon_admin || '🛠'} ${settings.label_admin_bot || 'Gestion Bot'}`, 'admin_menu')]);
+        // On cache Dashboard Web si pas d'URL configurée manuellement
+        if (settings.dashboard_url && settings.dashboard_url.startsWith('http')) {
+            buttons.push([Markup.button.webApp(`${settings.ui_icon_web || '🔐'} ${settings.label_admin_web || 'Dashboard Web'}`, settings.dashboard_url)]);
         }
     }
 
     return Markup.inlineKeyboard(buttons);
 }
 
-function getLivreurMenuKeyboard(settings, user, hasActiveOrders = false) {
+async function getLivreurMenuKeyboard(ctx, settings, user, hasActiveOrders = false) {
     const isAvail = user?.is_available || user?.data?.is_available;
     const dispoBtn = isAvail
         ? Markup.button.callback(`${settings.ui_icon_error || '❌'} Passer Indisponible`, 'set_dispo_false')
@@ -400,11 +398,8 @@ function getLivreurMenuKeyboard(settings, user, hasActiveOrders = false) {
     buttons.push([Markup.button.callback('◀️ Retour au menu principal', 'main_menu')]);
 
     // Bouton Admin si le livreur est aussi admin
-    if (user && settings.admin_telegram_id) {
-        const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim());
-        if (adminIds.includes(String(user.platform_id))) {
-            buttons.push([Markup.button.callback(`${settings.ui_icon_admin || '⚙️'} ${settings.label_admin_bot || 'Gestion Bot'}`, 'admin_menu')]);
-        }
+    if (await isAdmin(ctx)) {
+        buttons.push([Markup.button.callback(`${settings.ui_icon_admin || '⚙️'} ${settings.label_admin_bot || 'Gestion Bot'}`, 'admin_menu')]);
     }
 
     return Markup.inlineKeyboard(buttons);

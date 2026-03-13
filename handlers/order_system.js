@@ -149,10 +149,13 @@ function setupOrderSystem(bot) {
         const productId = ctx.match[1];
         const qty = parseInt(ctx.match[2]);
         const products = await getProducts();
-        const product = products.find(p => p.id === productId);
+        const product = products.find(p => String(p.id) === String(productId));
         const settings = ctx.state.settings;
 
-        if (!product) return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
+        if (!product) {
+            console.error(`❌ Product not found: ${productId}. Available:`, products.map(p => p.id).join(', '));
+            return safeEdit(ctx, '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'view_catalog')]]));
+        }
 
         // Calcul du prix avec gestion des paliers dégressifs
         let totalPriceValue = product.price * qty;
@@ -773,8 +776,9 @@ function setupOrderSystem(bot) {
 
         const { order, error: createError } = await createOrder(orderData);
         if (createError) {
-            console.error("Error creating order:", createError);
-            return safeEdit(ctx, '❌ Erreur lors de la création de la commande.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
+            console.error("❌ Error creating order:", createError);
+            const errMsg = createError.message || JSON.stringify(createError);
+            return safeEdit(ctx, `❌ Erreur lors de la création de la commande.\n\nType: <i>${errMsg}</i>`, Markup.inlineKeyboard([[Markup.button.callback('◀️ Menu', 'main_menu')]]));
         }
 
         const successText = ctx.state.settings.msg_order_success || `✅ <b>Commande #${order.id.substring(0, 5)} envoyée !</b>\n\nUn livreur va vous contacter dès qu'elle sera prise en charge.`;
@@ -922,7 +926,7 @@ function setupOrderSystem(bot) {
             `🔘 Statut : <b>${isAvailable ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n` +
             `Que voulez-vous faire ?`;
 
-        const keyboard = getLivreurMenuKeyboard(settings, user || { is_available: isAvailable, data: { is_available: isAvailable } });
+        const keyboard = await getLivreurMenuKeyboard(ctx, settings, user || { is_available: isAvailable, data: { is_available: isAvailable } });
         await safeEdit(ctx, text, keyboard);
 
         // 5. Cleanup bouton "Démarrer"
@@ -999,7 +1003,7 @@ function setupOrderSystem(bot) {
             `🔘 Statut : <b>${isAvail ? (settings.ui_icon_success || '✅') + ' DISPONIBLE' : (settings.ui_icon_error || '❌') + ' INDISPONIBLE'}</b>\n\n` +
             `Que voulez-vous faire ?`;
 
-        const opts = getLivreurMenuKeyboard(settings, user);
+        const opts = await getLivreurMenuKeyboard(ctx, settings, user);
         return await safeEdit(ctx, text, opts);
     });
 
@@ -1451,7 +1455,7 @@ function setupOrderSystem(bot) {
 
     bot.action(/^view_broadcasts(?:_(\d+))?$/, async (ctx) => {
         await ctx.answerCbQuery();
-        const { getBroadcastHistory } = require('../services/database');
+        const { getBroadcastHistory, getUser } = require('../services/database');
 
         const index = parseInt(ctx.match[1] || 0);
         const broadcasts = await getBroadcastHistory(20, true); // 20 derniers ACTIFS uniquement
@@ -1479,15 +1483,39 @@ function setupOrderSystem(bot) {
             } catch (e) { }
         }
 
-        const text = `📣 <b>Informations & Annonces (${index + 1}/${broadcasts.length})</b>\n\n` +
+        const userId = `telegram_${ctx.from.id}`;
+        let text = `📣 <b>Informations & Annonces (${index + 1}/${broadcasts.length})</b>\n\n` +
             `📅 <i>Posté le ${date}</i>\n\n` +
             `${badgeTxt}${fullMsg}`;
+
+        const pollRows = [];
+        if (b.poll_data && b.poll_data.options) {
+            const poll = b.poll_data;
+            const hasVoted = poll.votes && poll.votes[userId];
+            const hasFreeResponse = poll.free_responses && poll.free_responses[userId];
+
+            if (hasVoted || hasFreeResponse) {
+                text += `\n\n✅ <b>Merci pour votre participation !</b>`;
+                if (hasFreeResponse) {
+                    text += `\n\n✍️ <i>Votre réponse : ${poll.free_responses[userId].text}</i>`;
+                }
+            } else {
+                // Afficher les options de vote
+                poll.options.forEach((opt, idx) => {
+                    pollRows.push([Markup.button.callback(opt, `poll_vote_${b.id}_${idx}`)]);
+                });
+                if (poll.poll_allow_free) {
+                    pollRows.push([Markup.button.callback('🖊 Réponse libre', `poll_free_${b.id}`)]);
+                }
+            }
+        }
 
         const navButtons = [];
         if (index > 0) navButtons.push(Markup.button.callback('⬅️ Précédent', `view_broadcasts_${index - 1}`));
         if (index < broadcasts.length - 1) navButtons.push(Markup.button.callback('Suivant ➡️', `view_broadcasts_${index + 1}`));
 
         const keyboard = [
+            ...pollRows,
             navButtons,
             [Markup.button.callback('◀️ Retour Menu', 'main_menu')]
         ];
@@ -1747,7 +1775,7 @@ function setupOrderSystem(bot) {
 
         text += `Que voulez-vous faire ?`;
 
-        const opts = getLivreurMenuKeyboard(settings, user, activeOrders.length > 0);
+        const opts = await getLivreurMenuKeyboard(ctx, settings, user, activeOrders.length > 0);
         await safeEdit(ctx, text, opts);
     });
 
@@ -1905,16 +1933,14 @@ function setupOrderSystem(bot) {
     // Mode client pour les livreurs
     bot.action('client_menu', async (ctx) => {
         await ctx.answerCbQuery();
-        const settings = await getAppSettings();
-        const user = await getUser(`telegram_${ctx.from.id}`);
+        const { getMainMenuKeyboard } = require('./start');
+        const keyboard = await getMainMenuKeyboard(ctx);
+        
         await safeEdit(ctx,
             `🛒 <b>Mode Client</b>\n\nVous pouvez commander comme un client normal :`,
             {
                 parse_mode: 'HTML',
-                ...Markup.inlineKeyboard([
-                    [Markup.button.callback(`${settings.ui_icon_catalog} Voir le catalogue`, 'view_catalog')],
-                    [Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]
-                ])
+                ...keyboard
             }
         );
     });
@@ -1973,7 +1999,7 @@ function setupOrderSystem(bot) {
                 `📍 Secteur : <b>${user.current_city ? user.current_city.toUpperCase() : city.toUpperCase()}</b>\n` +
                 `🔘 Statut : <b>${user.is_available ? settings.ui_icon_success + ' DISPONIBLE' : settings.ui_icon_error + ' INDISPONIBLE'}</b>`;
 
-            await safeEdit(ctx, text, getKB(settings, user));
+            await safeEdit(ctx, text, await getKB(ctx, settings, user));
             delete ctx.state.awaiting_city;
             return;
         }

@@ -2,6 +2,8 @@ const { getAllUsersForBroadcast, saveBroadcast, updateBroadcast, markUserBlocked
 const fs = require('fs');
 const path = require('path');
 
+function ts() { return new Date().toISOString(); }
+
 function debugLog(msg) {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${msg}\n`;
@@ -25,7 +27,9 @@ async function broadcastMessage(platform, message, options = {}) {
         mediaUrls: existingUrls = [],
         start_at = ts(),
         end_at = null,
-        badge = null
+        badge = null,
+        poll_options = null,
+        poll_allow_free = false
     } = options;
     debugLog(`[BC-START] Plateforme: ${platform}, Médias: ${mediaFiles.length}, URLs: ${existingUrls.length}, Message: "${(message || '').substring(0, 30)}..."`);
 
@@ -101,7 +105,8 @@ async function broadcastMessage(platform, message, options = {}) {
             success: 0, failed: 0, blocked: 0,
             start_at,
             end_at,
-            badge
+            badge,
+            poll_data: poll_options ? { options: poll_options.split('|'), title: message, poll_allow_free: options.poll_allow_free || false } : null
         });
     } else {
         // Si on a déjà un ID, on met à jour son statut au lancement réel
@@ -162,7 +167,7 @@ async function broadcastMessage(platform, message, options = {}) {
         debugLog(`[BC-BATCH] Lot ${Math.floor(i / currentBatchSize) + 1} (${batch.length} cibles)`);
 
         const results = await Promise.allSettled(
-            batch.map((user) => sendToUser(user, message, unifiedMediaList))
+            batch.map((user) => sendToUser(user, message, unifiedMediaList, { ...options, broadcastId }))
         );
 
         for (const [idx, result] of results.entries()) {
@@ -204,10 +209,24 @@ async function broadcastMessage(platform, message, options = {}) {
     return { success: successCount, failed: failedCount, blocked: finalBlockedCount, total: totalTargets, broadcastId };
 }
 
-async function sendToUser(user, message, unifiedMediaList = []) {
+async function sendToUser(user, message, unifiedMediaList = [], options = {}) {
     if (!_bot) {
         debugLog("[BC-ERROR] Bot non initialisé dans le service broadcast");
         return { success: false, error: "Bot non prêt" };
+    }
+
+    const { Markup } = require('telegraf');
+    const poll_options = options.poll_options ? options.poll_options.split('|') : null;
+    const poll_allow_free = options.poll_allow_free || false;
+    const broadcastId = options.broadcastId;
+
+    let keyboard = null;
+    if (poll_options && poll_options.length > 0) {
+        const btns = poll_options.map((opt, idx) => [Markup.button.callback(opt, `poll_vote_${broadcastId}_${idx}`)]);
+        if (poll_allow_free) {
+            btns.push([Markup.button.callback('🖊 Réponse libre', `poll_free_${broadcastId}`)]);
+        }
+        keyboard = Markup.inlineKeyboard(btns);
     }
 
     // On nettoie le chatId pour Telegram (retirer le préfixe 'telegram_' si présent)
@@ -292,10 +311,10 @@ async function sendToUser(user, message, unifiedMediaList = []) {
             debugLog(`[BC-SEND] Single ${mData.type.toUpperCase()} -> ${chatId}`);
             let msg;
             if (mData.type === 'video') {
-                msg = await safeSend('sendVideo', mediaObj, { caption: caption, supports_streaming: true });
+                msg = await safeSend('sendVideo', mediaObj, { caption: caption, supports_streaming: true, ...(keyboard ? keyboard : {}) });
                 if (msg.video && !mData.file_id) mData.file_id = msg.video.file_id;
             } else {
-                msg = await safeSend('sendPhoto', mediaObj, { caption: caption });
+                msg = await safeSend('sendPhoto', mediaObj, { caption: caption, ...(keyboard ? keyboard : {}) });
                 if (msg.photo && !mData.file_id) mData.file_id = msg.photo[msg.photo.length - 1].file_id;
             }
             if (msg && (user.id || user.doc_id)) {
@@ -310,7 +329,7 @@ async function sendToUser(user, message, unifiedMediaList = []) {
                 return { success: true }; // On skip les messages vides sans erreur
             }
             try {
-                const msg = await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
+                const msg = await _bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML', ...(keyboard ? keyboard : {}) });
                 if (msg && (user.id || user.doc_id)) {
                     const { addMessageToTrack } = require('./database');
                     await addMessageToTrack(user.id || user.doc_id, msg.message_id).catch(() => { });
@@ -318,7 +337,7 @@ async function sendToUser(user, message, unifiedMediaList = []) {
             } catch (err) {
                 if (err.description?.includes('can\'t parse entities')) {
                     debugLog(`[BC-RETRY] Plain text fallback for: ${chatId}`);
-                    const msg = await _bot.telegram.sendMessage(chatId, message);
+                    const msg = await _bot.telegram.sendMessage(chatId, message, (keyboard ? keyboard : {}));
                     if (msg && (user.id || user.doc_id)) {
                         const { addMessageToTrack } = require('./database');
                         await addMessageToTrack(user.id || user.doc_id, msg.message_id).catch(() => { });

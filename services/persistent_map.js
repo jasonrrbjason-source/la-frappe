@@ -41,11 +41,19 @@ function createPersistentMap(namespace) {
         async load() {
             try {
                 const { data, error } = await db().select('user_key, value').eq('namespace', namespace);
-                if (error) { console.warn(`[State] ${namespace}: ${error.message}`); return; }
+                if (error) { 
+                    console.warn(`[State] ${namespace} load error: ${error.message}`); 
+                    // Si la table n'existe pas encore, on marque comme live quand même pour permettre la création
+                    live = true;
+                    return; 
+                }
                 for (const r of (data || [])) mem.set(r.user_key, r.value);
                 live = true;
                 if (mem.size > 0) console.log(`[State] ${namespace}: ${mem.size} entrées restaurées`);
-            } catch (e) { console.error(`[State] ${namespace}:`, e.message); }
+            } catch (e) { 
+                console.error(`[State] ${namespace} Exception:`, e.message);
+                live = true; // Permettre les opérations même en cas d'erreur de chargement initiale
+            }
         }
     };
 }

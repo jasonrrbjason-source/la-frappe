@@ -1352,6 +1352,7 @@
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                 <h1 style="margin:0;">Utilisateurs</h1>
                 <div style="display:flex; gap:10px; align-items:center;">
+                    <button class="btn btn-sm btn-outline" onclick="importContactsCSV()" style="border-color:#25D366; color:#25D366">📥 Importer WhatsApp (CSV)</button>
                     <button class="btn btn-sm btn-accent" onclick="addUserManually()">➕ Ajouter</button>
                     <span id="usersTotalCounter"
                         style="background:var(--accent); color:white; padding:4px 12px; border-radius:20px; font-size:14px; font-weight:700;">Chargement...</span>
@@ -2923,16 +2924,17 @@
         }
 
         async function addUserManually() {
-            const id = prompt("ID Telegram de l'utilisateur (obligatoire) :");
-            if (!id) return;
+            const platform = (await showModal("Plateforme", "Choisissez la plateforme de l'utilisateur :", "confirm")) ? "whatsapp" : "telegram";
+            // Note: I'm using a simple prompt for ID but I'll adapt showModal if it supported prompt
+            const jid = prompt(platform === "whatsapp" ? "Numéro WhatsApp (ex: 33612345678) :" : "ID Telegram (ex: 12345678) :");
+            if (!jid) return;
             const name = prompt("Prénom / Nom (facultatif) :");
-            const user = prompt("Username Telegram (facultatif, sans @) :");
 
             try {
                 await api('/users/add', 'POST', {
-                    telegram_id: id,
+                    telegram_id: jid,
                     first_name: name || '',
-                    username: user || ''
+                    platform: platform
                 });
                 showToast("Utilisateur ajouté avec succès !");
                 loadData('users');
@@ -2940,6 +2942,39 @@
             } catch (e) {
                 showToast("Erreur : " + e.message, 'error');
             }
+        }
+
+        async function importContactsCSV() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.csv,text/csv';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const ok = await showModal("Importation Massive", `Voulez-vous importer les contacts WhatsApp depuis ${file.name} ?\nFormat attendu: Nom;Numéro`);
+                if (!ok) return;
+
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                showToast("Importation en cours...", "info");
+                try {
+                    const r = await fetch('/api/users/import-csv', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${TOKEN}` },
+                        body: formData
+                    });
+                    const res = await r.json();
+                    if (res.success) {
+                        showToast(`Succès : ${res.count} importés, ${res.errors} erreurs.`, "success");
+                        loadData('users');
+                    } else throw new Error(res.error);
+                } catch (err) {
+                    showToast(err.message, "error");
+                }
+            };
+            input.click();
         }
 
         async function republishBC(id) {
@@ -3284,7 +3319,7 @@
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `analytics_la_frappe_${new Date().toISOString().split('T')[0]}.csv`);
+            link.setAttribute("download", `analytics_mon_shop_${new Date().toISOString().split('T')[0]}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

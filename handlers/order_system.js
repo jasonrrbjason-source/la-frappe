@@ -32,13 +32,94 @@ async function initOrderState() {
 }
 
 function setupOrderSystem(bot) {
+    const { registry } = require('../channels/ChannelRegistry');
+
+    // Helper: détecte la plateforme à partir d'un user_id stocké (telegram_XXX ou whatsapp_XXX)
+    // Aussi détecte les IDs legacy qui contiennent @ (JID WhatsApp)
+    function getUserPlatform(userId) {
+        if (!userId) return 'telegram';
+        if (userId.startsWith('whatsapp_')) return 'whatsapp';
+        // Legacy: si l'ID contient @ c'est un JID WhatsApp même avec prefix telegram_
+        const cleanId = userId.replace(/^telegram_/, '');
+        if (cleanId.includes('@')) return 'whatsapp';
+        return 'telegram';
+    }
+
+    // Helper: extrait l'ID pur sans prefix
+    function getUserPlatformId(userId) {
+        if (!userId) return '';
+        return userId.replace(/^(telegram_|whatsapp_)/, '');
+    }
+
+    // Helper: construit le user_id préfixé à partir du ctx
+    function buildUserId(ctx) {
+        const platform = ctx.platform || 'telegram';
+        const rawId = ctx.from.id;
+        if (platform === 'whatsapp') return `whatsapp_${rawId}`;
+        return `telegram_${rawId}`;
+    }
+
+    // Helper: récupère le vrai bot Telegraf depuis le registry
+    function getTgBot() {
+        const tgChannel = registry.query('telegram');
+        return tgChannel && tgChannel.getBotInstance ? tgChannel.getBotInstance() : null;
+    }
+
     // Helper universel pour relayer un message à tous les admins
     async function notifyAdmins(settings, message) {
         if (!settings || !settings.admin_telegram_id) return;
+        const tgBot = getTgBot();
+        if (!tgBot) return;
         const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
         for (const adminId of adminIds) {
             if (!adminId) continue;
-            bot.telegram.sendMessage(adminId, message, { parse_mode: 'HTML' }).catch(() => { });
+            tgBot.telegram.sendMessage(adminId, message, { parse_mode: 'HTML' }).catch(() => { });
+        }
+    }
+
+    /**
+     * NOTIFICATION CROSS-PLATFORM
+     * Envoie un message au client via la bonne plateforme (Telegram ou WhatsApp)
+     * @param {string} userId - Le user_id stocké (telegram_XXX ou whatsapp_XXX)
+     * @param {string} text - Le message (HTML supporté pour TG, sera strippé pour WA)
+     * @param {object} markup - Optionnel, Markup.inlineKeyboard pour Telegram / boutons pour WA
+     */
+    async function notifyUser(userId, text, markup = null) {
+        const platform = getUserPlatform(userId);
+        const cleanId = getUserPlatformId(userId);
+
+        if (platform === 'whatsapp') {
+            const wa = registry.query('whatsapp');
+            if (!wa || !wa.isActive) {
+                console.warn(`[notifyUser] WhatsApp non connecté, impossible de notifier ${cleanId}`);
+                return;
+            }
+            // Convertir les boutons Telegram en boutons WA si possible
+            let buttons = [];
+            if (markup && markup.reply_markup && markup.reply_markup.inline_keyboard) {
+                buttons = markup.reply_markup.inline_keyboard.flat().map(b => ({
+                    title: b.text, id: b.callback_data || b.text
+                }));
+            }
+            if (buttons.length > 0) {
+                await wa.sendInteractive(cleanId, text, buttons);
+                // Enregistrer les boutons dans le dispatcher pour le fallback numérique WA
+                bot.setLastButtons(cleanId, buttons);
+            } else {
+                await wa.sendMessage(cleanId, text);
+            }
+        } else {
+            // Telegram classique
+            const tgBot = getTgBot();
+            if (!tgBot) {
+                console.warn(`[notifyUser] Telegram channel non disponible`);
+                return;
+            }
+            const opts = { parse_mode: 'HTML' };
+            if (markup) Object.assign(opts, markup);
+            tgBot.telegram.sendMessage(cleanId, text, opts).catch(e => {
+                console.warn(`[notifyUser] TG send failed to ${cleanId}:`, e.message);
+            });
         }
     }
 
@@ -60,13 +141,13 @@ function setupOrderSystem(bot) {
                 const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
                 for (const adminId of adminIds) {
                     if (!adminId) continue;
-                    bot.telegram.sendMessage(adminId, feedbackMsg, { parse_mode: 'HTML' }).catch(() => { });
+                    getTgBot()?.telegram?.sendMessage(adminId, feedbackMsg, { parse_mode: 'HTML' }).catch(() => { });
                 }
             }
 
             // Notifier le livreur
             if (order.livreur_id) {
-                bot.telegram.sendMessage(order.livreur_id.replace('telegram_', ''),
+                getTgBot()?.telegram?.sendMessage(order.livreur_id.replace('telegram_', ''),
                     `👏 <b>Félicitations !</b>\n\nUn client a laissé une note pour votre livraison :\n\n${stars}\n"<i>${text}</i>"`,
                     { parse_mode: 'HTML' }
                 ).catch(() => { });
@@ -516,7 +597,7 @@ function setupOrderSystem(bot) {
         pendingOrders.set(userId, checkoutData);
 
         const settings = ctx.state.settings;
-        const user = await getUser(`telegram_${userId}`);
+        const user = await getUser(buildUserId(ctx));
 
         // SI CRÉDIT DISPONIBLE → ON DEMANDE (Step Finale)
         if (user && user.wallet_balance > 0) {
@@ -679,7 +760,7 @@ function setupOrderSystem(bot) {
 
     async function showMyOrders(ctx) {
         if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => { });
-        const userId = `telegram_${ctx.from.id}`;
+        const userId = buildUserId(ctx);
         const { getOrdersByUser } = require('../services/database');
 
         try {
@@ -760,7 +841,7 @@ function setupOrderSystem(bot) {
         else if (addr.includes('toulouse')) city = 'toulouse';
 
         const orderData = {
-            user_id: `telegram_${userId}`,
+            user_id: buildUserId(ctx),
             username: ctx.from.username || 'Inconnu',
             first_name: ctx.from.first_name || 'Inconnu',
             product_name: productList,
@@ -768,7 +849,7 @@ function setupOrderSystem(bot) {
             total_price: finalPrice,
             address: pending.address,
             city: city, // Ajout de la ville pour le filtrage livreur
-            platform: 'telegram',
+            platform: ctx.platform || 'telegram',
             status: 'pending',
             discount_applied: discount,
             scheduled_at: pending.scheduled_at || null
@@ -801,20 +882,23 @@ function setupOrderSystem(bot) {
         );
 
         // Notify Admin / Livreurs
+        const platformBadge = (ctx.platform === 'whatsapp' || String(ctx.from.id).includes('@')) ? '📱 WhatsApp' : '💬 Telegram';
         const notificationText = `🆕 <b>NOUVELLE COMMANDE !</b>\n\n` +
             `📦 ${productList}\n` +
             `📍 ${pending.address}\n` +
             (pending.scheduled_at ? `🕒 <b>Prévu pour : ${pending.scheduled_at}</b>\n` : `🕒 Dès que possible\n`) +
-            `💰 <b>${finalPrice.toFixed(2)}€</b>\n\n` +
+            `💰 <b>${finalPrice.toFixed(2)}€</b>\n` +
+            `📲 Via : <b>${platformBadge}</b>\n\n` +
             `<i>Ouvrez votre espace livreur pour la prendre.</i>`;
         // Alerte aux admins
         if (ctx.state.settings.admin_telegram_id) {
             const adminIds = String(ctx.state.settings.admin_telegram_id).split(/[\s,]+/).map(id => id.trim().replace('telegram_', ''));
             for (const adminId of adminIds) {
                 if (!adminId) continue;
-                bot.telegram.sendMessage(adminId,
+                getTgBot()?.telegram?.sendMessage(adminId,
                     `🚨 <b>NOUVELLE COMMANDE !</b>\n\n` +
-                    `👤 Client : ${ctx.from.first_name} (@${ctx.from.username})\n` +
+                    `👤 Client : ${ctx.from.first_name} (@${ctx.from.username || 'N/A'})\n` +
+                    `📲 Via : <b>${platformBadge}</b>\n` +
                     `📦 Produit : ${productList}\n` +
                     `📍 Adresse : ${pending.address}\n` +
                     (pending.scheduled_at ? `🕒 <b>PLANIFIÉ : ${pending.scheduled_at}</b>\n` : `🚀 <b>ASAP</b>\n`) +
@@ -835,7 +919,7 @@ function setupOrderSystem(bot) {
             for (const l of allLivreurs) {
                 if (l.platform_id) {
                     const tgId = String(l.platform_id).replace('telegram_', '');
-                    bot.telegram.sendMessage(tgId,
+                    getTgBot()?.telegram?.sendMessage(tgId,
                         notificationText,
                         {
                             parse_mode: 'HTML',
@@ -1116,8 +1200,8 @@ function setupOrderSystem(bot) {
             }
         ).catch(() => { });
 
-        // Notifier le client avec option d'annulation et aide
-        bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
+        // Notifier le client (CROSS-PLATFORM: TG ou WA)
+        notifyUser(order.user_id,
             `🚚 <b>Bonne nouvelle !</b>\n\n` +
             `Votre commande #${orderId.substring(0, 5)} est prise en charge par <b>${settings.bot_name || 'notre équipe'}</b>.\n` +
             `⏳ Une estimation du temps d'arrivé vous sera donnée dans quelques minutes.\n\n` +
@@ -1150,7 +1234,8 @@ function setupOrderSystem(bot) {
         else if (timeCode === '5m') timeText = "⚡ dans 5 min";
         else if (timeCode === 'here') timeText = "📍 Suis arrivé, descends";
 
-        bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
+        // Notifier le client ETA (CROSS-PLATFORM)
+        notifyUser(order.user_id,
             `🔔 <b>Mise à jour Livraison #${orderId.substring(0, 5)}</b>\n\n` +
             `Votre livreur vous informe qu'il arrive : <b>${timeText}</b>\n\n` +
             `<i>Restez joignable !</i>`,
@@ -1171,7 +1256,7 @@ function setupOrderSystem(bot) {
     bot.action(/^delay_report_(.+)$/, async (ctx) => {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
-        const userId = `telegram_${ctx.from.id}`;
+        const userId = buildUserId(ctx);
 
         const order = await getOrder(orderId);
         const count = parseInt(order?.chat_count) || 0;
@@ -1191,11 +1276,11 @@ function setupOrderSystem(bot) {
     bot.action(/^chat_livreur_(.+)$/, async (ctx) => {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
-        const userId = `telegram_${ctx.from.id}`;
+        const userId = buildUserId(ctx);
 
         const order = await getOrder(orderId);
         const count = parseInt(order?.chat_count) || 0;
-        const isLivreur = `telegram_${ctx.from.id}` === order.livreur_id;
+        const isLivreur = buildUserId(ctx) === order.livreur_id;
 
         // Validation stricte du schéma : 1. Client -> 2. Livreur -> 3. Client ... -> 6
         if (count >= 6) {
@@ -1218,7 +1303,7 @@ function setupOrderSystem(bot) {
         const targetId = isLivreur ? order.user_id : order.livreur_id;
         const targetRole = isLivreur ? "client" : "livreur";
 
-        awaitingChatReply.set(`telegram_${ctx.from.id}`, { orderId, targetId, role: targetRole });
+        awaitingChatReply.set(userId, { orderId, targetId, role: targetRole });
 
         let promptText = `💬 <b>Message (${count + 1}/6)</b>\nEnvoyez votre message :`;
         if (count === 5) promptText = "💬 <b>Dernier message de conclusion (6/6)</b>\nEnvoyez votre message final :";
@@ -1248,9 +1333,9 @@ function setupOrderSystem(bot) {
             ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour Menu Livreur', 'livreur_menu')]])
         });
 
-        // Notifier client + Feedback
+        // Notifier client + Feedback (CROSS-PLATFORM)
         if (order.user_id) {
-            bot.telegram.sendMessage(order.user_id.replace('telegram_', ''),
+            notifyUser(order.user_id,
                 `✅ <b>Votre commande #${orderId.substring(0, 5)} a été livrée !</b>\n\n` +
                 `Merci de votre confiance et à bientôt chez ${settings.bot_name} !`,
                 {
@@ -1288,13 +1373,13 @@ function setupOrderSystem(bot) {
             const alertMsg = `⚠️ <b>ANNULATION CLIENT</b>\n\nLa commande <b>#${shortId}</b> a été annulée par le client.\n👤 Client: ${ctx.from.first_name}`;
             for (const adminId of adminIds) {
                 if (!adminId) continue;
-                bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                getTgBot()?.telegram?.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
             }
         }
 
         // Notifier Livreur
         if (order.livreur_id) {
-            bot.telegram.sendMessage(order.livreur_id.replace('telegram_', ''), `⚠️ <b>COMMANDE ANNULÉE</b>\n\nLe client a annulé la commande <b>#${shortId}</b>. Ne vous déplacez pas.`, { parse_mode: 'HTML' }).catch(() => { });
+            getTgBot()?.telegram?.sendMessage(order.livreur_id.replace('telegram_', ''), `⚠️ <b>COMMANDE ANNULÉE</b>\n\nLe client a annulé la commande <b>#${shortId}</b>. Ne vous déplacez pas.`, { parse_mode: 'HTML' }).catch(() => { });
         }
     });
 
@@ -1318,7 +1403,7 @@ function setupOrderSystem(bot) {
     bot.action(/^feedback_skip_(.+)$/, async (ctx) => {
         const orderId = ctx.match[1];
         await ctx.answerCbQuery();
-        const pending = await getAndClearPendingFeedback(`telegram_${ctx.from.id}`);
+        const pending = await getAndClearPendingFeedback(buildUserId(ctx));
         if (pending) {
             const comment = "Note envoyée sans commentaire";
             await saveFeedback(orderId, parseInt(pending.rate), comment);
@@ -1332,7 +1417,7 @@ function setupOrderSystem(bot) {
         await ctx.answerCbQuery();
 
         const { setPendingFeedback } = require('../services/database');
-        await setPendingFeedback(`telegram_${ctx.from.id}`, orderId, rate);
+        await setPendingFeedback(buildUserId(ctx), orderId, rate);
 
         await safeEdit(ctx,
             `✍️ <b>Un dernier mot ?</b>\n\nEnvoyez votre commentaire en répondant à ce message (ex: "Livraison rapide, au top !") :\n\n<i>Vous pouvez aussi joindre une photo 📸</i>`,
@@ -1360,7 +1445,7 @@ function setupOrderSystem(bot) {
     bot.action(/^review_rate_(.+)$/, async (ctx) => {
         const rate = parseInt(ctx.match[1]);
         await ctx.answerCbQuery();
-        const userId = `telegram_${ctx.from.id}`;
+        const userId = buildUserId(ctx);
         awaitingReviewText.set(userId, { rate });
 
         await safeEdit(ctx,
@@ -1374,7 +1459,7 @@ function setupOrderSystem(bot) {
 
     bot.action('review_skip', async (ctx) => {
         await ctx.answerCbQuery();
-        const userId = `telegram_${ctx.from.id}`;
+        const userId = buildUserId(ctx);
         const data = awaitingReviewText.get(userId);
 
         if (data) {
@@ -1434,7 +1519,8 @@ function setupOrderSystem(bot) {
             let photos = r.photos;
             if (typeof photos === 'string') { try { photos = JSON.parse(photos); } catch (e) { photos = []; } }
             if (!Array.isArray(photos)) photos = photos ? [photos] : [];
-            photo = photos.find(p => p && !p.includes('api.telegram.org/file/')) || null;
+            photo = photos.find(p => p && (p.includes('supabase') || p.includes('firebasestorage') || p.startsWith('http') && !p.includes('api.telegram.org'))) || 
+                    photos.find(p => p) || null;
         }
 
         const navButtons = [];
@@ -1529,7 +1615,7 @@ function setupOrderSystem(bot) {
 
     // Capture des messages spéciaux (Feedback, Retard, Chat)
     bot.on('message', async (ctx, next) => {
-        const userId = `telegram_${ctx.from.id}`;
+        const userId = buildUserId(ctx);
 
         // 1. Feedback (Orders)
         const pendingOrderFeedback = await getAndClearPendingFeedback(userId);
@@ -1636,8 +1722,7 @@ function setupOrderSystem(bot) {
                         // On ne compte plus le signalement de retard comme un message de chat (notification système)
                         const shortId = String(orderId).substring(0, 5);
 
-                        const targetId = String(order.user_id).replace('telegram_', '');
-                        await bot.telegram.sendMessage(targetId,
+                        await notifyUser(order.user_id,
                             `⚠️ <b>Un retard est à prévoir</b>\n\nVotre livreur nous signale un imprévu :\n"<i>${safeHtml(reason)}</i>"\n\nIl fait le maximum pour arriver vite !${count >= 6 ? '\n\n<i>(Limite d\'échanges atteinte)</i>' : ''}`,
                             {
                                 parse_mode: 'HTML',
@@ -1648,7 +1733,7 @@ function setupOrderSystem(bot) {
                                 ])
                             }
                         ).catch(err => {
-                            console.error(`❌ Send delay report failed to ${targetId}:`, err.message);
+                            console.error(`❌ Send delay report failed to ${order.user_id}:`, err.message);
                             throw err;
                         });
 
@@ -1658,7 +1743,7 @@ function setupOrderSystem(bot) {
                             const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(idx => idx.trim().replace('telegram_', ''));
                             const alertMsg = `⚠️ <b>SIGNALEMENT RETARD</b>\n\n🆔 Commande : <code>#${shortId}</code>\n👤 Livreur : ${safeHtml(ctx.from.first_name)}\n📝 Motif : "<i>${safeHtml(reason)}</i>"`;
                             for (const adminId of adminIds) {
-                                if (adminId) bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                                if (adminId) getTgBot()?.telegram?.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
                             }
                         }
 
@@ -1698,11 +1783,9 @@ function setupOrderSystem(bot) {
                         return await ctx.reply("❌ Impossible de trouver le destinataire (Livreur ou Client non assigné).").catch(() => { });
                     }
 
-                    const targetId = String(targetIdRaw).replace('telegram_', '');
                     const roleLabel = isLivreur ? "livreur" : "client";
-                    const targetLabelText = isLivreur ? "le livreur" : "au client"; // Inversé pour la logique de bouton
 
-                    const chatMsg = await bot.telegram.sendMessage(targetId,
+                    await notifyUser(targetIdRaw,
                         `💬 <b>Message du ${roleLabel} (Commande #${shortId})</b>\n\n"<i>${safeHtml(reply)}</i>"\n\n` +
                         `📊 <i>Message ${newCount}/3</i>${newCount >= 3 ? '\n⚠️ <b>Dernier échange consommé.</b>' : ''}`,
                         {
@@ -1713,7 +1796,6 @@ function setupOrderSystem(bot) {
                             ])
                         }
                     );
-                    if (chatMsg) addMessageToTrack(`telegram_${targetId}`, chatMsg.message_id).catch(() => { });
 
                     // Alerte aux admins
                     const settings = await getAppSettings();
@@ -1721,7 +1803,7 @@ function setupOrderSystem(bot) {
                         const adminIds = String(settings.admin_telegram_id).split(/[\s,]+/).map(idx => String(idx).trim().replace('telegram_', ''));
                         const alertMsg = `💬 <b>CHAT ${roleLabel.toUpperCase()}</b>\n\n🆔 Commande : <code>#${shortId}</code>\n👤 De : ${safeHtml(ctx.from.first_name)}\n📝 Message : "<i>${safeHtml(reply)}</i>"`;
                         for (const adminId of adminIds) {
-                            if (adminId) bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                            if (adminId) getTgBot()?.telegram?.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
                         }
                     }
 
@@ -1833,7 +1915,7 @@ function setupOrderSystem(bot) {
     bot.command('menu', async (ctx) => displayCatalog(ctx));
     bot.command('orders', async (ctx) => {
         if (ctx.callbackQuery) await ctx.answerCbQuery();
-        const activeOrders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
+        const activeOrders = await getClientActiveOrders(buildUserId(ctx));
         if (activeOrders.length === 0) return safeEdit(ctx, '📭 Vous n\'avez aucune commande active.', Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'main_menu')]]));
         const buttons = activeOrders.map(o => [Markup.button.callback(`📦 Commande #${o.id.substring(0, 5)} (${o.status})`, `view_order_${o.id}`)]);
         buttons.push([Markup.button.callback('◀️ Retour', 'main_menu')]);
@@ -1846,7 +1928,7 @@ function setupOrderSystem(bot) {
         try {
             if (ctx.callbackQuery) await ctx.answerCbQuery().catch(() => { });
             const settings = await getAppSettings();
-            const activeOrders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
+            const activeOrders = await getClientActiveOrders(buildUserId(ctx));
 
             let text = `<b>${settings.label_help || 'Aide & Support'}</b>\n\n` +
                 `${settings.msg_help_intro || 'Besoin d\'aide ? Choisissez une option ci-dessous :'}`;
@@ -1875,7 +1957,7 @@ function setupOrderSystem(bot) {
 
     bot.action('help_where_is_my_order', async (ctx) => {
         await ctx.answerCbQuery();
-        const orders = await getClientActiveOrders(`telegram_${ctx.from.id}`);
+        const orders = await getClientActiveOrders(buildUserId(ctx));
         if (orders.length === 0) {
             return safeEdit(ctx, "📭 <b>Vous n'avez pas de commande en cours.</b>\n\nSi vous venez de commander, attendez que l'admin valide votre commande.",
                 Markup.inlineKeyboard([[Markup.button.callback('◀️ Retour', 'help_menu')]])
@@ -1890,7 +1972,7 @@ function setupOrderSystem(bot) {
 
         // Notifier le livreur
         if (latest.livreur_id) {
-            bot.telegram.sendMessage(latest.livreur_id.replace('telegram_', ''),
+            getTgBot()?.telegram?.sendMessage(latest.livreur_id.replace('telegram_', ''),
                 `❓ <b>DEMANDE CLIENT (ID #${shortId})</b>\n\nLe client demande où vous en êtes pour sa livraison.\nMerci de lui envoyer une estimation ASAP via le menu livreur !`,
                 { parse_mode: 'HTML' }
             ).catch(() => { });
@@ -1903,7 +1985,7 @@ function setupOrderSystem(bot) {
             const alertMsg = `❓ <b>DEMANDE "OÙ EST MA COMMANDE"</b>\n\n🆔 ID : <code>#${shortId}</code>\n👤 Client : ${ctx.from.first_name}`;
             for (const adminId of adminIds) {
                 if (!adminId) continue;
-                bot.telegram.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
+                getTgBot()?.telegram?.sendMessage(adminId, alertMsg, { parse_mode: 'HTML' }).catch(() => { });
             }
         }
 
@@ -1934,7 +2016,9 @@ function setupOrderSystem(bot) {
     bot.action('client_menu', async (ctx) => {
         await ctx.answerCbQuery();
         const { getMainMenuKeyboard } = require('./start');
-        const keyboard = await getMainMenuKeyboard(ctx);
+        const settings = ctx.state.settings;
+        const user = ctx.state.user;
+        const keyboard = await getMainMenuKeyboard(ctx, settings, user);
         
         await safeEdit(ctx,
             `🛒 <b>Mode Client</b>\n\nVous pouvez commander comme un client normal :`,
@@ -2037,7 +2121,7 @@ async function checkAbandonedCarts(bot) {
 
                 const msg = settings.msg_abandoned_cart || defaultMsg;
 
-                await bot.telegram.sendMessage(userId, msg, {
+                await getTgBot()?.telegram?.sendMessage(userId, msg, {
                     parse_mode: 'HTML',
                     ...Markup.inlineKeyboard([
                         [Markup.button.callback('💳 Voir mon panier / Commander', 'view_cart')],

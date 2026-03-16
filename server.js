@@ -144,22 +144,78 @@ function createServer() {
 
     app.post('/api/users/add', authMiddleware, async (req, res) => {
         try {
-            const { telegram_id, first_name, username } = req.body;
+            const { telegram_id, first_name, username, platform = 'telegram' } = req.body;
 
-            // Nettoyage de l'ID (on enlève le préfixe si l'admin l'a mis par erreur)
-            const cleanId = String(telegram_id || '').replace('telegram_', '').trim();
-            if (!cleanId) return res.status(400).json({ error: 'ID Telegram manquant ou invalide' });
+            // Nettoyage de l'ID
+            const cleanId = String(telegram_id || '').trim();
+            if (!cleanId) return res.status(400).json({ error: 'ID manquant ou invalide' });
 
             const { user, isNew } = await registerUser({
                 id: cleanId,
                 first_name: first_name || 'Utilisateur Manuel',
                 username: username || '',
                 type: 'user'
-            });
+            }, platform);
 
             res.json({ success: true, user, isNew });
         } catch (e) {
             console.error('Add user error:', e.message);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    /**
+     * Importation CSV Massive (WhatsApp)
+     * Format attendu: nom;telephone
+     */
+    app.post('/api/users/import-csv', authMiddleware, async (req, res) => {
+        try {
+            if (!req.files || !req.files.file) return res.status(400).json({ error: 'Fichier CSV manquant' });
+            
+            const file = req.files.file;
+            const content = fs.readFileSync(file.tempFilePath, 'utf8');
+            const lines = content.split(/\r?\n/);
+            
+            let count = 0;
+            let errors = 0;
+
+            for (let line of lines) {
+                line = line.trim();
+                if (!line) continue;
+                
+                // On sépare par ; ou ,
+                const parts = line.split(/[;,]/);
+                let name = parts[0]?.trim() || 'Client Importé';
+                let phone = parts[1]?.trim();
+
+                if (!phone || phone.length < 8) {
+                    // Tenter d'inverser si le nom ressemble à un numéro
+                    if (name.match(/^\+?\d+$/) && parts[1]) {
+                        [name, phone] = [phone, name];
+                    } else continue;
+                }
+
+                // Nettoyage téléphone (garder seulement les chiffres)
+                const cleanPhone = phone.replace(/\D/g, '');
+                if (cleanPhone.length < 8) { errors++; continue; }
+
+                try {
+                    await registerUser({
+                        id: cleanPhone,
+                        first_name: name,
+                        username: '',
+                        type: 'user'
+                    }, 'whatsapp');
+                    count++;
+                } catch (e) {
+                    console.error(`Error importing ${cleanPhone}:`, e.message);
+                    errors++;
+                }
+            }
+
+            res.json({ success: true, count, errors });
+        } catch (e) {
+            console.error('CSV Import error:', e.message);
             res.status(500).json({ error: e.message });
         }
     });

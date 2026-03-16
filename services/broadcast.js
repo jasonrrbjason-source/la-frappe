@@ -1,4 +1,5 @@
 const { getAllUsersForBroadcast, saveBroadcast, updateBroadcast, markUserBlocked } = require('./database');
+const { registry } = require('../channels/ChannelRegistry');
 const fs = require('fs');
 const path = require('path');
 
@@ -8,7 +9,7 @@ function debugLog(msg) {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${msg}\n`;
     try {
-        fs.appendFileSync(path.join(process.cwd(), 'debug_la_frappe.log'), line);
+        fs.appendFileSync(path.join(process.cwd(), 'debug_shop.log'), line);
     } catch (e) { }
     console.log(msg);
 }
@@ -130,10 +131,18 @@ async function broadcastMessage(platform, message, options = {}) {
 
     // On sépare ceux déjà bloqués en DB
     const eligibleTargets = [];
+    const seenPlatformIds = new Set();
     for (const u of targets) {
         if (u.is_blocked) {
             previouslyBlockedCount++;
         } else {
+            // Dédupliquer par platform_id pour éviter les doublons
+            const pid = String(u.platform_id || '').replace(/^(telegram_|whatsapp_)/, '');
+            if (seenPlatformIds.has(pid)) {
+                debugLog(`[BC-DEDUP] Doublon ignoré: ${u.id} (platform_id: ${pid})`);
+                continue;
+            }
+            seenPlatformIds.add(pid);
             eligibleTargets.push(u);
         }
     }
@@ -210,8 +219,48 @@ async function broadcastMessage(platform, message, options = {}) {
 }
 
 async function sendToUser(user, message, unifiedMediaList = [], options = {}) {
+    // 1. Déterminer le canal — détecter WhatsApp même si platform est "telegram" en DB
+    let platform = user.platform || 'telegram';
+    const pid = String(user.platform_id || '');
+    
+    // Si le platform_id contient @ c'est un ID WhatsApp (ex: 108388298051671@lid)
+    if (pid.includes('@')) {
+        platform = 'whatsapp';
+    }
+    
+    const channel = registry.query(platform);
+    
+    // Si c'est WhatsApp (ou autre que Telegram), on utilise l'interface unifiée
+    if (platform !== 'telegram') {
+        if (!channel || !channel.isActive) {
+            debugLog(`[BC-SKIP] Canal ${platform} inactif ou non trouvé pour ${user.platform_id}`);
+            return { success: false, error: "Canal inactif" };
+        }
+
+        const buttons = options.poll_options ? options.poll_options.split('|').map((opt, idx) => ({
+            id: `poll_vote_${options.broadcastId}_${idx}`,
+            title: opt
+        })) : [];
+
+        // Nettoyer le platform_id (enlever le prefixe telegram_ ou whatsapp_)
+        const cleanPid = pid.replace(/^(telegram_|whatsapp_)/, '');
+
+        try {
+            if (buttons.length > 0) {
+                await channel.sendInteractive(cleanPid, message, buttons);
+            } else {
+                const mediaUrl = unifiedMediaList[0]?.url || null;
+                await channel.sendMessage(cleanPid, message, { media_url: mediaUrl });
+            }
+            return { success: true };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    }
+
+    // 2. Logique spécifique Telegram (existante)
     if (!_bot) {
-        debugLog("[BC-ERROR] Bot non initialisé dans le service broadcast");
+        debugLog("[BC-ERROR] Bot Telegram non initialisé");
         return { success: false, error: "Bot non prêt" };
     }
 

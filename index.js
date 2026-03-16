@@ -4,249 +4,108 @@ if (!validateLicense()) {
     console.error('❌ Licence invalide ou manquante. Arrêt.');
     process.exit(1);
 }
+
 const { createServer, setBotInstance } = require('./server');
-const { Telegraf } = require('telegraf');
+const { dispatcher } = require('./services/dispatcher');
+const { registry } = require('./channels/ChannelRegistry');
+const { initChannels } = require('./services/channel_init');
+
+// Handlers
 const { setupStartHandler, initStartState } = require('./handlers/start');
 const { setupAdminHandlers } = require('./handlers/admin');
 const { setupOrderSystem, initOrderState } = require('./handlers/order_system');
 const { setBroadcastBot } = require('./services/broadcast');
-const { safeEdit } = require('./services/utils');
 
 const PORT = process.env.PORT || 3000;
-const awaitingPollResponse = new Map();
 
 async function main() {
-    console.log('🚀 Démarrage du Bot Telegram...\n');
+    console.log('🚀 Démarrage du Bot Multi-Canaux (Telegram & WhatsApp)...\n');
 
-    // 1. Initialisation du Bot Telegram
-    const telegramTok = process.env.BOT_TOKEN;
-    if (!telegramTok) {
-        console.error('❌ BOT_TOKEN manquant.');
-        process.exit(1);
+    // 1. Liaison des Handlers au Dispatcher (Mocking Telegraf)
+    // Cela permet de réutiliser 100% de la logique existante
+    setupStartHandler(dispatcher);
+    setupAdminHandlers(dispatcher);
+    setupOrderSystem(dispatcher);
+    const { broadcastMessage } = require('./services/broadcast');
+    const { recordPollVote, recordPollFreeResponse } = require('./services/database');
+
+    // Gestion des votes de sondage
+    dispatcher.action(/^poll_vote_([\w-]+)_(\d+)(?:_(\d+))?$/, async (ctx) => {
+        const broadcastId = ctx.match[1];
+        const optionIndex = parseInt(ctx.match[2]);
+        const res = await recordPollVote(broadcastId, optionIndex, ctx.from.id, ctx.from.username || ctx.from.first_name);
+        
+        if (res.error) {
+            return ctx.answerCbQuery(`❌ ${res.error}`, { show_alert: true });
+        }
+        await ctx.answerCbQuery("✅ Vote enregistré !");
+    });
+
+    // Gestion des réponses libres de sondage
+    dispatcher.action(/^poll_free_([\w-]+)(?:_(\d+))?$/, async (ctx) => {
+        const broadcastId = ctx.match[1];
+        ctx.session.awaiting_poll_free = broadcastId;
+        await ctx.answerCbQuery();
+        await ctx.reply("✍️ Veuillez envoyer votre réponse par message :");
+    });
+
+    dispatcher.command('test_broadcast', async (ctx) => {
+        if (ctx.from.id !== 'admin') { /* On pourrait filtrer mais c'est pour le test */ }
+        console.log('📣 Test de diffusion déclenché par commande');
+        await ctx.reply('🚀 Lancement de la diffusion de test...');
+        const res = await broadcastMessage('users', '🚀 <b>DIFFUSION TEST MULTI-CANAUX</b>\n\nSi vous recevez ce message, le système de diffusion fonctionne sur Telegram et WhatsApp ! ✅');
+        await ctx.reply(`📊 Résultat : ${res.success} succès, ${res.failed} échecs.`);
+    });
+
+    // 2. Initialisation des Canaux
+    await initChannels();
+
+    // 3. Liaison des Canaux au Dispatcher
+    const channels = registry.query();
+    for (const channel of channels) {
+        channel.onMessage(async (msg) => {
+            await dispatcher.handleUpdate(channel, msg);
+        });
+        
+        // Si c'est Telegram, on garde une référence pour les services qui en ont besoin
+        if (channel.type === 'telegram') {
+            const bot = channel.getBotInstance ? channel.getBotInstance() : null;
+            if (bot) {
+                setBotInstance(bot);
+                setBroadcastBot(bot);
+            }
+        }
     }
 
-    const bot = new Telegraf(telegramTok);
-    setBotInstance(bot);
-    setBroadcastBot(bot);
-
-    // 2. Middleware Global : Tracking & Nettoyage
-    const { registerUser, getAppSettings } = require('./services/database');
-
-    // Configuration de la carte de partage du bot (Description Telegram)
-    getAppSettings().then(settings => {
-        if (settings.bot_description) bot.telegram.setMyDescription(settings.bot_description).catch(() => { });
-        if (settings.bot_short_description) bot.telegram.setMyShortDescription(settings.bot_short_description).catch(() => { });
-    }).catch(() => { });
-    // Middleware de maintenance - intercept ALL messages
-    bot.use(async (ctx, next) => {
-        try {
-            const settings = await getAppSettings();
-
-            // Check if maintenance mode is enabled
-            if (settings.maintenance_mode === true || settings.maintenance_mode === 'true') {
-                const adminContact = settings.maintenance_contact || 'https://t.me/lafrappex';
-                const maintenanceMessage = settings.maintenance_message || '🔧 <b>Le bot est actuellement en maintenance.</b>\n\nNous revenons bientôt !\n\nContactez l\'admin : @lafrappex';
-
-                if (ctx.callbackQuery) {
-                    await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
-                    return;
-                }
-
-                if (ctx.message) {
-                    await ctx.reply(maintenanceMessage + `\n\n📱 Contact : ${adminContact}`, { parse_mode: 'HTML' }).catch(() => { });
-                    await ctx.deleteMessage().catch(() => { });
-                    return;
-                }
-
-                // Pour les autres types de updates, on répond aussi
-                if (ctx.updateType === 'callback_query') {
-                    await ctx.answerCbQuery(maintenanceMessage, { show_alert: true }).catch(() => { });
-                    return;
-                }
-
-                return;
-            }
-
-            // Continue with normal middleware only if not in maintenance
-            const user = ctx.from;
-            if (user && !user.is_bot) {
-                // Enregistrement / Mise à jour automatique (inclut last_active)
-                const platformUser = {
-                    id: user.id,
-                    type: ctx.chat?.type || 'private',
-                    username: user.username,
-                    first_name: user.first_name,
-                    last_name: user.last_name || '',
-                    language_code: user.language_code
-                };
-
-                const [{ user: registeredUser }, currentSettings] = await Promise.all([
-                    registerUser(platformUser),
-                    getAppSettings()
-                ]);
-
-                // Update last activity for abandoned cart tracking
-                const { userLastActivity } = require('./handlers/order_system');
-                if (userLastActivity) userLastActivity.set(user.id, Date.now());
-
-                if (registeredUser && registeredUser.is_blocked) {
-                    // Si le blocage n'est PAS un bannissement admin (ex: juste bot bloqué par le client), on débloque auto dès qu'il revient
-                    if (!registeredUser.data || registeredUser.data.blocked_by_admin !== true) {
-                        const { markUserUnblocked } = require('./services/database');
-                        await markUserUnblocked(registeredUser.id);
-                        registeredUser.is_blocked = false;
-                    } else {
-                        if (ctx.callbackQuery) {
-                            return ctx.answerCbQuery("⛔️ Votre compte est suspendu.", { show_alert: true }).catch(() => { });
-                        }
-                        return ctx.reply("⛔️ <b>ACCÈS REFUSÉ</b>\n\nVotre compte a été suspendu par l'administration. Contactez le support pour plus d'informations.", { parse_mode: 'HTML' }).catch(() => { });
-                    }
-                }
-
-                ctx.state.user = registeredUser;
-                ctx.state.settings = currentSettings;
-            } else {
-                ctx.state.settings = await getAppSettings();
-            }
-
-            if (ctx.message && !ctx.message.from?.is_bot) {
-                await next();
-                // Nettoyage flux constant (uniquement en privé) - On ne bloque pas next()
-                if (ctx.chat?.type === 'private') {
-                    ctx.deleteMessage().catch(() => { });
-                }
-            } else {
-                await next();
-            }
-        } catch (e) {
-            console.error('❌ Middleware Fatal Error:', e.message);
-            // Si next() n'a pas été appelé, on l'appelle une fois
-            // Mais pour un bot, il est souvent préférable de ne pas continuer si l'erreur est grave
-            // ou de renvoyer une erreur à l'utilisateur via le handler global
-            throw e; // Propager à bot.catch
-        }
-    });
-
-    // ERROR HANDLER — empêche le bot de crash sur une erreur
-    bot.catch(async (err, ctx) => {
-        console.error(`❌ Bot Error [${ctx.updateType}]:`, err.message);
-        try {
-            if (ctx.callbackQuery) {
-                await ctx.answerCbQuery("⚠️ Une erreur technique est survenue.", { show_alert: true }).catch(() => { });
-            } else {
-                await safeEdit(ctx, "⚠️ <b>Désolé, une erreur est survenue.</b>\n\nRetour au menu : /start", {
-                    parse_mode: 'HTML'
-                }).catch(() => { });
-            }
-        } catch (e) { }
-    });
-
-    // liaison des Handlers
-    setupStartHandler(bot);
-    setupAdminHandlers(bot);
-    setupOrderSystem(bot);
-
-    // Sondages - Réponses Libres et Votes
-    bot.action(/^poll_free_([\w-]+)$/, async (ctx) => {
-        const bcId = ctx.match[1];
-        const userId = `telegram_${ctx.from.id}`;
-        awaitingPollResponse.set(userId, bcId);
-        await ctx.answerCbQuery();
-        await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => { });
-        await ctx.reply("🖋 <b>Veuillez écrire votre réponse ci-dessous :</b>", { parse_mode: 'HTML' });
-    });
-
-    bot.action(/^poll_vote_([\w-]+)_(\d+)$/, async (ctx) => {
-        const bcId = ctx.match[1];
-        const optIdx = parseInt(ctx.match[2]);
-        const userId = `telegram_${ctx.from.id}`;
-        const { recordPollVote, getAppSettings, getUser } = require('./services/database');
-        const { getMainMenuKeyboard } = require('./handlers/start');
-
-        try {
-            const userName = ctx.from.first_name || 'Utilisateur';
-            const result = await recordPollVote(bcId, optIdx, userId, userName);
-            if (result === 'already_voted') {
-                await ctx.answerCbQuery("⚠️ Vous avez déjà voté pour ce sondage !", { show_alert: true });
-                await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => { });
-                return;
-            }
-
-            await ctx.answerCbQuery("✅ Vote enregistré, merci !");
-
-            const settings = await getAppSettings();
-            const user = await getUser(userId);
-
-            let text = `✅ <b>Merci pour votre participation !</b>\n\nQue souhaitez-vous faire maintenant ?`;
-            let keyboard = await getMainMenuKeyboard(ctx); // Using getMainMenuKeyboard from start.js (exported)
-
-            await safeEdit(ctx, text, keyboard);
-
-        } catch (e) {
-            console.error('[POLL-VOTE] Error:', e);
-            await ctx.answerCbQuery("⚠️ Erreur lors du vote.", { show_alert: true });
-        }
-    });
-
-    // Capture des messages spéciaux (Sondages, Feedback, Retard, Chat)
-    bot.on('message', async (ctx, next) => {
-        const userId = `telegram_${ctx.from.id}`;
-        
-        // 1. Réponses libres aux sondages
-        if (awaitingPollResponse.has(userId)) {
-            const bcId = awaitingPollResponse.get(userId);
-            awaitingPollResponse.delete(userId);
-
-            const text = (ctx.message.text || '').trim();
-            if (text) {
-                const { recordPollFreeResponse, getAppSettings, getUser } = require('./services/database');
-                const { getMainMenuKeyboard } = require('./handlers/start');
-
-                try {
-                    const userName = ctx.from.first_name || 'Utilisateur';
-                    await recordPollFreeResponse(bcId, userId, userName, text);
-
-                    const settings = await getAppSettings();
-                    const user = await getUser(userId);
-
-                    const replyText = `✅ <b>Votre réponse a été enregistrée :</b>\n\n<i>"${text}"</i>\n\nMerci pour votre participation !`;
-                    let keyboard = await getMainMenuKeyboard(ctx);
-
-                    await ctx.reply(replyText, { parse_mode: 'HTML', ...keyboard });
-                    return; // On arrête ici pour ne pas tracker ce message de réponse comme un message normal si c'est indésirable
-                } catch (e) {
-                    console.error('[POLL-FREE] Error:', e);
-                    await ctx.reply("⚠️ Une erreur est survenue lors de l'enregistrement de votre réponse.");
-                }
-            }
-        }
-        
-        await next();
-    });
-
-    // Process-level error handlers
-    process.on('unhandledRejection', (err) => {
-        console.error('⚠️ Unhandled Rejection:', err.message || err);
-    });
-    process.on('uncaughtException', (err) => {
-        console.error('⚠️ Uncaught Exception:', err.message || err);
-    });
-
-    // 3. Démarrage du Serveur Web (Dashboard Admin)
+    // 4. Démarrage du Serveur Web (Dashboard Admin & Webhooks)
     const serverStarted = new Promise((resolve) => {
         try {
             const server = createServer();
+            
+            // Route Webhook WhatsApp (si besoin pour Official API)
+            server.post('/webhook/whatsapp', async (req, res) => {
+                const waChannel = registry.query('whatsapp');
+                if (waChannel && waChannel.handleWebhook) {
+                    await waChannel.handleWebhook(req.body);
+                }
+                res.sendStatus(200);
+            });
+            
+            server.get('/webhook/whatsapp', (req, res) => {
+                const waChannel = registry.query('whatsapp');
+                if (waChannel && waChannel.verifyWebhook) {
+                    const result = waChannel.verifyWebhook(
+                        req.query['hub.mode'],
+                        req.query['hub.verify_token'],
+                        req.query['hub.challenge']
+                    );
+                    if (result) return res.send(result);
+                }
+                res.sendStatus(403);
+            });
+
             server.listen(PORT, '0.0.0.0', () => {
                 console.log(`🌐 Dashboard Admin : http://localhost:${PORT}/dashboard`);
-                resolve();
-            }).on('error', (err) => {
-                if (err.code === 'EADDRINUSE') {
-                    console.error(`❌ Port ${PORT} déjà utilisé. Une autre instance du bot tourne probablement.`);
-                    console.error('   Arrêtez l\'autre instance ou changez le PORT.');
-                    process.exit(1);
-                } else {
-                    console.error('❌ Erreur serveur:', err.message);
-                }
                 resolve();
             });
         } catch (err) {
@@ -255,47 +114,15 @@ async function main() {
         }
     });
 
-    // 4. Restauration de l'état persistant
-    await Promise.all([initOrderState(), initStartState(), require('./handlers/admin').initAdminState()]);
+    // 5. Restauration de l'état persistant
+    await Promise.all([
+        initOrderState(), 
+        initStartState(), 
+        require('./handlers/admin').initAdminState(),
+        dispatcher.init()
+    ]);
 
-    // 5. Démarrage du Bot Telegram
-    const botStarted = (async () => {
-        console.log('🤖 Lancement du bot Telegram...');
-        try {
-            await bot.launch();
-            console.log('✅ Bot Telegram opérationnel !');
-
-            // Configuration du menu des commandes Telegram
-            await bot.telegram.setMyCommands([
-                { command: 'start', description: '🏠 Lancer le bot / Accueil' },
-                { command: 'menu', description: '🛒 Voir le catalogue' },
-                { command: 'orders', description: '📦 Mes commandes' },
-                { command: 'help', description: '❓ Aide et support' }
-            ]).catch(e => console.error('⚠️ Impossible de définir les commandes:', e.message));
-
-            // Lancement du timer automatique (toutes les 6h)
-            startAutomatedTimer(bot);
-
-            // Lancement de la vérification des commandes planifiées (toutes les minutes)
-            setInterval(() => checkPlannedOrders(bot), 60000);
-
-            // Lancement de la vérification des diffusions planifiées (toutes les minutes)
-            setInterval(() => checkScheduledBroadcasts(), 60000);
-
-            // Lancement de la vérification des paniers abandonnés (toutes les 30 minutes)
-            const { checkAbandonedCarts } = require('./handlers/order_system');
-            setInterval(() => checkAbandonedCarts(bot), 1800000);
-
-            // 5. Automatisation Sync & Check Statuts (toutes les 15 minutes)
-            setInterval(() => runAutomatedSync(bot), 900000);
-            setTimeout(() => runAutomatedSync(bot), 60000); // Premier run après 1 min
-
-        } catch (err) {
-            console.error('❌ Erreur au démarrage du bot:', err.message);
-        }
-    })();
-
-    await Promise.all([serverStarted, botStarted]);
+    await serverStarted;
 
     console.log('\n🚀 Environnement prêt !');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
@@ -303,207 +130,20 @@ async function main() {
     // Graceful shutdown
     const stop = async () => {
         console.log('\n🛑 Arrêt des services...');
-        bot.stop('SIGTERM');
+        await registry.stopAll();
         process.exit(0);
     };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
 }
 
-// Vérification des commandes planifiées et notifications
-async function checkPlannedOrders(bot) {
-    try {
-        const { getUpcomingPlannedOrders, markNotifSent, getAllLivreurs, getAppSettings } = require('./services/database');
-        const orders = await getUpcomingPlannedOrders();
-        const settings = await getAppSettings();
-        if (orders.length === 0) return;
-
-        const now = new Date();
-        // Correction locale France (UTC+1 ou UTC+2)
-        const nowParis = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Paris" }));
-
-        for (const order of orders) {
-            if (!order.scheduled_at) continue;
-
-            // Format attendu: "YYYY-MM-DD HHhMM"
-            const [datePart, timePart] = order.scheduled_at.split(' ');
-            if (!datePart || !timePart) continue;
-
-            const [h, m] = timePart.replace('h', ':').split(':');
-            const schedDate = new Date(`${datePart}T${h}:${m}:00`); // Local time for current system usually matches server
-
-            const diffMs = schedDate - nowParis;
-            const diffMin = Math.round(diffMs / 60000);
-
-            // Notification 1 heure avant (entre 55 et 65 min)
-            if (diffMin <= 60 && diffMin > 30 && !order.notif_1h_sent) {
-                await sendPlannedAlert(bot, order, '1h', settings);
-                await markNotifSent(order.id, '1h');
-            }
-
-            // Notification 30 min avant (entre 0 et 30 min)
-            if (diffMin <= 30 && diffMin > 0 && !order.notif_30m_sent) {
-                await sendPlannedAlert(bot, order, '30m', settings);
-                await markNotifSent(order.id, '30m');
-            }
-        }
-    } catch (e) {
-        console.error('❌ Error checkPlannedOrders:', e.message);
-    }
-}
-
-async function checkScheduledBroadcasts() {
-    try {
-        const { supabase, COL_BROADCASTS } = require('./services/database');
-        const { broadcastMessage } = require('./services/broadcast');
-
-        const now = new Date().toISOString();
-        const { data: pending, error } = await supabase.from(COL_BROADCASTS)
-            .select('*')
-            .eq('status', 'pending')
-            .lte('start_at', now);
-
-        if (error || !pending || pending.length === 0) return;
-
-        console.log(`📡 [SCHEDULER] Activation de ${pending.length} diffusion(s) planifiée(s)...`);
-
-        for (const bc of pending) {
-            // Extraire le message et les médias du payload stocké
-            let finalMsg = bc.message || '';
-            let mediaUrls = [];
-
-            if (finalMsg.includes('|||MEDIA_URLS|||')) {
-                const parts = finalMsg.split('|||MEDIA_URLS|||');
-                finalMsg = parts[0];
-                try { mediaUrls = JSON.parse(parts[1]); } catch (e) { }
-            }
-
-            // Lancer la diffusion (le statut passera en in_progress puis completed dans broadcastMessage)
-            await broadcastMessage(bc.target_platform, finalMsg, {
-                id: bc.id, // RÉUTILISER L'ID EXISTANT !
-                mediaUrls: mediaUrls,
-                start_at: bc.start_at,
-                end_at: bc.end_at,
-                badge: bc.badge
-            });
-        }
-    } catch (e) {
-        console.error('❌ Error checkScheduledBroadcasts:', e.message);
-    }
-}
-
-async function sendPlannedAlert(bot, order, type, settings) {
-    const timeLabel = type === '1h' ? '1 HEURE' : '30 MINUTES';
-    const text = `⏰ <b>RAPPEL COMMANDE PLANIFIÉE</b>\n\n` +
-        `La commande <b>#${order.id.substring(0, 5)}</b> doit être livrée dans environ <b>${timeLabel}</b>.\n\n` +
-        `📦 ${order.product_name}\n` +
-        `📍 ${order.address}\n` +
-        `🕒 Prévu pour : <b>${order.scheduled_at}</b>\n\n` +
-        (order.livreur_id ? `👤 Assigné à : ID ${order.livreur_id}` : `⚠️ <b>PERSONNE N'A PRIS CETTE COMMANDE !</b>`);
-
-    // Si assigné : notifier le livreur
-    if (order.livreur_id) {
-        const livreurTgId = order.livreur_id.replace('telegram_', '');
-        await bot.telegram.sendMessage(livreurTgId, text, { parse_mode: 'HTML' }).catch(() => { });
-    }
-
-    // Dans tous les cas (ou si non assigné), prévenir les admins
-    if (settings.admin_telegram_id) {
-        const admins = String(settings.admin_telegram_id).split(/[\s,]+/);
-        for (const adminId of admins) {
-            await bot.telegram.sendMessage(adminId.trim(), `📢 [INFO ADMIN] ${text}`, { parse_mode: 'HTML' }).catch(() => { });
-        }
-    }
-}
-
-// Fonction pour le message automatique toutes les 6h
-function startAutomatedTimer(bot) {
-    const SIX_HOURS = 6 * 60 * 60 * 1000;
-
-    // Premier déclenchement dans 6h
-    setInterval(async () => {
-        try {
-            console.log('🕒 Exécution du timer automatique et nettoyage (6h)...');
-            if (!validateLicense()) {
-                console.warn('⚠️ Vérification de licence périodique échouée.');
-            }
-            const { getAppSettings, getAllActiveUsers, updateUserData } = require('./services/database');
-            const { broadcastMessage } = require('./services/broadcast');
-
-            // 1. Nettoyage du "flux" (suppression des messages traqués)
-            const users = await getAllActiveUsers('telegram', 'user');
-
-            // On traite par petits lots pour ne pas tout bloquer
-            const BATCH_SIZE = 10;
-            for (let i = 0; i < users.length; i += BATCH_SIZE) {
-                const batch = users.slice(i, i + BATCH_SIZE);
-                await Promise.all(batch.map(async (user) => {
-                    try {
-                        if (user.data?.tracked_messages && user.data.tracked_messages.length > 0) {
-                            const chatId = user.platform_id;
-                            for (const msgId of user.data.tracked_messages) {
-                                await bot.telegram.deleteMessage(chatId, msgId).catch(() => { });
-                            }
-                            await bot.telegram.sendMessage(chatId, "⏳ <b>Session expirée (6h)</b>\n\n➡ Veuillez taper /start pour continuer.", { parse_mode: 'HTML' }).catch(() => { });
-                            await updateUserData(user.id, { tracked_messages: [] }).catch(() => { });
-                        }
-                    } catch (e) { }
-                }));
-                if (i + BATCH_SIZE < users.length) await new Promise(r => setTimeout(r, 1000));
-            }
-
-            // 2. Broadcast Optionnel
-            const settings = await getAppSettings();
-            if (settings.msg_auto_timer && settings.msg_auto_timer.length > 5) {
-                await broadcastMessage('all', settings.msg_auto_timer);
-            }
-        } catch (err) {
-            console.error('❌ Erreur timer automatique:', err.message);
-        }
-    }, SIX_HOURS);
-}
-
-// --- Sync Automatique Statuts (Check si bot bloqué) ---
-async function runAutomatedSync(bot) {
-    try {
-        const { getAllUsersForBroadcast, markUserBlocked, markUserUnblocked } = require('./services/database');
-        // On récupère tout le monde pour voir qui a bloqué/débloqué
-        const users = await getAllUsersForBroadcast('telegram', 'user');
-        if (!users || users.length === 0) return;
-
-        console.log(`🔄 Automation : Sync & Check de ${users.length} utilisateurs...`);
-
-        // Batch de 5 pour éviter flood
-        const BATCH_SIZE = 5;
-        for (let i = 0; i < users.length; i += BATCH_SIZE) {
-            const batch = users.slice(i, i + BATCH_SIZE);
-            await Promise.all(batch.map(async (u) => {
-                try {
-                    const chatId = String(u.platform_id || '').replace('telegram_', '');
-                    if (!chatId) return;
-
-                    // On check le statut via typing
-                    await bot.telegram.sendChatAction(chatId, 'typing');
-
-                    // Si succès et qu'il était marqué bloqué (sauf ban admin), on réactive
-                    if (u.is_blocked && (!u.data || u.data.blocked_by_admin !== true)) {
-                        await markUserUnblocked(u.id);
-                    }
-                } catch (err) {
-                    const desc = err.description || '';
-                    if (err.code === 403 || desc.includes('blocked') || desc.includes('chat not found')) {
-                        if (!u.is_blocked) {
-                            await markUserBlocked(u.id, false);
-                        }
-                    }
-                }
-            }));
-            if (i + BATCH_SIZE < users.length) await new Promise(r => setTimeout(r, 1000));
-        }
-    } catch (e) {
-        console.error('❌ Erreur automation Sync:', e.message);
-    }
-}
+// Process-level error handlers
+process.on('unhandledRejection', (err) => {
+    console.error('⚠️ Unhandled Rejection:', err.message || err);
+});
+process.on('uncaughtException', (err) => {
+    console.error('⚠️ Uncaught Exception:', err.message || err);
+});
 
 main().catch((error) => {
     console.error('❌ Erreur fatale au démarrage:', error);

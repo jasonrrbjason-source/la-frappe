@@ -7,6 +7,11 @@ class TelegramChannel extends Channel {
         super('telegram', 'Telegram');
         this.token = token;
         this.bot = null;
+        this.messageHandler = null;
+    }
+
+    onMessage(handler) {
+        this.messageHandler = handler;
     }
 
     _resolveMedia(url) {
@@ -32,6 +37,32 @@ class TelegramChannel extends Channel {
 
         this.bot.catch((err, ctx) => {
             console.error('[TG] Erreur Global:', err.message);
+        });
+
+        // Relayer tout vers le dispatcher
+        this.bot.on('message', async (ctx) => {
+            if (this.messageHandler) {
+                await this.messageHandler({
+                    from: ctx.from.id,
+                    name: ctx.from.first_name,
+                    text: ctx.message.text,
+                    type: 'text',
+                    ctx: ctx // On garde le ctx original pour compatibilité ascendante si besoin
+                });
+            }
+        });
+
+        this.bot.on('callback_query', async (ctx) => {
+            if (this.messageHandler) {
+                await this.messageHandler({
+                    from: ctx.from.id,
+                    name: ctx.from.first_name,
+                    text: ctx.callbackQuery.data,
+                    type: 'callback_query',
+                    isAction: true,
+                    ctx: ctx
+                });
+            }
         });
     }
 

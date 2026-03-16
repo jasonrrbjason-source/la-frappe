@@ -1078,8 +1078,8 @@ const SETTINGS_DEFAULTS = {
     fidelity_bonus_amount: 10,
     list_admins: [],
     dashboard_url: process.env.DASHBOARD_URL || '',
-    private_contact_url: 'https://t.me/lafrappex',
-    channel_url: 'https://t.me/lafrappe_canal',
+    private_contact_url: '',
+    channel_url: '',
     bot_description: '',
     bot_short_description: '',
     payment_modes: '💵 Espèces',
@@ -1214,7 +1214,9 @@ async function saveBroadcast(data) {
     if (error) {
         console.warn(`[DB-WARN] saveBroadcast fallback: ${error.message}`);
         const filtered = { id, message: data.message, target_platform: data.target_platform, created_at: now, start_at: now };
-        await supabase.from(COL_BROADCASTS).insert([filtered]).catch(() => { });
+        try {
+            await supabase.from(COL_BROADCASTS).insert([filtered]);
+        } catch (e) { }
     }
     return id;
 }
@@ -1285,6 +1287,51 @@ async function getBroadcastHistory(limit = 50, onlyActive = false) {
     return data || [];
 }
 
+// --- Sondages / Polls ---
+async function recordPollVote(broadcastId, optionIndex, userId, username) {
+    const { data: broadcast } = await supabase.from(COL_BROADCASTS).select('*').eq('id', broadcastId).single();
+    if (!broadcast) return { error: "Broadcast non trouvé" };
+
+    const votes = broadcast.poll_votes || {};
+    const freeResponses = broadcast.poll_free_responses || [];
+
+    // Vérifier si l'utilisateur a déjà voté
+    const alreadyVoted = Object.values(votes).some(voters => voters.includes(userId)) ||
+        freeResponses.some(fr => fr.userId === userId);
+
+    if (alreadyVoted) return { error: "Déjà voté" };
+
+    if (!votes[optionIndex]) votes[optionIndex] = [];
+    votes[optionIndex].push(userId);
+
+    const { error } = await supabase.from(COL_BROADCASTS).update({ poll_votes: votes }).eq('id', broadcastId);
+    return { success: !error };
+}
+
+async function recordPollFreeResponse(broadcastId, text, userId, username) {
+    const { data: broadcast } = await supabase.from(COL_BROADCASTS).select('*').eq('id', broadcastId).single();
+    if (!broadcast) return { error: "Broadcast non trouvé" };
+
+    const votes = broadcast.poll_votes || {};
+    const freeResponses = broadcast.poll_free_responses || [];
+
+    // Vérifier si l'utilisateur a déjà voté
+    const alreadyVoted = Object.values(votes).some(voters => voters.includes(userId)) ||
+        freeResponses.some(fr => fr.userId === userId);
+
+    if (alreadyVoted) return { error: "Déjà voté" };
+
+    freeResponses.push({
+        userId,
+        username,
+        text,
+        date: new Date().toISOString()
+    });
+
+    const { error } = await supabase.from(COL_BROADCASTS).update({ poll_free_responses: freeResponses }).eq('id', broadcastId);
+    return { success: !error };
+}
+
 async function nukeDatabase() {
     const collections = [COL_REVIEWS, COL_PRODUCTS, COL_ORDERS, COL_USERS, COL_STATS, COL_BROADCASTS, COL_DAILY_STATS, COL_REFERRALS, COL_SETTINGS];
     for (const col of collections) {
@@ -1314,6 +1361,22 @@ async function deleteReview(id) {
     await supabase.from(COL_REVIEWS).delete().eq('id', id);
 }
 
+async function uploadMediaFromBuffer(buffer, fileName, contentType = 'image/jpeg') {
+    if (!buffer) return null;
+    try {
+        const { error } = await supabase.storage.from('uploads').upload(fileName, buffer, {
+            contentType,
+            upsert: true
+        });
+        if (error) throw error;
+        const { data: publicUrlData } = supabase.storage.from('uploads').getPublicUrl(fileName);
+        return publicUrlData.publicUrl;
+    } catch (e) {
+        console.error("❌ uploadMediaFromBuffer failed:", e.message);
+        throw e;
+    }
+}
+
 async function uploadMediaFromUrl(url, fileName) {
     if (!url) return null;
     try {
@@ -1325,14 +1388,7 @@ async function uploadMediaFromUrl(url, fileName) {
         });
 
         const buffer = Buffer.from(response.data);
-        const { error } = await supabase.storage.from('uploads').upload(fileName, buffer, {
-            contentType: response.headers['content-type'] || 'image/jpeg',
-            upsert: true
-        });
-
-        if (error) throw error;
-        const { data: publicUrlData } = supabase.storage.from('uploads').getPublicUrl(fileName);
-        return publicUrlData.publicUrl;
+        return await uploadMediaFromBuffer(buffer, fileName, response.headers['content-type']);
     } catch (e) {
         console.error("❌ uploadMediaFromUrl failed:", e.message);
         throw e;
@@ -1355,7 +1411,7 @@ module.exports = {
     getGlobalStats, getDailyStats, getStatsOverview, getAppSettings, updateAppSettings, getClientActiveOrders,
     getProducts, saveProduct, deleteProduct, setLivreurAvailability,
     getAvailableLivreurs, getAllLivreurs, getOrderAnalytics, saveUserLocation, addMessageToTrack, getLastMenuId, getLivreurOrders, getLivreurHistory, getOrdersByUser, getDetailedLivreurActivity, saveFeedback, setPendingFeedback, getAndClearPendingFeedback, nukeDatabase,
-    saveReview, getReviews, getPublicReviews, deleteReview, uploadMediaFromUrl,
+    saveReview, getReviews, getPublicReviews, deleteReview, uploadMediaFromUrl, uploadMediaFromBuffer,
     incrementChatCount, saveClientReply, logHelpRequest,
     getUpcomingPlannedOrders, markNotifSent, registerUser, addToStat,
     _userCache

@@ -19,23 +19,26 @@ function setupStartHandler(bot) {
         try {
             const user = ctx.from;
             const settings = ctx.state.settings;
-            const docId = `telegram_${user.id}`;
+            const platform = ctx.channel.type;
+            const docId = `${platform}_${user.id}`;
 
             // L'envoi du menu est géré par safeEdit (transition douce)
             // L'effacement du /start entrant est géré par le middleware global
 
             // Vérifier si un code de parrainage
             let referrerId = null;
-            const payload = ctx.message.text.split(' ')[1];
+            const textContent = ctx.message.text || '';
+            const payload = textContent.split(' ')[1];
             if (payload && payload.startsWith('ref_')) {
                 referrerId = payload;
                 if (payload.includes(`_${user.id}_`)) referrerId = null;
             }
 
-            const { isNew, user: registeredUser } = await registerUser(user, 'telegram', referrerId);
+            const { isNew, user: registeredUser } = await registerUser(user, platform, referrerId);
             ctx.state.user = registeredUser; // Update state with registered user info
             await incrementDailyStat('start_commands');
 
+            let welcomeText = "";
             let hasActive = false;
             if (registeredUser.is_livreur) {
                 const { getLivreurOrders } = require('../services/database');
@@ -58,12 +61,19 @@ function setupStartHandler(bot) {
                 const paymentLine = settings.payment_modes
                     ? `\n🚨 <b>Le paiement s'effectue en : ${settings.payment_modes}</b>‼️\n`
                     : '';
+                
+                let referralLink = `https://t.me/${ctx.botInfo.username}?start=${registeredUser.referral_code}`;
+                if (platform === 'whatsapp') {
+                    const waNum = ctx.channel.sock?.user?.id.split(':')[0];
+                    referralLink = `https://wa.me/${waNum}?text=/start%20${registeredUser.referral_code}`;
+                }
+
                 if (isNew) {
                     welcomeText = `✨ <b>Bienvenue sur ${settings.bot_name}, ${user.first_name} !</b>\n\n` +
                         `${settings.welcome_message}\n${paymentLine}\n` +
                         `📍 <i>En utilisant ce service, vous acceptez d'être localisé tacitement.</i>\n\n` +
                         `🔗 <b>Votre lien de parrainage :</b>\n` +
-                        `<code>https://t.me/${ctx.botInfo.username}?start=${registeredUser.referral_code}</code>`;
+                        `<code>${referralLink}</code>`;
                     if (!referrerId) pendingReferralInput.set(docId, true);
                 } else {
                     welcomeText = `👋 <b>Ravi de vous revoir, ${user.first_name} !</b>\n\nVous êtes déjà membre du ${settings.bot_name}.${paymentLine}`;

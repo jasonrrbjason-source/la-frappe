@@ -10,8 +10,9 @@ function esc(str) {
 }
 
 async function safeEdit(ctx, text, opts = {}) {
-    const isGroup = ctx.chat.type !== 'private';
-    const userId = isGroup ? `telegram_${ctx.chat.id}` : `telegram_${ctx.from.id}`;
+    const isGroup = ctx.chat.id < 0; // Simple check for group in TG
+    const platform = ctx.channel?.type || 'telegram';
+    const userId = isGroup ? `${platform}_${ctx.chat.id}` : `${platform}_${ctx.from.id}`;
     const chatId = ctx.chat.id;
 
     // 1. Médias & Clavier
@@ -83,8 +84,21 @@ async function safeEdit(ctx, text, opts = {}) {
         } catch (e) { }
     };
 
+    // WhatsApp: Pas d'Edit réel possible, on delete l'ancien et on envoie un nouveau (ou juste envoie)
+    if (platform === 'whatsapp') {
+        try {
+            if (photo) await ctx.replyWithPhoto(photo, { caption: text, ...opts });
+            else if (video) await ctx.replyWithVideo(video, { caption: text, ...opts });
+            else await ctx.replyWithHTML(text, opts);
+            return; // Cleanup is handled differently or not needed as much for WA lists
+        } catch (e) {
+            console.error('[WA-SafeEdit] Error:', e);
+            return ctx.reply(text, opts);
+        }
+    }
+
     try {
-        // A. TENTATIVE D'EDIT
+        // A. TENTATIVE D'EDIT (Telegram uniquement ici)
         if (currentMsg) {
             const isMediaMsg = !!(currentMsg.photo || currentMsg.video);
             const wantMedia = !!(photo || video);
@@ -149,7 +163,7 @@ function debugLog(msg) {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${msg}\n`;
     try {
-        fs.appendFileSync(path.join(process.cwd(), 'debug_la_frappe.log'), line);
+        fs.appendFileSync(path.join(process.cwd(), 'debug_shop.log'), line);
     } catch (e) { }
     console.log(msg);
 }

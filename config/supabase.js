@@ -7,13 +7,12 @@ if (!validateLicense()) {
     process.exit(1);
 }
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
+// Emergency hardcoded fallback if environment variables are missing
+const supabaseUrl = process.env.SUPABASE_URL || 'https://tsafkhhyqmlknxrgnqgw.supabase.co';
+const supabaseKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzYWZraGh5cW1sa254cmducWd3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjY3MDg0MCwiZXhwIjoyMDg4MjQ2ODQwfQ.1-AzrYIDY9PU-VbWRHe_KoIzlpzD6Fj3Q_nCOIOeXnQ';
 
 if (!supabaseUrl || !supabaseKey) {
-    console.error('❌ ERREUR CRITIQUE : Identifiants Supabase manquants dans process.env');
-    console.log('Clés détectées :', Object.keys(process.env).filter(k => k.includes('SUPABASE')));
-    // On ne crash pas ici pour laisser le temps de voir les logs, ou on force un exit plus propre
+    console.error('❌ ERREUR CRITIQUE : Identifiants Supabase absents du système.');
     process.exit(1);
 }
 

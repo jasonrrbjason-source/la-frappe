@@ -1,0 +1,12 @@
+serviceAccountKey.json
+node_modules
+*.log
+.DS_Store
+.env
+.env.*
+*.sql
+*.zip
+.vscode/
+whatsapp_qr.png
+tmp_products.json
+tmp/

@@ -89,7 +89,7 @@ class WhatsAppSessionChannel extends Channel {
              });
         }, 60000); // 1 minute (plus agressif pour être sûr)
 
-        let version = [2, 3000, 1015901307];
+        let version = [2, 3000, 1015901307]; // Fallback 
         let isLatest = false;
         try {
             const latest = await Promise.race([
@@ -202,10 +202,13 @@ class WhatsAppSessionChannel extends Channel {
                     this.isActive = false;
                     setTimeout(() => this.start(), delay);
                 } else {
-                    // Reconnexion simple (timeout, perte réseau, etc.)
+                    // Reconnexion simple (timeout, perte réseau, etc. ex: 408)
                     this._conflictBackoff = 5000; // reset backoff sur reconnexion normale
-                    waLog(`[WA] Reconnexion simple (code ${statusCode})...`);
-                    this.start();
+                    const isTimeout = statusCode === 408;
+                    const delay = isTimeout ? 5000 : 2000;
+                    waLog(`[WA] Reconnexion auto (code ${statusCode})${isTimeout ? ' [TIMEOUT]' : ''} dans ${delay}ms...`);
+                    this.isActive = false;
+                    setTimeout(() => this.start(), delay);
                 }
             } else if (connection === 'open') {
                 waLog('✅ [WA] WhatsApp connecté avec succès !');
@@ -244,12 +247,12 @@ class WhatsAppSessionChannel extends Channel {
                 waLog(`[WA-MSG] fromMe=${isMe}, isBotId=${isBotId}, remoteJid=${remoteJid}, toSelf=${isMessageToSelf}, msgKeys=${Object.keys(msg.message || {}).join(',')}`);
 
                 // Empêcher les boucles : on ignore tout ce qui est marqué fromMe SAUF si c'est nous qui écrivons manuellement (pas un ID de bot)
-                if (isMe && isBotId) { waLog(`[WA-MSG] SKIP: fromMe+botId`); continue; }
+                if (isMe && isBotId) { waLog(`[WA-MSG] SKIP: fromMe+botId (id=${msg.key.id})`); continue; }
                 // Si c'est un message "To Self" (notre propre compte), on accepte seulement si c'est un message manuel (pas du bot)
                 if (isMe && !isBotId && isMessageToSelf) {
-                    waLog(`[WA-MSG] ACCEPT: self-message from human`);
+                    waLog(`[WA-MSG] ACCEPT: self-message from human (id=${msg.key.id})`);
                 } else if (isMe) {
-                    waLog(`[WA-MSG] SKIP: fromMe outbound`);
+                    waLog(`[WA-MSG] SKIP: fromMe outbound (id=${msg.key.id})`);
                     continue;
                 }
 

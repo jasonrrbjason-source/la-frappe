@@ -2515,11 +2515,15 @@ async function useSupabaseAuthState(sessionId) {
                 .from(TABLE)
                 .select('value')
                 .eq('id', makeId(key))
-                .abortSignal(AbortSignal.timeout(10000))
+                .abortSignal(AbortSignal.timeout(DB_TIMEOUT)) // Augmenté à 30s
                 .single();
             
             if (!error && data) {
                 return JSON.parse(JSON.stringify(data.value), BufferJSON.reviver);
+            }
+
+            if (error && error.message.includes('timeout')) {
+                console.warn(`[WA-DB] Timeout lecture clé ${key} après ${DB_TIMEOUT}ms`);
             }
 
             // [🛡️ REDONDANCE] Si la session principale est vide, on cherche dans le backup
@@ -2562,7 +2566,7 @@ async function useSupabaseAuthState(sessionId) {
             };
 
             // Écriture principale
-            await supabase.from(TABLE).upsert(payload, { onConflict: 'id' }).abortSignal(AbortSignal.timeout(10000));
+            await supabase.from(TABLE).upsert(payload, { onConflict: 'id' }).abortSignal(AbortSignal.timeout(DB_TIMEOUT));
 
             // Écriture redondante (Backup) - Persiste même après clearSession()
             const backupId = `wa_backup::${sessionId}::${key}`;
@@ -2598,10 +2602,16 @@ async function useSupabaseAuthState(sessionId) {
         }
     }
 
-    // Chargement initial des credentials depuis Supabase
-    const credsRaw = await readData('creds');
+    // Chargement initial des credentials depuis Supabase (avec 1 tentative de retry si vide/timeout)
+    let credsRaw = await readData('creds');
+    if (!credsRaw) {
+        console.log(`[WA-DB] Creds non trouvées ou timeout, seconde tentative...`);
+        credsRaw = await readData('creds');
+    }
+
     const creds = credsRaw || initAuthCreds();
     console.log(`[WA-DB] Auth state loaded from Supabase bot_state (session: ${sessionId}, fresh: ${!credsRaw})`);
+    if (!credsRaw) console.warn(`[WA-DB] ⚠️ AUCUNE SESSION TROUVÉE pour ${sessionId}. Un nouveau QR code sera généré.`);
 
     return {
         state: {

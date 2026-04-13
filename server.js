@@ -192,16 +192,37 @@ function createServer() {
             const token = req.query.token;
 
             if (!phone) {
-                return res.send(`<html><body style="background:#111;color:#fff;font-family:sans-serif;text-align:center;padding:50px">
-                    <h1 style="color:#0f0">Jumelage WhatsApp</h1>
-                    <p>Entrez votre numéro de téléphone au format international :</p>
-                    <form action="/wa-pairing-code" method="GET" style="margin-top:30px">
-                        <input type="hidden" name="token" value="${token || ''}">
-                        <input type="text" name="phone" placeholder="+33612345678" style="background:#222;color:#fff;border:1px solid #444;padding:15px;font-size:18px;border-radius:5px;width:300px;text-align:center"><br><br>
-                        <button type="submit" style="background:#0f0;color:#000;border:none;padding:15px 30px;font-size:16px;font-weight:bold;border-radius:5px;cursor:pointer">Générer le Code</button>
-                    </form>
-                    <p style="color:#666;font-size:13px;margin-top:20px">Exemple : +33612345678</p>
-                </body></html>`);
+                return res.send(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion WhatsApp — La Frappe</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #050505; --accent: #ff0050; --text: #ffffff; --border: rgba(255, 255, 255, 0.1); --card-bg: rgba(255, 255, 255, 0.03); }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+        body { background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; min-height: 100vh; background-image: radial-gradient(circle at 50% -20%, rgba(255, 0, 80, 0.15) 0%, transparent 70%); }
+        .container { width: 100%; max-width: 400px; padding: 40px; background: var(--card-bg); backdrop-filter: blur(20px); border: 1px solid var(--border); border-radius: 32px; text-align: center; }
+        h1 { font-size: 28px; font-weight: 800; margin-bottom: 30px; }
+        input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border); padding: 15px; border-radius: 12px; color: #fff; font-size: 18px; text-align: center; margin-bottom: 20px; outline: none; transition: 0.3s; }
+        input:focus { border-color: var(--accent); }
+        button { width: 100%; background: var(--accent); color: #fff; border: none; padding: 15px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: 0.3s; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(255,0,80,0.3); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Jumelage</h1>
+        <p style="margin-bottom:20px; font-size:14px; color:rgba(255,255,255,0.5)">Entrez votre numéro au format international</p>
+        <form action="/wa-pairing-code" method="GET">
+            <input type="hidden" name="token" value="${token || ''}">
+            <input type="text" name="phone" placeholder="+33 7 52 98 17 14" value="+33752981714" required>
+            <button type="submit">GÉNÉRER LE CODE</button>
+        </form>
+    </div>
+</body>
+</html>`);
             }
 
             const waSession = registry.query('whatsapp');
@@ -222,52 +243,122 @@ function createServer() {
                 }
                 
                 res.setHeader('Content-Type', 'text/html');
-                res.send(`<html><body style="background:#111;color:#fff;font-family:sans-serif;text-align:center;padding:50px">
-                    <h1 style="color:#0f0">Jumelage par Code</h1>
-                    <p>Numéro : <b>${phone}</b></p>
-                    <p>Le bot demande le code à WhatsApp (cela peut prendre 15-20s)...</p>
-                    <div id="result" style="font-size:48px;font-weight:bold;color:#0f0;margin:30px 0;letter-spacing:5px;border:2px dashed #333;padding:20px;border-radius:10px;display:inline-block;min-width:300px">
-                        ⏳ ...
-                    </div>
-                    <div id="status" style="color:#aaa;font-size:14px">Initialisation du moteur...</div>
-                    
-                    <div style="margin-top:40px;text-align:left;max-width:500px;margin-left:auto;margin-right:auto;background:#222;padding:20px;border-radius:10px">
-                        <h3 style="margin-top:0">Comment faire ?</h3>
-                        <ol>
-                            <li>Ouvrez WhatsApp sur votre téléphone</li>
-                            <li>Allez dans <b>Réglages > Appareils connectés</b></li>
-                            <li>Appuyez sur <b>Connecter un appareil</b></li>
-                            <li>Appuyez sur <b>"Lier avec le numéro de téléphone à la place"</b> en bas</li>
-                            <li>Entrez le code qui va s'afficher ci-dessus</li>
-                        </ol>
-                    </div>
+                res.send(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jumelage WhatsApp — La Frappe</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #050505;
+            --accent: #ff0050;
+            --text: #ffffff;
+            --border: rgba(255, 255, 255, 0.1);
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --glass: blur(20px) saturate(180%);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            background-image: radial-gradient(circle at 50% -20%, rgba(255, 0, 80, 0.15) 0%, transparent 70%);
+        }
+        .container {
+            width: 100%;
+            max-width: 480px;
+            padding: 40px;
+            background: var(--card-bg);
+            backdrop-filter: var(--glass);
+            -webkit-backdrop-filter: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: 40px;
+            text-align: center;
+            box-shadow: 0 40px 100px rgba(0,0,0,0.8);
+            animation: slideUp 0.8s cubic-bezier(0.2, 1, 0.3, 1);
+        }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        h1 { font-size: 32px; font-weight: 800; margin-bottom: 10px; letter-spacing: -1px; }
+        p { color: rgba(255,255,255,0.5); font-size: 15px; margin-bottom: 30px; line-height: 1.5; }
+        .num-badge { display: inline-block; padding: 6px 14px; background: rgba(255,255,255,0.05); border-radius: 12px; font-weight: 700; margin-bottom: 30px; font-size: 14px; color: var(--accent); }
+        #result {
+            font-size: 56px;
+            font-weight: 800;
+            color: #fff;
+            background: linear-gradient(135deg, #fff, #888);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 20px 0;
+            letter-spacing: 4px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .status-box { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); margin-bottom: 40px; opacity: 0.8; }
+        .instructions { text-align: left; background: rgba(0,0,0,0.3); padding: 25px; border-radius: 20px; border: 1px solid var(--border); }
+        .instructions h3 { font-size: 14px; font-weight: 700; margin-bottom: 15px; color: #fff; }
+        .instructions ol { padding-left: 20px; font-size: 13px; color: rgba(255,255,255,0.6); }
+        .instructions li { margin-bottom: 8px; }
+        .progress-bar { position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent); width: 0%; transition: width 0.5s; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="progress-bar" id="p-bar"></div>
+        <h1>Lien WhatsApp</h1>
+        <div class="num-badge">${phone}</div>
+        
+        <div id="result">⏳ ...</div>
+        <div class="status-box" id="status">Initialisation...</div>
 
-                    <script>
-                        async function check() {
-                            try {
-                                const response = await fetch(window.location.href + "&json=1");
-                                const data = await response.json();
-                                if (data.code) {
-                                    const resDiv = document.getElementById('result');
-                                    resDiv.innerText = data.code;
-                                    document.getElementById('status').innerText = "Code prêt ! Entrez-le sur votre téléphone.";
-                                    if (data.code.startsWith('ERROR')) {
-                                        resDiv.style.color = 'red';
-                                        resDiv.style.fontSize = '20px';
-                                        resDiv.style.letterSpacing = 'normal';
-                                        document.getElementById('status').innerText = "Erreur de génération. Vérifiez le format du numéro.";
-                                    }
-                                } else {
-                                    document.getElementById('status').innerText = "Négociation avec WhatsApp (10s)...";
-                                    setTimeout(check, 2000);
-                                }
-                            } catch(e) {
-                                setTimeout(check, 2000);
-                            }
-                        }
-                        check();
-                    </script>
-                </body></html>`);
+        <div class="instructions">
+            <h3>Comment faire ?</h3>
+            <ol>
+                <li>Ouvrez WhatsApp sur votre téléphone</li>
+                <li>Allez dans <b>Réglages > Appareils connectés</b></li>
+                <li>Appuyez sur <b>Lier un appareil</b></li>
+                <li>Cliquez sur <b>"Lier avec le numéro de téléphone"</b> en bas</li>
+                <li>Saisissez le code qui s'affiche ci-dessus</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        let attempts = 0;
+        async function check() {
+            try {
+                const response = await fetch(window.location.href + "&json=1");
+                const data = await response.json();
+                const pBar = document.getElementById('p-bar');
+                
+                if (data.code) {
+                    document.getElementById('result').innerText = data.code;
+                    document.getElementById('status').innerText = "Code prêt !";
+                    document.getElementById('status').style.color = "#00ff88";
+                    pBar.style.width = "100%";
+                    if (data.code.startsWith('ERROR')) {
+                        document.getElementById('result').style.color = 'red';
+                        document.getElementById('status').innerText = "Erreur. Vérifiez le numéro.";
+                    }
+                } else {
+                    attempts++;
+                    pBar.style.width = Math.min(attempts * 5, 95) + "%";
+                    document.getElementById('status').innerText = "Négociation avec WhatsApp (" + attempts + "s)...";
+                    setTimeout(check, 2000);
+                }
+            } catch(e) { setTimeout(check, 2000); }
+        }
+        check();
+    </script>
+</body>
+</html>`);
             } else {
                 res.status(404).send('WhatsApp Session channel not found');
             }

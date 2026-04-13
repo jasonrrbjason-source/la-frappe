@@ -47,7 +47,7 @@ async function main() {
     const server = createServer();
     server.listen(finalPort, '0.0.0.0', () => {
         console.log(`\n✅ SERVEUR WEB ACTIF SUR LE PORT ${finalPort}`);
-        console.log(`🔗 TEST HEALTH : https://lafrappeidf-production.up.railway.app/_health\n`);
+        console.log(`🔗 TEST HEALTH : https://la-frappe-production-cea7.up.railway.app/_health\n`);
     });
 
     // 2. Initialisation du Dispatcher (Simule Telegraf)

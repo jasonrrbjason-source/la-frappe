@@ -2519,7 +2519,8 @@ async function useSupabaseAuthState(sessionId) {
                 .single();
             
             if (!error && data) {
-                return JSON.parse(JSON.stringify(data.value), BufferJSON.reviver);
+                let parsed = JSON.parse(JSON.stringify(data.value), BufferJSON.reviver);
+                return parsed;
             }
 
             if (error && error.message.includes('timeout')) {
@@ -2553,28 +2554,38 @@ async function useSupabaseAuthState(sessionId) {
             return null;
         }
     }
-
     async function writeData(key, value) {
         try {
             const serialized = JSON.parse(JSON.stringify(value, BufferJSON.replacer));
-            const payload = {
-                id: makeId(key),
-                namespace: NAMESPACE,
-                user_key: key,
-                value: serialized,
-                updated_at: new Date().toISOString()
-            };
+            const id = makeId(key);
+            
+            // Verrou local préventif (collision-safe)
+            if (global.wa_db_locks?.[id]) return;
+            if (!global.wa_db_locks) global.wa_db_locks = {};
+            global.wa_db_locks[id] = true;
 
-            // Écriture principale
-            await supabase.from(TABLE).upsert(payload, { onConflict: 'id' }).abortSignal(AbortSignal.timeout(DB_TIMEOUT));
+            try {
+                const payload = {
+                    id: id,
+                    namespace: NAMESPACE,
+                    user_key: key,
+                    value: serialized,
+                    updated_at: new Date().toISOString()
+                };
 
-            // Écriture redondante (Backup) - Persiste même après clearSession()
-            const backupId = `wa_backup::${sessionId}::${key}`;
-            await supabase.from(TABLE).upsert({
-                ...payload,
-                id: backupId,
-                namespace: 'wa_backup'
-            }, { onConflict: 'id' });
+                // Écriture principale
+                await supabase.from(TABLE).upsert(payload, { onConflict: 'id' }).abortSignal(AbortSignal.timeout(DB_TIMEOUT));
+
+                // Écriture redondante (Backup) - Persiste même après clearSession()
+                const backupId = `wa_backup::${sessionId}::${key}`;
+                await supabase.from(TABLE).upsert({
+                    ...payload,
+                    id: backupId,
+                    namespace: 'wa_backup'
+                }, { onConflict: 'id' });
+            } finally {
+                delete global.wa_db_locks[id];
+            }
 
         } catch (e) {
             console.error(`[WA-DB] writeData error for key ${key}:`, e.message);

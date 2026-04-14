@@ -1,5 +1,4 @@
-// Dynamic import wrapper for ESM-only @whiskeysockets/baileys (Node 22+)
-let Baileys, makeWASocket, DisconnectReason, jidDecode, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, downloadMediaMessage;
+let Baileys, makeWASocket, DisconnectReason, jidDecode, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, downloadMediaMessage, Browsers, proto;
 
 async function loadBaileys() {
     if (Baileys) return;
@@ -10,6 +9,8 @@ async function loadBaileys() {
     fetchLatestBaileysVersion = Baileys.fetchLatestBaileysVersion;
     makeCacheableSignalKeyStore = Baileys.makeCacheableSignalKeyStore;
     downloadMediaMessage = Baileys.downloadMediaMessage;
+    Browsers = Baileys.Browsers;
+    proto = Baileys.proto;
 }
 
 const { Channel } = require('./Channel');
@@ -110,11 +111,23 @@ class WhatsAppSessionChannel extends Channel {
             version,
             auth: {
                 creds: state.creds,
-                keys: makeCacheableSignalKeyStore(state.keys, logger)
+                keys: makeCacheableSignalKeyStore({
+                    get: async (type, ids) => {
+                        const data = await state.keys.get(type, ids);
+                        for (const id in data) {
+                            if (type === 'app-state-sync-key' && data[id]) {
+                                data[id] = proto.Message.AppStateSyncKeyData.fromObject(data[id]);
+                            }
+                        }
+                        return data;
+                    },
+                    set: (data) => state.keys.set(data)
+                }, logger)
             },
             logger,
-            browser: ['Mac OS', 'Safari', '17.0'],
+            browser: Browsers.ubuntu('Chrome'),
             syncFullHistory: false,
+            markOnlineOnConnect: true,
             generateHighQualityLinkPreview: false,
             getMessage: async (key) => {
                 // Nécessaire pour que Baileys puisse décrypter les messages retry

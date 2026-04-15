@@ -271,12 +271,21 @@ async function sendToUser(user, message, unifiedMediaList = [], options = {}) {
         platform = 'whatsapp';
     }
     
-    const channel = registry.query(platform);
+    let channel = registry.query(platform);
     
     // Si c'est WhatsApp (ou autre que Telegram), on utilise l'interface unifiée
     if (platform !== 'telegram') {
+        // [🛡️ RESILIENCE] Si le canal est temporairement inactif (reconnexion), on attend jusqu'à 15s
+        let attempts = 0;
+        while ((!channel || !channel.isActive) && attempts < 15) {
+            debugLog(`[BC-WAIT] Canal ${platform} inactif pour ${user.platform_id}. Attente reconnexion... (${attempts+1}/15)`);
+            await new Promise(r => setTimeout(r, 1000));
+            channel = registry.query(platform);
+            attempts++;
+        }
+
         if (!channel || !channel.isActive) {
-            debugLog(`[BC-SKIP] Canal ${platform} inactif ou non trouvé pour ${user.platform_id}`);
+            debugLog(`[BC-SKIP] Canal ${platform} toujours inactif après attente pour ${user.platform_id}`);
             return { success: false, error: "Canal inactif" };
         }
 

@@ -2515,28 +2515,30 @@ async function useSupabaseAuthState(sessionId) {
                 .from(TABLE)
                 .select('value')
                 .eq('id', makeId(key))
-                .abortSignal(AbortSignal.timeout(DB_TIMEOUT)) // Augmenté à 30s
+                .abortSignal(AbortSignal.timeout(DB_TIMEOUT))
                 .single();
             
-            if (!error && data) {
-                let parsed = JSON.parse(JSON.stringify(data.value), BufferJSON.reviver);
-                return parsed;
+            if (error) {
+                if (error.code === 'PGRST116') return null; // Not found: OK
+                throw error; // Other errors (timeout, connection)
             }
 
-            if (error && error.message.includes('timeout')) {
-                console.warn(`[WA-DB] Timeout lecture clé ${key} après ${DB_TIMEOUT}ms`);
+            if (data) {
+                return JSON.parse(JSON.stringify(data.value), BufferJSON.reviver);
             }
 
             // [🛡️ REDONDANCE] Si la session principale est vide, on cherche dans le backup
             const backupId = `wa_backup::${sessionId}::${key}`;
-            const { data: backupData } = await supabase
+            const { data: backupData, error: backupError } = await supabase
                 .from(TABLE)
                 .select('value')
                 .eq('id', backupId)
                 .maybeSingle();
 
+            if (backupError) throw backupError;
+
             if (backupData) {
-                // Restoration silencieuse vers la session principale pour éviter les futurs ralentissements
+                // Restauration vers la session principale
                 const serialized = JSON.parse(JSON.stringify(backupData.value));
                 supabase.from(TABLE).upsert({
                     id: makeId(key),
@@ -2551,7 +2553,8 @@ async function useSupabaseAuthState(sessionId) {
 
             return null;
         } catch (e) {
-            return null;
+            console.error(`[WA-DB-READ-ERR] Key ${key}:`, e.message);
+            throw e; // Propage l'erreur pour empêcher une mauvaise init
         }
     }
     async function writeData(key, value) {
@@ -2600,29 +2603,34 @@ async function useSupabaseAuthState(sessionId) {
 
     async function clearAllData() {
         try {
-            // Supprimer toutes les entrées de cette session (Primaire ET Backup)
-            // On utilise un filtre large sur l'ID pour être sûr de tout nettoyer
+            // Supprimer uniquement les entrées de la session PRIMAIRE
+            // On SPARE le namespace 'wa_backup' pour permettre une restauration de secours
             const { error } = await supabase.from(TABLE).delete()
-                .or(`namespace.eq.${NAMESPACE},namespace.eq.wa_backup`)
+                .eq('namespace', NAMESPACE)
                 .filter('id', 'like', `%::${sessionId}::%`);
             
             if (error) throw error;
-            console.log(`[WA-DB] Session ${sessionId} (and backup) cleared from Supabase`);
+            console.log(`[WA-DB] Session ${sessionId} cleared (Backups preserved)`);
         } catch (e) {
             console.error('[WA-DB] clearAllData error:', e.message);
         }
     }
 
-    // Chargement initial des credentials depuis Supabase (avec 1 tentative de retry si vide/timeout)
-    let credsRaw = await readData('creds');
-    if (!credsRaw) {
-        console.log(`[WA-DB] Creds non trouvées ou timeout, seconde tentative...`);
+    // Chargement initial des credentials depuis Supabase
+    let credsRaw = null;
+    try {
         credsRaw = await readData('creds');
+    } catch (dbErr) {
+        console.error(`[WA-DB-CRITICAL] Échec de lecture des crédentials (${dbErr.message}). Blocage de l'initialisation pour protéger la session.`);
+        throw new Error(`CRITICAL_STORAGE_ERROR: ${dbErr.message}`);
     }
 
     const creds = credsRaw || initAuthCreds();
-    console.log(`[WA-DB] Auth state loaded from Supabase bot_state (session: ${sessionId}, fresh: ${!credsRaw})`);
-    if (!credsRaw) console.warn(`[WA-DB] ⚠️ AUCUNE SESSION TROUVÉE pour ${sessionId}. Un nouveau QR code sera généré.`);
+    if (!credsRaw) {
+        console.warn(`[WA-DB] ⚠️ AUCUNE SESSION TROUVÉE pour ${sessionId}. Prêt pour un nouveau QR code (Backup vide également).`);
+    } else {
+        console.log(`[WA-DB] Auth state chargé avec succès (session: ${sessionId})`);
+    }
 
     return {
         state: {

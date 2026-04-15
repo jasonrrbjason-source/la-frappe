@@ -53,12 +53,23 @@ class WhatsAppSessionChannel extends Channel {
             this.pairingCode = null;
             waLog(`[WA-Pairing] Mode jumelage activé pour : ${this.pairingPhone}`);
         }
-        const { state, saveCreds, clearSession, claimLock, checkLock } = await useSupabaseAuthState(this.sessionId);
+        const { state, saveCreds, clearSession, claimLock, checkLock } = await useSupabaseAuthState(this.sessionId).catch(err => {
+            waLog(`[WA-START-ERR] DB Initialize failed: ${err.message}. Retrying in 10s...`);
+            setTimeout(() => this.start(options), 10000);
+            throw err;
+        });
         this._clearSession = clearSession;
 
         // --- LOCK SYSTEM (PREVENTS CONFLICT 440) ---
         const myInstanceId = `${process.env.RAILWAY_SERVICE_NAME || 'local'}-${process.env.RAILWAY_REPLICA_INDEX || '0'}-${process.pid}`;
-        const activeLock = await checkLock();
+        let activeLock;
+        try {
+            activeLock = await checkLock();
+        } catch (e) {
+            waLog(`[WA-LOCK-ERR] Could not check lock: ${e.message}. Retrying...`);
+            setTimeout(() => this.start(options), 5000);
+            return;
+        }
         
         if (activeLock && activeLock.owner !== myInstanceId) {
             const now = Date.now();
@@ -70,15 +81,15 @@ class WhatsAppSessionChannel extends Channel {
                 const waitTime = 30000;
                 waLog(`[WA-LOCK] Session busy (owned by ${activeLock.owner}, updated ${Math.round(diff/1000)}s ago). Waiting ${waitTime}ms to avoid conflict 440...`);
                 this.isActive = false;
-                setTimeout(() => this.start(), waitTime);
+                setTimeout(() => this.start(options), waitTime);
                 return;
             }
         }
         
         // Prendre le lock
-        await claimLock(myInstanceId);
+        await claimLock(myInstanceId).catch(e => waLog(`[WA-LOCK-ERR] Claim failed: ${e.message}`));
         waLog(`[WA-LOCK] Session locked for our instance: ${myInstanceId}`);
-        this.isActive = true; // Marquer comme actif pour le heartbeat dès maintenant
+        this.isActive = true; 
 
         // [🛡️ REDONDANCE] Heartbeat pour garder le lock vivant
         // On le lance immédiatement pour éviter tout timeout pendant la connexion Baileys
@@ -194,24 +205,24 @@ class WhatsAppSessionChannel extends Channel {
                 }
 
                 // Codes qui nécessitent une session fraîche (nouveau QR)
+                // NOTE: On est prudents sur ce qui déclenche un effacement TOTAL de la base.
                 const needsFreshSession = [
-                    DisconnectReason.loggedOut,   // 401 - déconnecté par l'utilisateur
-                    DisconnectReason.forbidden,    // 403 - compte banni/bloqué
-                    DisconnectReason.badSession,   // 500 - session corrompue
-                    DisconnectReason.multideviceMismatch, // 411 - conflit appareils
+                    DisconnectReason.loggedOut,   // 401 - déconnecté MANUELLEMENT par l'utilisateur
+                    // DisconnectReason.badSession,  // 500 - Souvent temporaire, on ne supprime pas de suite
+                    // DisconnectReason.multideviceMismatch, // 411 - Idem
                 ].includes(statusCode);
 
                 if (needsFreshSession) {
-                    waLog(`[WA] Session invalide (code ${statusCode}) — effacement Supabase. Attente de 3s avant nouveau QR...`);
+                    waLog(`[WA] Session déconnectée manuellement (code ${statusCode}) — effacement Supabase.`);
                     if (this._clearSession) await this._clearSession();
                     this.isActive = false;
-                    setTimeout(() => this.start(), 3000); // Délai de 3s pour garantir le nettoyage DB avant de repartir 🔄
-                } else if (statusCode === 440) {
-                    // Conflit : une autre instance a pris la session.
-                    // Backoff exponentiel pour éviter la boucle infinie de conflits.
-                    const delay = this._conflictBackoff;
-                    this._conflictBackoff = Math.min(this._conflictBackoff * 2, 60000); // max 60s
-                    waLog(`[WA] Conflit 440 (replaced) — attente ${delay}ms avant reconnexion (backoff=${this._conflictBackoff}ms)...`);
+                    setTimeout(() => this.start(), 3000);
+                } else if (statusCode === 440 || statusCode === 515 || statusCode === 503) {
+                    // 440: Conflit, 515: Stream error, 503: Unavailable
+                    const delay = (statusCode === 440) ? this._conflictBackoff : 5000;
+                    if (statusCode === 440) this._conflictBackoff = Math.min(this._conflictBackoff * 2, 60000);
+                    
+                    waLog(`[WA] Erreur temporaire ${statusCode} — attente ${delay}ms avant reconnexion...`);
                     this.isActive = false;
                     setTimeout(() => this.start(), delay);
                 } else {
@@ -227,6 +238,59 @@ class WhatsAppSessionChannel extends Channel {
                 waLog('✅ [WA] WhatsApp connecté avec succès !');
                 this.isActive = true;
                 this._conflictBackoff = 5000; // reset backoff sur connexion réussie
+                
+                // Fetch basic self-profile if missing
+                if (this.sock.user && !this.sock.user.name) {
+                    try {
+                        const pp = await this.sock.profilePictureUrl(this.sock.user.id, 'image').catch(() => null);
+                        this.sock.user.imgUrl = pp;
+                    } catch (e) {}
+                }
+            }
+        });
+
+        // --- DEEP MIRROR SYNC HANDLERS ---
+        
+        // Initial History Sync (Pins, Archives, Mutes)
+        this.sock.ev.on('messaging-history.set', async ({ chats, messages, isLatest }) => {
+            waLog(`[WA-SYNC] History set: ${chats?.length} chats, ${messages?.length} messages`);
+            const { supabase } = require('../config/supabase');
+            
+            for (const chat of chats) {
+                const metadata = {
+                    is_pinned: !!chat.pin,
+                    is_archived: !!chat.archive,
+                    is_muted: !!chat.mute,
+                    last_message_preview: chat.lastMessageRecvTimestamp ? "Hisotrique synchronisé" : null
+                };
+                
+                // Sync to conversations table if it exists
+                await supabase.from('conversations').upsert({
+                    id: `whatsapp_${chat.id}`,
+                    external_id: chat.id,
+                    platform: 'whatsapp',
+                    title: chat.name || chat.id.split('@')[0],
+                    metadata: metadata,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'id' }).catch(() => {});
+            }
+        });
+
+        // Real-time Chat Updates (Pins, Mutes)
+        this.sock.ev.on('chats.upsert', async (newChats) => {
+            const { supabase } = require('../config/supabase');
+            for (const chat of newChats) {
+                waLog(`[WA-CHAT] Upsert: ${chat.id} (pin=${chat.pin}, archive=${chat.archive})`);
+                const metadata = {
+                    is_pinned: chat.pin !== undefined ? !!chat.pin : undefined,
+                    is_archived: chat.archive !== undefined ? !!chat.archive : undefined,
+                    is_muted: chat.mute !== undefined ? !!chat.mute : undefined
+                };
+                await supabase.from('conversations').update({ 
+                    metadata: metadata,
+                    title: chat.name || undefined,
+                    updated_at: new Date().toISOString()
+                }).eq('external_id', chat.id).catch(() => {});
             }
         });
 
@@ -243,6 +307,22 @@ class WhatsAppSessionChannel extends Channel {
             for (const msg of m.messages) {
                 const remoteJid = msg.key.remoteJid;
                 const isMe = msg.key.fromMe;
+
+                // --- REACTION HANDLING ---
+                if (msg.message?.reactionMessage) {
+                    const react = msg.message.reactionMessage;
+                    waLog(`[WA-REACT] Reaction ${react.text} on ${react.key?.id} from ${remoteJid}`);
+                    const { supabase } = require('../config/supabase');
+                    // Store reaction in message metadata
+                    const { data: existing } = await supabase.from('messages').select('metadata').eq('external_id', react.key?.id).single().catch(() => ({}));
+                    if (existing) {
+                        const meta = existing.metadata || {};
+                        if (!meta.reactions) meta.reactions = {};
+                        meta.reactions[msg.key.participant || remoteJid] = react.text;
+                        await supabase.from('messages').update({ metadata: meta }).eq('external_id', react.key?.id).catch(() => {});
+                    }
+                    continue;
+                }
 
                 // Ignorer les messages de protocole sans contenu utile
                 if (!msg.message || msg.message?.protocolMessage || msg.message?.senderKeyDistributionMessage) {
@@ -273,6 +353,19 @@ class WhatsAppSessionChannel extends Channel {
                 const text = this._extractText(msg);
                 const isAction = !!(msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage);
 
+                // --- QUOTED MESSAGE (REPLY) HANDLING ---
+                let quoted = null;
+                const context = msg.message?.extendedTextMessage?.contextInfo || 
+                                msg.message?.imageMessage?.contextInfo || 
+                                msg.message?.videoMessage?.contextInfo;
+                if (context?.quotedMessage) {
+                    quoted = {
+                        id: context.stanzaId,
+                        sender: context.participant,
+                        content: context.quotedMessage?.conversation || context.quotedMessage?.extendedTextMessage?.text || "[Média]"
+                    };
+                }
+
                 // Extraction média (Image/Vidéo)
                 let photo = null;
                 let video = null;
@@ -295,6 +388,7 @@ class WhatsAppSessionChannel extends Channel {
                         video: video,
                         type: video ? 'video' : (photo ? 'photo' : 'text'),
                         isAction: isAction,
+                        metadata: { quoted, reactions: {} },
                         raw: msg
                     });
                 }

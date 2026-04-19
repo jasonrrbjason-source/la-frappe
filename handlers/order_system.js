@@ -186,12 +186,25 @@ function setupOrderSystem(bot) {
             (product.description ? `\n<i>${product.description}</i>\n` : "") +
             `\n💎 ` + t(user, 'label_choose_qty', '<b>Choisissez votre quantité :</b>');
 
-        const qtyOptions = [1, 2, 3, 4, 5, 10];
+        const rawVal = String(product.unit_value || '1');
+        const multiplier = parseFloat(rawVal.replace(',', '.')) || 1;
+        const multipliers = [1, 2, 3, 4, 5, 10];
         const qtyRows = [];
-        for (let i = 0; i < qtyOptions.length; i += 2) {
-            const row = [Markup.button.callback(`${qtyOptions[i]}`, `qty_${productId}_${qtyOptions[i]}`)];
-            if (i + 1 < qtyOptions.length) {
-                row.push(Markup.button.callback(`${qtyOptions[i+1]}`, `qty_${productId}_${qtyOptions[i+1]}`));
+        const unit = product.unit || '';
+        const unitDisplay = (unit && unit.toLowerCase() !== 'unité' && unit.toLowerCase() !== 'pieces') ? unit : '';
+
+        for (let i = 0; i < multipliers.length; i += 2) {
+            const m1 = multipliers[i];
+            const q1 = m1 * multiplier;
+            // Correction: On retire le grammage entre parenthèses comme demandé
+            const label1 = multiplier > 1 ? `${m1} sachet${m1 > 1 ? 's' : ''}` : `${q1}${unitDisplay}`;
+            const row = [Markup.button.callback(label1, `qty_${productId}_${q1}`)];
+            
+            if (i + 1 < multipliers.length) {
+                const m2 = multipliers[i+1];
+                const q2 = m2 * multiplier;
+                const label2 = multiplier > 1 ? `${m2} sachet${m2 > 1 ? 's' : ''}` : `${q2}${unitDisplay}`;
+                row.push(Markup.button.callback(label2, `qty_${productId}_${q2}`));
             }
             qtyRows.push(row);
         }
@@ -219,20 +232,28 @@ function setupOrderSystem(bot) {
         const productId = ctx.match[1];
         const qty = parseInt(ctx.match[2]);
         const product = await getProduct(productId);
+        const products = await getProducts(); // Liste locale pour les logs et bundles
         const settings = (ctx.state?.settings || await getAppSettings());
 
         if (!product) {
-            console.error(`❌ Product not found: ${productId}. Available:`, products.map(p => p.id).join(', '));
+            console.error(`❌ Product not found: ${productId}.`);
             return safeEdit(ctx, settings.msg_product_not_found || '❌ Produit non trouvé.', Markup.inlineKeyboard([[Markup.button.callback(settings.btn_back_generic || '◀️ Retour', 'view_catalog')]]));
         }
 
         // Calcul du prix avec gestion des paliers dégressifs
-        let totalPriceValue = product.price * qty;
+        const unitValue = parseInt(product.unit_value) || 1;
+        const basePrice = parseFloat(product.price) || 0;
+        
+        // La quantité "interne" pour les réductions est basée sur le nombre de "packs" (unit_value)
+        const packsSelected = qty / unitValue; 
+        
+        let totalPriceValue = basePrice * packsSelected;
+
         if (product.has_discounts && product.discounts_config && product.discounts_config.length > 0) {
             const sortedDiscounts = [...product.discounts_config].sort((a, b) => b.qty - a.qty);
-            const bestDiscount = sortedDiscounts.find(d => qty >= d.qty);
+            const bestDiscount = sortedDiscounts.find(d => packsSelected >= d.qty);
             if (bestDiscount) {
-                totalPriceValue = bestDiscount.total_price + (qty - bestDiscount.qty) * product.price;
+                totalPriceValue = bestDiscount.total_price + (packsSelected - bestDiscount.qty) * basePrice;
             }
         }
         const totalPrice = totalPriceValue.toFixed(2);
@@ -242,7 +263,7 @@ function setupOrderSystem(bot) {
             const config = product.bundle_config || { trigger_qty: 1, offered_qty: 1, offered_id: null };
             const trigger = config.trigger_qty || 1;
             const offered = config.offered_qty || 1;
-            const numGifts = Math.floor(qty / trigger) * offered;
+            const numGifts = Math.floor(packsSelected / trigger) * offered;
 
             if (numGifts > 0) {
                 if (config.offered_id) {
@@ -260,11 +281,13 @@ function setupOrderSystem(bot) {
             totalPrice,
             productName: product.name + bundleText,
             is_bundle: product.is_bundle,
-            supplier_id: product.supplier_id // IMPORTANT pour la notification fournisseur
+            supplier_id: product.supplier_id, // IMPORTANT pour la notification fournisseur
+            nSachets: (unitValue > 1) ? packsSelected : null
         });
 
-        if (product.unit && product.unit.length > 0 && !(['unité', 'unite', 'piece', 'pce'].includes(product.unit.toLowerCase()))) {
-            return askUnit(ctx, product, qty);
+        if (unitValue === 1 && product.unit && product.unit.length > 0 && !(['unité', 'unite', 'piece', 'pce'].includes(product.unit.toLowerCase()))) {
+            const nSachets = Math.round(qty / unitValue) || 1;
+            return askUnitSelection(ctx, product, nSachets);
         }
 
         await showAddToCartChoice(ctx, product, qty, totalPrice);
@@ -358,7 +381,8 @@ function setupOrderSystem(bot) {
         cart.forEach((item, idx) => {
             const price = parseFloat(item.totalPrice);
             total += price;
-            summary += `${idx + 1}. ${item.productName} (x${item.qty})${item.chosen_unit_amount ? ` [${item.chosen_unit_amount}]` : ''} - <b>${price.toFixed(2)}€</b>\n`;
+            const qtyLabel = item.nSachets ? `(x${item.nSachets} sachet${item.nSachets > 1 ? 's' : ''})` : `(x${item.qty})`;
+            summary += `${idx + 1}. ${item.productName} <b>${qtyLabel}</b>${item.chosen_unit_amount ? ` [${item.chosen_unit_amount}]` : ''} - <b>${price.toFixed(2)}€</b>\n`;
             // Bouton de suppression individuelle
             buttons.push([Markup.button.callback(`❌ ${t(user, 'btn_back', 'Retirer')} ${item.productName}`, `remove_item_${idx}`)]);
         });
@@ -518,7 +542,7 @@ function setupOrderSystem(bot) {
         return await askScheduling(ctx);
     });
 
-    async function askUnit(ctx, product, qty) {
+    async function askUnitSelection(ctx, product, qty) {
         const settings = (ctx.state?.settings || await getAppSettings());
         const unit = product.unit;
         // Support comma and remove non-numeric chars for baseVal calculation

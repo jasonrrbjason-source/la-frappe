@@ -170,13 +170,19 @@ function setupOrderSystem(bot) {
             promoText = `\n🔥 <b>PROMO : ${product.promo}</b>\n`;
         }
 
-        // NOUVEAU: Affichage des prix dégressifs
+        // NOUVEAU: Affichage des prix dégressifs (GRILLE DE TARIFS)
         if (product.has_discounts && product.discounts_config && product.discounts_config.length > 0) {
-            promoText += `\n📉 <b>PRIX DÉGRESSIFS :</b>\n`;
-            product.discounts_config.forEach(d => {
-                const discountTotal = d.total || d.total_price;
-                promoText += `• ${d.qty} unités : <b>${discountTotal}€</b> (au lieu de ${(product.price * d.qty).toFixed(2)}€)\n`;
+            const rawVal = String(product.unit_value || '1');
+            const multiplier = parseFloat(rawVal.replace(',', '.')) || 1;
+            const unitSuffix = (product.unit && product.unit.toLowerCase() !== 'unité') ? (product.unit) : 'unités';
+            
+            const tiers = product.discounts_config.map(d => {
+                const discountTotal = parseFloat(d.total || d.total_price || 0);
+                const weight = d.qty * multiplier;
+                return `<b>${weight}${unitSuffix}: ${discountTotal.toFixed(2)}€</b>`;
             });
+            
+            promoText += `\n📊 <b>TARIFS DÉGRESSIFS :</b>\n` + tiers.join(' | ') + `\n`;
         }
 
         const user = ctx.state?.user || await getUser(`${ctx.platform}_${ctx.from.id}`);

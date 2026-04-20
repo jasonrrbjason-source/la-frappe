@@ -791,9 +791,20 @@ function setupAdminHandlers(bot) {
             };
 
             if (ctx.message.photo) {
-                options.photo = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+                const photo = ctx.message.photo[ctx.message.photo.length - 1];
+                try {
+                    const fileLink = await ctx.telegram.getFileLink(photo.file_id);
+                    options.photo = fileLink.href;
+                } catch (e) {
+                    options.photo = photo.file_id;
+                }
             } else if (ctx.message.video) {
-                options.video = ctx.message.video.file_id;
+                try {
+                    const fileLink = await ctx.telegram.getFileLink(ctx.message.video.file_id);
+                    options.video = fileLink.href;
+                } catch (e) {
+                    options.video = ctx.message.video.file_id;
+                }
                 options.caption = text;
             }
 
@@ -904,9 +915,28 @@ function setupAdminHandlers(bot) {
             
             if (ctx.message.photo) {
                 const photo = ctx.message.photo[ctx.message.photo.length - 1];
-                options.photo = photo.file_id || photo.url || photo.path;
+                if (photo.isWa) {
+                    const { registry } = require('../channels/ChannelRegistry');
+                    const wa = registry.query('whatsapp');
+                    try {
+                        const buffer = wa ? await wa.downloadMedia(photo.msg) : null;
+                        options.photo = buffer ? { source: buffer } : (photo.file_id || photo.url || photo.path);
+                    } catch (e) { options.photo = photo.file_id || photo.url || photo.path; }
+                } else {
+                    options.photo = photo.file_id || photo.url || photo.path;
+                }
             } else if (ctx.message.video) {
-                options.video = ctx.message.video.file_id || ctx.message.video.url || ctx.message.video.path;
+                const videoData = Array.isArray(ctx.message.video) ? ctx.message.video[ctx.message.video.length - 1] : ctx.message.video;
+                if (videoData && videoData.isWa) {
+                    const { registry } = require('../channels/ChannelRegistry');
+                    const wa = registry.query('whatsapp');
+                    try {
+                        const buffer = wa ? await wa.downloadMedia(videoData.msg) : null;
+                        options.video = buffer ? { source: buffer } : (videoData.file_id || videoData.url || videoData.path);
+                    } catch (e) { options.video = videoData.file_id || videoData.url || videoData.path; }
+                } else {
+                    options.video = videoData?.file_id || videoData?.url || videoData?.path || ctx.message.video;
+                }
             }
 
             try {

@@ -205,14 +205,13 @@ function setupOrderSystem(bot) {
         for (let i = 0; i < multipliers.length; i += 2) {
             const m1 = multipliers[i];
             const q1 = m1 * multiplier;
-            // Correction: Afficher le poids total pour plus de clarté
-            const label1 = multiplier > 1 ? `${q1}${unitDisplay} (${m1} sachet${m1 > 1 ? 's' : ''})` : `${q1}${unitDisplay}`;
+            const label1 = `${m1}`;
             const row = [Markup.button.callback(label1, `qty_${productId}_${q1}`)];
             
             if (i + 1 < multipliers.length) {
                 const m2 = multipliers[i+1];
                 const q2 = m2 * multiplier;
-                const label2 = multiplier > 1 ? `${q2}${unitDisplay} (${m2} sachet${m2 > 1 ? 's' : ''})` : `${q2}${unitDisplay}`;
+                const label2 = `${m2}`;
                 row.push(Markup.button.callback(label2, `qty_${productId}_${q2}`));
             }
             qtyRows.push(row);
@@ -321,12 +320,13 @@ function setupOrderSystem(bot) {
         if (multiplier > 1) {
             const nSachets = qty / multiplier;
             qtyLabel = `${qty}${unitDisplay}`;
-            sachetInfo = ` (${nSachets} sachet${nSachets > 1 ? 's' : ''} de ${multiplier}${unitDisplay})`;
+            sachetInfo = `\n📦 <b>Format : ${nSachets} sachet${nSachets > 1 ? 's' : ''} de ${multiplier}${unitDisplay}</b>`;
         } else {
             qtyLabel = `${qty}${unitDisplay || 'x'}`;
         }
 
-        const text = t(user, 'msg_selection', '🛒 <b>Sélection : {qty} {name}</b>', { qty: qtyLabel, name: product.name + sachetInfo }) + (unitAmount ? ` (${unitAmount})` : '') + '\n' +
+        const text = t(user, 'msg_selection', '🛒 <b>Sélection : {qty} {name}</b>', { qty: qtyLabel, name: product.name }) + (unitAmount ? ` (${unitAmount})` : '') + 
+            sachetInfo + '\n' +
             t(user, 'label_price_total', '💰 Prix :') + ` <b>${totalPrice}€</b>\n\n` +
             t(user, 'msg_what_to_do', 'Que voulez-vous faire ?');
 

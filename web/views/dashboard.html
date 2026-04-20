@@ -6258,16 +6258,24 @@
             const div = document.createElement('div');
             div.className = 'discount-row';
             div.style = 'display:grid; grid-template-columns: 1fr 1fr 40px; gap:8px; align-items:end; background:rgba(255,255,255,0.03); padding:8px; border-radius:8px;';
+            
+            let options = '';
+            for (let i = 1; i <= 100; i++) {
+                options += `<option value="${i}" ${parseInt(qty) === i ? 'selected' : ''}>${i}</option>`;
+            }
+
             div.innerHTML = `
                 <div>
-                    <label style="font-size:10px">Quantité</label>
-                    <input type="number" class="discount-qty" value="${qty}" placeholder="ex: 2" min="1" step="1">
+                    <label style="font-size:10px">Quantité (Nb. Sachets)</label>
+                    <select class="discount-qty" style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:white; font-size:12px; height:36px; padding:0 8px;">
+                        ${options}
+                    </select>
                 </div>
                 <div>
                     <label style="font-size:10px">Prix TOTAL (€)</label>
-                    <input type="number" class="discount-price" value="${price}" placeholder="ex: 120" min="0">
+                    <input type="number" class="discount-price" value="${price}" placeholder="ex: 120" min="0" style="height:36px;">
                 </div>
-                <button class="btn btn-sm btn-outline text-danger" onclick="this.parentElement.remove()" style="padding:8px; margin-bottom:0">🗑️</button>
+                <button class="btn btn-sm btn-outline text-danger" onclick="this.parentElement.remove()" style="padding:8px; margin-bottom:0; height:36px; display:flex; align-items:center; justify-content:center;">🗑️</button>
             `;
             document.getElementById('discounts_list').appendChild(div);
         }

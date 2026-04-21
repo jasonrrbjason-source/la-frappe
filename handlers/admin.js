@@ -312,6 +312,7 @@ function setupAdminHandlers(bot) {
 
         const buttons = [
             [Markup.button.callback('🤝 ASSIGNER LIVREUR', `ao_l_${orderId}`)],
+            [Markup.button.callback('💬 CONTACTER LE CLIENT', `admin_chat_user_${order.user_id}`)],
             [Markup.button.callback('✅ LIVRÉE', `ao_s_${orderId}_delivered`), Markup.button.callback('❌ ANNULÉE', `ao_s_${orderId}_cancelled`)],
             [Markup.button.callback('◀️ Retour', 'admin_orders')]
         ];
@@ -567,6 +568,9 @@ function setupAdminHandlers(bot) {
         const settings = await getAppSettings();
         const userId = `${ctx.platform}_${ctx.from.id}`;
         
+        // Auto-activer le mode réponse pour que le client puisse juste taper son message (surtout Telegram)
+        awaitingUserSupportReply.set(userId, true);
+
         await notifyAdmins(bot, `💬 <b>CONTACT ADMIN SOLLICITÉ</b>\n\n👤 Client : ${ctx.from.first_name} (@${ctx.from.username || 'Inconnu'})\n🆔 ID : <code>${userId}</code>\n\n<i>Vous pouvez cliquer sur le bouton ci-dessous pour lui répondre directement.</i>`, {
             parse_mode: 'HTML',
             reply_markup: { inline_keyboard: [[{ text: '💬 Lui répondre', callback_data: `admin_chat_user_${userId}` }]] }
@@ -577,7 +581,7 @@ function setupAdminHandlers(bot) {
         if (settings.private_contact_wa_url) b.push([{ text: '📲 WhatsApp : Admin', url: settings.private_contact_wa_url }]);
         b.push([{ text: '◀️ Retour', callback_data: 'main_menu' }]);
 
-        return safeEdit(ctx, t(ctx, 'msg_support_sent', `💬 <b>Besoin d'un admin ?</b>\n\nVotre demande a été remontée aux administrateurs. Ils reviendront vers vous via le bot sous peu.\n\nVous pouvez aussi nous contacter directement :`), {
+        return safeEdit(ctx, t(ctx, 'msg_support_sent', `💬 <b>Besoin d'un admin ?</b>\n\nVotre demande a été remontée aux administrateurs. Ils reviendront vers vous via le bot sous peu.\n\nVous pouvez maintenant <b>envoyer votre message directement ici</b> ou utiliser les liens ci-dessous :`), {
             parse_mode: 'HTML',
             reply_markup: { inline_keyboard: b }
         });

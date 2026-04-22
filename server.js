@@ -251,7 +251,7 @@ function createServer() {
 </html>`);
             }
 
-            const waSession = registry.query('whatsapp');
+
             if (waSession && waSession.restart) {
                 // Support JSON response for background polling
                 if (req.query.json === '1') {

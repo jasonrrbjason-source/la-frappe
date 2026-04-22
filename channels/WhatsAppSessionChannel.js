@@ -145,7 +145,7 @@ class WhatsAppSessionChannel extends Channel {
                 }, logger)
             },
             logger,
-            browser: ["La Frappe IDF", "Chrome", "115.0.0.0"],
+            browser: ["macOS", "Chrome", "115.0.0.0"],
             syncFullHistory: false,
             shouldSyncHistory: false,
             markOnlineOnConnect: true,
@@ -222,10 +222,10 @@ class WhatsAppSessionChannel extends Channel {
                 ].includes(statusCode);
 
                 if (needsFreshSession) {
-                    waLog(`[WA] Session déconnectée manuellement (code ${statusCode}) — effacement Supabase.`);
+                    waLog(`[WA] Session rejetée (401) par WhatsApp — Nettoyage complet (Principal + Backup).`);
                     if (this._clearSession) await this._clearSession();
                     this.isActive = false;
-                    setTimeout(() => this.start(), 3000);
+                    setTimeout(() => this.start(), 5000);
                 } else if (statusCode === 440 || statusCode === 515 || statusCode === 503) {
                     // 440: Conflit, 515: Stream error, 503: Unavailable
                     const delay = (statusCode === 440) ? this._conflictBackoff : 5000;

@@ -95,11 +95,8 @@ class WhatsAppSessionChannel extends Channel {
         // On le lance immédiatement pour éviter tout timeout pendant la connexion Baileys
         if (this._lockHeartbeat) clearInterval(this._lockHeartbeat);
         this._lockHeartbeat = setInterval(async () => {
-             // Met à jour le timestamp 'updatedAt' dans Supabase
-             await claimLock(myInstanceId).catch(err => {
-                 waLog(`[WA-LOCK] Heartbeat failed: ${err.message}`);
-             });
-        }, 60000); // 1 minute (plus agressif pour être sûr)
+             await claimLock(myInstanceId).catch(() => {});
+        }, 30000); // 30 seconds to be very safe
 
         let version = [2, 3000, 1015901307]; // Fallback 
         let isLatest = false;
@@ -136,14 +133,13 @@ class WhatsAppSessionChannel extends Channel {
                 }, logger)
             },
             logger,
-            browser: Browsers.ubuntu('Chrome'),
+            browser: ["La Frappe IDF", "Chrome", "115.0.0.0"],
             syncFullHistory: false,
+            shouldSyncHistory: false,
             markOnlineOnConnect: true,
+            linkPreviewImageThumbnailWidth: 192,
             generateHighQualityLinkPreview: false,
-            getMessage: async (key) => {
-                // Nécessaire pour que Baileys puisse décrypter les messages retry
-                return { conversation: '' };
-            }
+            getMessage: async () => ({ conversation: '' })
         });
 
 

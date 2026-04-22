@@ -303,16 +303,16 @@ class Dispatcher {
                 if (options.buttons) this.setUserLastButtons(userId, options.buttons);
                 else if (channel.type === 'whatsapp') this.setUserLastButtons(userId, null); // Clear if no buttons
                 
-                // Cleanup auto pour WA
+                // Cleanup auto pour WA (Non-bloquant)
                 if (channel.type === 'whatsapp') {
                     const oldIds = this.userLastMessageIds.get(userId) || [];
-                    console.log(`[WA-Cleanup] Tentative de suppression de ${oldIds.length} messages pour ${userId}`);
-                    for(const id of oldIds) {
-                        try {
-                            await channel.deleteMessage(userId, id);
-                        } catch (e) {
-                            console.warn(`[WA-Cleanup] Echec suppression ${id}:`, e.message);
-                        }
+                    if (oldIds.length > 0) {
+                        console.log(`[WA-Cleanup] Suppression en arrière-plan de ${oldIds.length} messages pour ${userId}`);
+                        Promise.all(oldIds.map(id => 
+                            channel.deleteMessage(userId, id).catch(e => 
+                                console.warn(`[WA-Cleanup] Echec suppression ${id}:`, e.message)
+                            )
+                        )).then(() => {});
                     }
                     this.userLastMessageIds.delete(userId);
                 }
@@ -351,7 +351,7 @@ class Dispatcher {
                 
                 if (channel.type === 'whatsapp') {
                     const oldIds = this.userLastMessageIds.get(userId) || [];
-                    for(const id of oldIds) await channel.deleteMessage(userId, id);
+                    if (oldIds.length > 0) Promise.all(oldIds.map(id => channel.deleteMessage(userId, id).catch(() => {}))).then(() => {});
                 }
 
                 let res;
@@ -379,7 +379,7 @@ class Dispatcher {
                 
                 if (channel.type === 'whatsapp') {
                     const oldIds = this.userLastMessageIds.get(userId) || [];
-                    for(const id of oldIds) await channel.deleteMessage(userId, id);
+                    if (oldIds.length > 0) Promise.all(oldIds.map(id => channel.deleteMessage(userId, id).catch(() => {}))).then(() => {});
                 }
 
                 let res;

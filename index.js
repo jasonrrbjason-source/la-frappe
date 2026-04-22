@@ -1,7 +1,8 @@
 const fs = require('fs');
 const envPath = fs.existsSync('.env.railway') ? '.env.railway' : '.env';
 require('dotenv').config({ path: envPath });
-// [TEST RECONNECT] Supabase session persistence — push sans déconnexion WA
+// [DEPLOY] QR Regeneration Trigger - 2026-04-22
+// [TEST RECONNECT] Supabase session persistence
 
 console.log(`[System] Loading environment from: ${envPath}`);
 if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) {

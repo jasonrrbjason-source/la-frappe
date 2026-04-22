@@ -246,6 +246,10 @@ function createServer() {
             <input type="text" name="phone" placeholder="+33 7 52 98 17 14" value="+33752981714" required>
             <button type="submit">GÉNÉRER LE CODE</button>
         </form>
+        <div style="margin-top:30px; padding-top:20px; border-top:1px solid rgba(255,255,255,0.05)">
+            <p style="font-size:12px; color:rgba(255,255,255,0.3); margin-bottom:15px">Session ID: ${waSession?.sessionId || 'unknown'}</p>
+            <button onclick="location.href='/wa-restart?token=${token || ''}'" style="background:transparent; border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.6); padding:10px; font-size:12px; border-radius:8px">RESTART SESSION (FORCER RE-COUPLAGE)</button>
+        </div>
     </div>
 </body>
 </html>`);

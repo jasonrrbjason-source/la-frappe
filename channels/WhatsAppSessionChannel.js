@@ -248,6 +248,12 @@ class WhatsAppSessionChannel extends Channel {
                 this.isActive = true;
                 this._conflictBackoff = 5000; // reset backoff sur connexion réussie
                 
+                // [🛡️ BACKUP] On force une sauvegarde immédiate pour alimenter le backup en base
+                if (this._saveCreds) {
+                    waLog('[WA-DB] Alimentation forcée du backup de session...');
+                    this._saveCreds();
+                }
+                
                 // Supprimer le QR code image une fois connecté
                 const qrPath = path.join(process.cwd(), 'whatsapp_qr.png');
                 if (fs.existsSync(qrPath)) {

@@ -53,12 +53,13 @@ class WhatsAppSessionChannel extends Channel {
             this.pairingCode = null;
             waLog(`[WA-Pairing] Mode jumelage activé pour : ${this.pairingPhone}`);
         }
-        const { state, saveCreds, clearSession, claimLock, checkLock } = await useSupabaseAuthState(this.sessionId).catch(err => {
+        const { state, saveCreds, clearSession, claimLock, checkLock, releaseLock } = await useSupabaseAuthState(this.sessionId).catch(err => {
             waLog(`[WA-START-ERR] DB Initialize failed: ${err.message}. Retrying in 10s...`);
             setTimeout(() => this.start(options), 10000);
             throw err;
         });
         this._clearSession = clearSession;
+        this._releaseLock = releaseLock;
 
         // --- LOCK SYSTEM (PREVENTS CONFLICT 440) ---
         const myInstanceId = `${process.env.RAILWAY_SERVICE_NAME || 'local'}-${process.env.RAILWAY_REPLICA_INDEX || '0'}-${process.pid}`;
@@ -76,9 +77,9 @@ class WhatsAppSessionChannel extends Channel {
             const updatedAt = activeLock.updatedAt || 0;
             const diff = now - updatedAt;
 
-            // Si le lock existe et qu'il a été mis à jour il y a moins de 5 minutes, il est ACTIF
-            if (activeLock.owner && diff < 300000) {
-                const waitTime = 30000;
+            // Si le lock existe et qu'il a été mis à jour il y a moins de 60 secondes, il est ACTIF
+            if (activeLock.owner && diff < 60000) {
+                const waitTime = 10000;
                 waLog(`[WA-LOCK] Session busy (owned by ${activeLock.owner}, updated ${Math.round(diff/1000)}s ago). Waiting ${waitTime}ms to avoid conflict 440...`);
                 this.isActive = false;
                 setTimeout(() => this.start(options), waitTime);
@@ -96,7 +97,18 @@ class WhatsAppSessionChannel extends Channel {
         if (this._lockHeartbeat) clearInterval(this._lockHeartbeat);
         this._lockHeartbeat = setInterval(async () => {
              await claimLock(myInstanceId).catch(() => {});
-        }, 30000); // 30 seconds to be very safe
+        }, 15000); // 15 seconds is enough for a 60s staleness threshold
+
+        // Graceful shutdown: release lock on SIGTERM/SIGINT
+        const shutdown = async () => {
+            if (this._releaseLock) {
+                waLog(`[WA-EXIT] Releasing lock for ${myInstanceId}...`);
+                await this._releaseLock(myInstanceId).catch(() => {});
+            }
+            process.exit(0);
+        };
+        process.once('SIGTERM', shutdown);
+        process.once('SIGINT', shutdown);
 
         let version = [2, 3000, 1015901307]; // Fallback 
         let isLatest = false;
@@ -145,6 +157,7 @@ class WhatsAppSessionChannel extends Channel {
 
         // this.store.bind(this.sock.ev); // Removed store bind
 
+        this._saveCreds = saveCreds;
         this.sock.ev.on('creds.update', saveCreds);
 
         this.sock.ev.on('connection.update', async (update) => {
@@ -235,12 +248,28 @@ class WhatsAppSessionChannel extends Channel {
                 this.isActive = true;
                 this._conflictBackoff = 5000; // reset backoff sur connexion réussie
                 
+                // Supprimer le QR code image une fois connecté
+                const qrPath = path.join(process.cwd(), 'whatsapp_qr.png');
+                if (fs.existsSync(qrPath)) {
+                    try {
+                        fs.unlinkSync(qrPath);
+                        waLog('[WA] QR Code supprimé (connexion établie).');
+                    } catch (e) {
+                        waLog(`[WA] Erreur suppression QR Code: ${e.message}`);
+                    }
+                }
+
                 // Fetch basic self-profile if missing
                 if (this.sock.user && !this.sock.user.name) {
                     try {
                         const pp = await this.sock.profilePictureUrl(this.sock.user.id, 'image').catch(() => null);
                         this.sock.user.imgUrl = pp;
                     } catch (e) {}
+                }
+
+                // Force save creds to ensure 'me' is persisted in DB
+                if (this._saveCreds) {
+                    this._saveCreds();
                 }
             }
         });
@@ -397,6 +426,11 @@ class WhatsAppSessionChannel extends Channel {
     }
 
     async stop() {
+        if (this._lockHeartbeat) clearInterval(this._lockHeartbeat);
+        if (this._releaseLock) {
+            const myInstanceId = `${process.env.RAILWAY_SERVICE_NAME || 'local'}-${process.env.RAILWAY_REPLICA_INDEX || '0'}-${process.pid}`;
+            await this._releaseLock(myInstanceId).catch(() => {});
+        }
         if (this.sock) this.sock.end();
         this.isActive = false;
     }
@@ -449,6 +483,18 @@ class WhatsAppSessionChannel extends Channel {
             return { success: false, error: 'WhatsApp not connected or session locked' };
         }
 
+        // --- SAFETY CHECK FOR CREDENTIALS ---
+        if (!this.sock.authState?.creds?.me?.id) {
+            waLog(`[WA-Send-Error] CRITICAL: Session 'me' (identity) is missing! Baileys cannot send messages without it. | To: ${jid}`);
+            // On tente une petite "réparation" si possible
+            if (this.sock.user?.id) {
+                waLog(`[WA-Send] Intent d'auto-réparation de 'me' avec sock.user.id...`);
+                this.sock.authState.creds.me = { id: this.sock.user.id, name: this.sock.user.name };
+            } else {
+                return { success: false, error: 'Session identity missing (me.id)' };
+            }
+        }
+
         waLog(`[WA-Send] Sending to ${jid} | HasMedia: ${!!(options.source || options.media_url)}`);
         const cleanText = this._stripHTML(text);
 
@@ -479,6 +525,7 @@ class WhatsAppSessionChannel extends Channel {
             }
             return { success: true, messageId: result?.key?.id };
         } catch (e) {
+            waLog(`[WA-Send-Err] Fail to ${jid}: ${e.message}`);
             console.error('[WA-Send] Error:', e);
             return { success: false, error: e.message };
         }

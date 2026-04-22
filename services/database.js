@@ -2667,6 +2667,7 @@ async function useSupabaseAuthState(sessionId) {
         // LOCK SYSTEM 
         claimLock: (ownerId) => claimLock(`wa_lock::${sessionId}`, ownerId),
         checkLock: () => checkLock(`wa_lock::${sessionId}`),
+        releaseLock: (ownerId) => releaseLock(`wa_lock::${sessionId}`, ownerId),
 
         // [🛡️ UI PERSISTENCE] Persistance des boutons pour le nettoyage des messages après restart
         getMetadata: async (key) => {
@@ -2682,6 +2683,20 @@ async function useSupabaseAuthState(sessionId) {
 /**
  * Système de verrouillage distribué générique
  */
+async function releaseLock(lockId, ownerId) {
+    const TABLE = 'bot_state';
+    try {
+        // Supprimer le verrou seulement s'il nous appartient
+        const { error } = await supabase.from(TABLE).delete().eq('id', lockId).eq('value->>owner', ownerId);
+        if (error) throw error;
+        console.log(`[LOCK] Verrou ${lockId} relâché.`);
+        return true;
+    } catch (e) {
+        console.error(`[LOCK-RELEASE-ERR] ${lockId}:`, e.message);
+        return false;
+    }
+}
+
 async function claimLock(lockId, ownerId) {
     const TABLE = 'bot_state';
     try {

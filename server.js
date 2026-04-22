@@ -160,13 +160,25 @@ function createServer() {
 
     // QR Code WhatsApp - accessible via navigateur pour scanner
     app.get('/whatsapp-qr', (req, res) => {
+        const waSession = registry.query('whatsapp');
+        const isActive = waSession && waSession.isActive;
         const qrPath = path.join(process.cwd(), 'whatsapp_qr.png');
+
         if (fs.existsSync(qrPath)) {
             res.setHeader('Content-Type', 'image/png');
             res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
             res.sendFile(qrPath);
+        } else if (isActive) {
+            res.send(`<html><body style="background:#050505;color:#fff;font-family:'Outfit',sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center">
+                <div style="background:rgba(255,255,255,0.03);padding:40px;border-radius:32px;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(20px)">
+                    <div style="font-size:64px;margin-bottom:20px">✅</div>
+                    <h1 style="font-size:28px;font-weight:800;margin-bottom:10px">WhatsApp Connecté</h1>
+                    <p style="color:rgba(255,255,255,0.5)">Votre session est active. Vous pouvez fermer cette page.</p>
+                    <button onclick="window.close()" style="margin-top:20px;background:#ff0050;color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer">FERMER</button>
+                </div>
+            </body></html>`);
         } else {
-            res.status(404).send('<html><body style="background:#111;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h1>QR Code pas encore généré</h1><p>Le bot est en cours de connexion. Rechargez la page dans quelques secondes.</p><script>setTimeout(()=>location.reload(),5000)</script></div></body></html>');
+            res.status(404).send('<html><body style="background:#111;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h1>QR Code pas encore généré</h1><p>Le bot est en cours de connexion ou attend une action. Rechargez la page dans quelques secondes.</p><script>setTimeout(()=>location.reload(),5000)</script></div></body></html>');
         }
     });
 
@@ -188,6 +200,20 @@ function createServer() {
     // WhatsApp pairing code - génère un code à 8 chiffres pour lier sans QR
     app.get('/wa-pairing-code', authMiddleware, async (req, res) => {
         try {
+            const waSession = registry.query('whatsapp');
+            
+            // Si déjà connecté, on affiche le statut
+            if (waSession && waSession.isActive) {
+                return res.send(`<html><body style="background:#050505;color:#fff;font-family:'Outfit',sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center">
+                    <div style="background:rgba(255,255,255,0.03);padding:40px;border-radius:32px;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(20px)">
+                        <div style="font-size:64px;margin-bottom:20px">✅</div>
+                        <h1 style="font-size:28px;font-weight:800;margin-bottom:10px">WhatsApp Connecté</h1>
+                        <p style="color:rgba(255,255,255,0.5)">Le couplage par code est terminé. Session active.</p>
+                        <button onclick="window.close()" style="margin-top:20px;background:#ff0050;color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:700;cursor:pointer">FERMER</button>
+                    </div>
+                </body></html>`);
+            }
+
             const phone = req.query.phone;
             const token = req.query.token;
 

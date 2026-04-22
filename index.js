@@ -402,8 +402,8 @@ async function runAutomatedSync(bot) {
         
         console.log(`[Sync] Starting sync for ${users.length} users...`);
         
-        // Process in batches of 20 to avoid rate limits and event loop blocking
-        const batchSize = 20;
+        // Process in small batches to avoid blocking the event loop (which causes WhatsApp 408 timeouts)
+        const batchSize = 10;
         for (let i = 0; i < users.length; i += batchSize) {
             const batch = users.slice(i, i + batchSize);
             await Promise.allSettled(batch.map(async (u) => {
@@ -411,19 +411,16 @@ async function runAutomatedSync(bot) {
                     const chatId = String(u.platform_id || u.id || '').replace('telegram_', '');
                     if (!chatId || isNaN(chatId)) return;
                     
-                    // On teste si l'utilisateur a bloqué le bot
+                    // On teste si l'utilisateur a bloqué le bot (très léger)
                     try {
                         await bot.telegram.sendChatAction(chatId, 'typing');
                         
-                        // Si le bot n'est pas bloqué mais l'user était marqué bloqué (auto) -> on débloque
                         if (u.is_blocked && (!u.data || u.data.blocked_by_admin !== true)) {
                             await markUserUnblocked(u.id);
                             console.log(`[Sync] User ${u.id} reachable again, unblocking.`);
                         }
                     } catch (err) {
-                        // 403 = l'utilisateur a bloqué le bot
                         if (err.code === 403) {
-                            // On ne re-marque bloqué QUE s'il ne l'est pas déjà
                             if (!u.is_blocked) {
                                 await markUserBlocked(u.id, false);
                                 console.log(`[Sync] User ${u.id} blocked the bot.`);
@@ -432,7 +429,8 @@ async function runAutomatedSync(bot) {
                     }
                 } catch (e) { }
             }));
-            await new Promise(r => setTimeout(r, 500));
+            // Spread the load: 1s delay between batches
+            await new Promise(r => setTimeout(r, 1000));
         }
         console.log(`[Sync] Finished sync for ${users.length} users.`);
     } catch (e) {

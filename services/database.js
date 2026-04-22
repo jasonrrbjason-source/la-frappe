@@ -2519,8 +2519,10 @@ async function useSupabaseAuthState(sessionId) {
                 .single();
             
             if (error) {
-                if (error.code === 'PGRST116') return null; // Not found: OK
-                throw error; // Other errors (timeout, connection)
+                if (error.code !== 'PGRST116') {
+                    console.error(`[WA-DB-READ-ERR] ${key}:`, error.message);
+                    throw error;
+                }
             }
 
             if (data) {
@@ -2537,7 +2539,10 @@ async function useSupabaseAuthState(sessionId) {
                 .eq('id', backupId)
                 .maybeSingle();
 
-            if (backupError) throw backupError;
+            if (backupError) {
+                console.error(`[WA-DB-BACKUP-ERR] ${backupId}:`, backupError.message);
+                throw backupError;
+            }
 
             if (backupData) {
                 console.log(`[WA-DB] 🛡️ Restoring session from BACKUP for ${key}`);

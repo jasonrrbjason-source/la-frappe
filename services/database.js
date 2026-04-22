@@ -2524,7 +2524,9 @@ async function useSupabaseAuthState(sessionId) {
             }
 
             if (data) {
-                return JSON.parse(JSON.stringify(data.value), BufferJSON.reviver);
+                const creds = JSON.parse(JSON.stringify(data.value), BufferJSON.reviver);
+                console.log(`[WA-DB] Session primary data found for ${key} (creds registered: ${creds?.registered})`);
+                return creds;
             }
 
             // [🛡️ REDONDANCE] Si la session principale est vide, on cherche dans le backup
@@ -2538,6 +2540,7 @@ async function useSupabaseAuthState(sessionId) {
             if (backupError) throw backupError;
 
             if (backupData) {
+                console.log(`[WA-DB] 🛡️ Restoring session from BACKUP for ${key}`);
                 // Restauration vers la session principale
                 const serialized = JSON.parse(JSON.stringify(backupData.value));
                 supabase.from(TABLE).upsert({
@@ -2550,6 +2553,7 @@ async function useSupabaseAuthState(sessionId) {
 
                 return JSON.parse(JSON.stringify(backupData.value), BufferJSON.reviver);
             }
+            console.log(`[WA-DB] ⚠️ No session data found for ${key} in primary or backup.`);
 
             return null;
         } catch (e) {

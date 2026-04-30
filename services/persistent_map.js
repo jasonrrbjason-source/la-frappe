@@ -53,24 +53,32 @@ function createPersistentMap(namespace) {
         forEach: (cb) => mem.forEach(cb),
         [Symbol.iterator]: () => mem[Symbol.iterator](),
         async load() {
-            try {
-                const now = Date.now();
-                // Attempt load with retry logic or at least timeout
-                const { data, error } = await db()
-                    .select('user_key, value')
-                    .eq('namespace', namespace);
-                
-                if (error) { 
-                    console.warn(`[State] ${namespace} load error: ${error.message}`); 
+            let attempts = 0;
+            while (attempts < 3) {
+                try {
+                    const now = Date.now();
+                    const { data, error } = await db()
+                        .select('user_key, value')
+                        .eq('namespace', namespace);
+                    
+                    if (error) {
+                        throw error;
+                    }
+                    
+                    for (const r of (data || [])) mem.set(r.user_key, r.value);
                     live = true;
-                    return; 
+                    if (mem.size > 0) console.log(`[State] ${namespace}: ${mem.size} entrées restaurées (${Date.now() - now}ms)`);
+                    return; // Succès
+                } catch (e) {
+                    attempts++;
+                    if (attempts >= 3) {
+                        console.warn(`[State] ${namespace} load failed after 3 attempts: ${e.message}`);
+                        live = true;
+                        return;
+                    }
+                    console.warn(`[State] ${namespace} retry ${attempts}/3 due to error: ${e.message}`);
+                    await new Promise(r => setTimeout(r, 2000));
                 }
-                for (const r of (data || [])) mem.set(r.user_key, r.value);
-                live = true;
-                if (mem.size > 0) console.log(`[State] ${namespace}: ${mem.size} entrées restaurées (${Date.now() - now}ms)`);
-            } catch (e) { 
-                console.error(`[State] ${namespace} Exception:`, e.message);
-                live = true;
             }
         }
     };

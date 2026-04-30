@@ -130,15 +130,15 @@ async function main() {
     handleMarketplacePhoto = mpHandlers.handleMarketplacePhoto;
     handleMarketplaceVideo = mpHandlers.handleMarketplaceVideo;
 
-    // Initialisation des états persistants
+    // Initialisation des états persistants (Séquentiel pour éviter de saturer Supabase au boot)
     const { initAdminState } = require('./handlers/admin');
     const { initOrderState } = require('./handlers/order_system');
     
-    await Promise.all([
-        initOrderState(),
-        initAdminState(),
-        initMarketplaceState()
-    ]);
+    console.log('📦 Chargement des états persistants...');
+    await initOrderState();
+    await initAdminState();
+    await initMarketplaceState();
+    await initStartState();
     console.log('✅ Tous les états persistants sont chargés');
 
     // Sondages (Actions & Messages)
@@ -299,8 +299,7 @@ async function main() {
         }
     }
 
-    // 5. États persistants & Timers
-    await Promise.all([initOrderState(), initStartState(), require('./handlers/admin').initAdminState()]);
+    // 5. Timers automatiques
 
     const runAutomatedTasks = () => {
         const tgChannel = registry.query('telegram');

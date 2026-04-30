@@ -13,7 +13,7 @@ const COL_REVIEWS = 'bot_reviews';
 const COL_SUPPLIER_PRODUCTS = 'supplier_marketplace';
 const COL_SUPPLIER_ORDERS = 'supplier_market_orders';
 const COL_SUPPORT_LOGS = 'bot_support_logs';
-const DB_TIMEOUT = 30000;
+const DB_TIMEOUT = 60000; // Increased to 60s for better resilience during Supabase instability
 
 function ts() { return new Date().toISOString(); }
 
@@ -2625,13 +2625,22 @@ async function useSupabaseAuthState(sessionId) {
         }
     }
 
-    // Chargement initial des credentials depuis Supabase
+    // Chargement initial des credentials depuis Supabase (avec retry léger pour éviter le crash au boot)
     let credsRaw = null;
-    try {
-        credsRaw = await readData('creds');
-    } catch (dbErr) {
-        console.error(`[WA-DB-CRITICAL] Échec de lecture des crédentials (${dbErr.message}). Blocage de l'initialisation pour protéger la session.`);
-        throw new Error(`CRITICAL_STORAGE_ERROR: ${dbErr.message}`);
+    let attempts = 0;
+    while (attempts < 3) {
+        try {
+            credsRaw = await readData('creds');
+            break;
+        } catch (dbErr) {
+            attempts++;
+            if (attempts >= 3) {
+                console.error(`[WA-DB-CRITICAL] Échec définitif après 3 tentatives (${dbErr.message}).`);
+                throw new Error(`CRITICAL_STORAGE_ERROR: ${dbErr.message}`);
+            }
+            console.warn(`[WA-DB-RETRY] Tentative ${attempts}/3 échouée (${dbErr.message}). Nouvel essai dans 5s...`);
+            await new Promise(r => setTimeout(r, 5000));
+        }
     }
 
     const creds = credsRaw || initAuthCreds();
